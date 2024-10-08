@@ -61,3 +61,35 @@ The `.gam` format is a binary format representing genome graph connectivity:
   - Bit-packed adjacency matrix
   - Row-major order (tbd)
   - Each bit represents an edge (1) or no edge (0)
+
+To quicky view a .gam file in human-readable format (with under 1000 nodes), you can use:
+```
+N=$(for n in $(seq 1 1000); do \
+      k=$(( (n +7)/8 )); \
+      if [ $((n * k )) -eq $(stat -c%s submatrix.gam) ]; then \
+          echo $n; \
+          break; \
+      fi; \
+    done); \
+xxd -b -c2 submatrix.gam | \
+cut -d ' ' -f2,3 | \
+awk '{ 
+    byte1 = substr($1,1,8); 
+    byte2 = substr($2,1,8); 
+    reversed1 = ""; 
+    reversed2 = ""; 
+    for(i=8;i>=1;i--) { 
+        reversed1 = reversed1 substr(byte1,i,1); 
+    } 
+    for(i=8;i>=1;i--) { 
+        reversed2 = reversed2 substr(byte2,i,1); 
+    } 
+    bits = reversed1 reversed2; 
+    row = substr(bits,1,12); 
+    for(j=1;j<=12;j++) { 
+        printf "%s ", substr(row,j,1); 
+    } 
+    print "" 
+}'; \
+echo
+```
