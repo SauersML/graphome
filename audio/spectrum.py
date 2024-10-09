@@ -24,12 +24,12 @@ def generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_fa
     # Reshape the CSV data into a 2D array that represents the spectrogram
     spectrogram = data.T
 
-    # Ensure the audio duration is correct by aligning it with the number of columns per second
-    duration_in_seconds = spectrogram.shape[1] / columns_per_sec
+    # Define hop length to match the number of columns per second for consistency
+    hop_length = int(spectrogram.shape[1] / columns_per_sec)
 
     # Convert spectrogram to audio using Short-Time Fourier Transform (ISTFT)
     print("Converting spectrogram to audio using librosa...")
-    audio_signal = librosa.istft(spectrogram, length=int(duration_in_seconds * columns_per_sec))
+    audio_signal = librosa.istft(spectrogram, hop_length=hop_length)
 
     # Apply gain increase
     print(f"Increasing gain by {gain_increase_db} dB...")
@@ -42,7 +42,7 @@ def generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_fa
 
     # Save audio as WAV file
     print(f"Saving audio to WAV file: {output_wav_path}...")
-    sf.write(output_wav_path, audio_signal, columns_per_sec)
+    sf.write(output_wav_path, audio_signal, int(columns_per_sec * hop_length / spectrogram.shape[0]))  # Ensure the correct sample rate
     print("Audio creation complete.")
 
 def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wav_path, boost_factor=10, gain_increase_db=80):
