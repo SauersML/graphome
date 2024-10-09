@@ -1,7 +1,3 @@
-// src/convert.rs
-
-//! Module for converting GFA file to adjacency matrix in edge list format.
-
 use graphome::convert::*;
 
 use rayon::prelude::*;
