@@ -89,10 +89,10 @@ def create_3d_scatter(eigenvalues, eigenvectors, sorted_data=False, filename="ei
     
     scatter = ax.scatter(
         X, Y, Z,
-        c=colors,
+        facecolors=colors,  # Updated here
         marker='s',
         s=20,
-        depthshade=True
+        depthshade=False      # Updated here
     )
     
     if view_angles:
