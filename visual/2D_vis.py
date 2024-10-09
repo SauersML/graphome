@@ -86,7 +86,7 @@ def main():
         print("Step 6: Assigning colors based on intensity...")
         color_start = time()
         # Define a custom colorscale from pure blue to pure red
-        cmap = mcolors.LinearSegmentedColormap.from_list('bwr_custom', ['blue', 'white', 'red'], N=256) # Try black
+        cmap = mcolors.LinearSegmentedColormap.from_list('bwr_custom', ['blue', 'black', 'red'], N=256) # So mean and missing is similar
         color_end = time()
         print(f"Color assignment completed in {color_end - color_start:.2f} seconds.\n")
 
