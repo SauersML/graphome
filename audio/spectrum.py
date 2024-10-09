@@ -100,7 +100,7 @@ def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wa
 
 # Example run
 csv_path = '/Users/scott/Downloads/audio/submatrix.eigenvectors.csv'
-columns_per_sec = 50
+columns_per_sec = 16
 output_video_path = 'output_heatmap_video.mp4'
 output_wav_path = 'output_audio.wav'
 
