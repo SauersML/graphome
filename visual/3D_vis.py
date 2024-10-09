@@ -7,25 +7,6 @@ import os
 import sys
 from time import time
 
-def compute_alpha(deviation):
-    """
-    Compute alpha transparency based on absolute deviation from the mean.
-    Closer to the mean -> more transparent (lower alpha).
-    Further from the mean -> more opaque (higher alpha).
-
-    Parameters:
-    - deviation: numpy array of deviations in SD units, already clipped to [-2, 2].
-
-    Returns:
-    - alpha: numpy array of alpha values in [0, 1].
-    """
-    # Compute absolute deviation
-    abs_deviation = np.abs(deviation)
-    
-    # Normalize absolute deviation to [0, 1] based on the clipping at 2 SDs
-    alpha = abs_deviation / 2.0  # Since deviation is clipped at [-2, 2]
-    
-    return alpha
 
 def assign_colors(data, deviation):
     N = len(data)
