@@ -67,8 +67,7 @@ def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wa
     fig.patch.set_facecolor('white')
     ax.set_facecolor('black')
 
-    # Set X-axis title and remove Y-axis title
-    ax.set_xlabel('Time (s)')
+    ax.set_xlabel('Time')
     ax.set_ylabel('')
     fig.colorbar(cax)
     ax.set_title("Z-Normed Spectrogram Heatmap")
@@ -84,8 +83,8 @@ def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wa
         ax.clear()
         ax.imshow(masked_data, cmap=cmap, aspect='auto', origin='lower', interpolation='none', vmin=-2, vmax=2)
         ax.axvline(x=i, color='cyan', linewidth=2)
-        ax.set_xlabel('Time (s)')
-        ax.set_ylabel('')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Frequency')
         ax.set_title(f"Time: {i / columns_per_sec:.2f} seconds")
 
     # Save the video
