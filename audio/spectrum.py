@@ -13,40 +13,13 @@ def z_normalize(data):
     std = np.std(data)
     return (data - mean) / std if std != 0 else data
 
-def generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_factor=10, gain_increase_db=80):
-    """Generate audio from CSV spectrogram data using librosa and save with soundfile."""
-    print("Loading CSV for audio creation...")
-    data = pd.read_csv(csv_path, header=None).to_numpy()
-
-    print("Z-normalizing data for audio...")
-    data = z_normalize(data)
-
-    # Reshape the CSV data into a 2D array that represents the spectrogram
-    spectrogram = data.T
-
-    # Define hop length to match the number of columns per second for consistency
-    hop_length = int(spectrogram.shape[1] / columns_per_sec)
-
-    # Convert spectrogram to audio using Short-Time Fourier Transform (ISTFT)
-    print("Converting spectrogram to audio using librosa...")
-    audio_signal = librosa.istft(spectrogram, hop_length=hop_length)
-
-    # Apply gain increase
-    print(f"Increasing gain by {gain_increase_db} dB...")
-    gain_linear = 10 ** (gain_increase_db / 20)
-    audio_signal *= gain_linear
-
-    # Normalize volume
-    print("Normalizing audio volume...")
-    audio_signal /= np.max(np.abs(audio_signal))
-
-    # Save audio as WAV file
-    print(f"Saving audio to WAV file: {output_wav_path}...")
-    sf.write(output_wav_path, audio_signal, int(columns_per_sec * hop_length / spectrogram.shape[0]))  # Ensure the correct sample rate
-    print("Audio creation complete.")
-
 def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wav_path, boost_factor=10, gain_increase_db=80):
     """Create a video from CSV spectrogram data with audio and moving bar."""
+
+    # Generate and save the audio first
+    print("Generating audio for video...")
+    generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_factor, gain_increase_db)
+    
     print("Loading CSV for heatmap video creation...")
     data = pd.read_csv(csv_path, header=None).to_numpy()
 
@@ -93,10 +66,42 @@ def create_heatmap_video(csv_path, columns_per_sec, output_video_path, output_wa
     ani.save(output_video_path, writer='ffmpeg', fps=columns_per_sec)
     print("Video saved.")
 
-    # Generate the audio file
-    print("Generating audio for video...")
-    generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_factor, gain_increase_db)
     print("Heatmap video creation complete.")
+
+def generate_audio_from_csv(csv_path, columns_per_sec, output_wav_path, boost_factor=10, gain_increase_db=80):
+    """Generate audio from CSV spectrogram data using librosa and save with soundfile."""
+    print("Loading CSV for audio creation...")
+    data = pd.read_csv(csv_path, header=None).to_numpy()
+
+    print("Z-normalizing data for audio...")
+    data = z_normalize(data)
+
+    # Reshape the CSV data into a 2D array that represents the spectrogram
+    spectrogram = data.T
+
+    # Define hop length to match the number of columns per second for consistency
+    hop_length = int(spectrogram.shape[1] / columns_per_sec)
+
+    # Convert spectrogram to audio using Short-Time Fourier Transform (ISTFT)
+    print("Converting spectrogram to audio using librosa...")
+    audio_signal = librosa.istft(spectrogram, hop_length=hop_length)
+
+    # Apply gain increase
+    print(f"Increasing gain by {gain_increase_db} dB...")
+    gain_linear = 10 ** (gain_increase_db / 20)
+    audio_signal *= gain_linear
+
+    # Normalize volume
+    print("Normalizing audio volume...")
+    audio_signal /= np.max(np.abs(audio_signal))
+
+    # Explicitly set a sample rate (e.g., 44100 Hz)
+    sample_rate = 44100
+
+    # Save audio as WAV file
+    print(f"Saving audio to WAV file: {output_wav_path}...")
+    sf.write(output_wav_path, audio_signal, sample_rate)  # Use the fixed sample rate
+    print("Audio creation complete.")
 
 # Example run
 csv_path = '/Users/scott/Downloads/audio/submatrix.eigenvectors.csv'
