@@ -1,3 +1,5 @@
+# Note: file currently likely has bugs (do not use for non-casual visualization purposes)
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
