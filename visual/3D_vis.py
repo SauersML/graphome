@@ -8,22 +8,37 @@ import sys
 from time import time
 
 def compute_alpha(deviation):
-    alpha = np.ones_like(deviation)
-    mask_neg_half = (deviation >= -0.5) & (deviation < 0)
-    alpha[mask_neg_half] = 1 - (np.abs(deviation[mask_neg_half]) / 0.5)
-    mask_pos_half = (deviation >= 0) & (deviation < 0.5)
-    alpha[mask_pos_half] = deviation[mask_pos_half] / 0.5
+    """
+    Compute alpha transparency based on absolute deviation from the mean.
+    Closer to the mean -> more transparent (lower alpha).
+    Further from the mean -> more opaque (higher alpha).
+
+    Parameters:
+    - deviation: numpy array of deviations in SD units, already clipped to [-2, 2].
+
+    Returns:
+    - alpha: numpy array of alpha values in [0, 1].
+    """
+    # Compute absolute deviation
+    abs_deviation = np.abs(deviation)
+    
+    # Normalize absolute deviation to [0, 1] based on the clipping at 2 SDs
+    alpha = abs_deviation / 2.0  # Since deviation is clipped at [-2, 2]
+    
     return alpha
 
 def assign_colors(data, deviation):
     N = len(data)
     colors = np.zeros((N, 4))  # Initialize RGBA array
     
+    # Compute alpha transparency based on absolute deviation
+    alpha = compute_alpha(deviation)
+    
     # Base color: blue
     colors[:, 0] = 0  # R
     colors[:, 1] = 0  # G
     colors[:, 2] = 1  # B
-    colors[:, 3] = compute_alpha(deviation)  # Alpha
+    colors[:, 3] = alpha  # Alpha based on deviation
     
     # Assign red to positive deviations
     mask_pos = deviation >= 0
