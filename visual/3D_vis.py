@@ -31,24 +31,28 @@ def assign_colors(data, deviation):
     N = len(data)
     colors = np.zeros((N, 4))  # Initialize RGBA array
     
-    # Compute alpha transparency based on absolute deviation
-    alpha = compute_alpha(deviation)
-    
-    # Base color: blue
+    # Normalize absolute deviation to [0, 1] range, where 0 is near the mean (black), and 1 is far from the mean (bright)
+    intensity = np.abs(deviation) / 2.0  # Deviation clipped at [-2, 2], normalize to [0, 1]
+
+    # Set default to black (for values near the mean)
     colors[:, 0] = 0  # R
     colors[:, 1] = 0  # G
-    colors[:, 2] = 1  # B
-    colors[:, 3] = alpha  # Alpha based on deviation
-    
-    # Assign red to positive deviations
+    colors[:, 2] = 0  # B
+
+    # For negative deviations (blue)
+    mask_neg = deviation < 0
+    colors[mask_neg, 2] = 1 * intensity[mask_neg]  # Set blue intensity based on deviation
+
+    # For positive deviations (red)
     mask_pos = deviation >= 0
-    colors[mask_pos, 0] = 1  # R
-    colors[mask_pos, 1] = 0  # G
-    colors[mask_pos, 2] = 0  # B
-    
+    colors[mask_pos, 0] = 1 * intensity[mask_pos]  # Set red intensity based on deviation
+
     # Assign black to zero values
     mask_zero = data == 0
     colors[mask_zero] = [0, 0, 0, 1]  # Black with full opacity
+    
+    # Set full opacity for all other values
+    colors[:, 3] = 1  # Alpha set to 1 (fully opaque)
     
     return colors
 
