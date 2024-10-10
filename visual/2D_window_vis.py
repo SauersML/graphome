@@ -60,8 +60,8 @@ def plot_eigenvectors(job):
         for spine in ax.spines.values():
             spine.set_visible(False)
 
-        title = 'Sorted' if sorted_flag else 'Unsorted'
-        plt.title(f'Eigenvalue-Eigenvector Visualization ({title})', color='white', fontsize=16)
+        title = 'Sorted by Eigenvalue' if sorted_flag else 'Unsorted'
+        plt.title(f'Eigenvector Visualization ({title})', color='white', fontsize=16)
         plt.xlabel('Eigenvector Index', color='white', fontsize=14)
         plt.ylabel('Component Index', color='white', fontsize=14)
 
