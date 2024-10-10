@@ -1,46 +1,55 @@
-# not complete
-
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from time import time
 
-def generate_block_circulant_graph(n, k, block_size, perturbation_prob=0.1):
+def generate_community_graph(n, num_communities, k, inter_community_prob=0.05, intra_community_prob=0.2):
     """
-    Generates a graph with distinct diagonal, reverse diagonal, and block structures.
-    Each block is circulant-ish, and some edges are perturbed randomly.
-    
-    n: Number of nodes
-    k: Number of nearest neighbors to connect to on each side within blocks
-    block_size: Size of each block
-    perturbation_prob: Probability of random edge addition/removal
+    n: Total number of nodes
+    num_communities: Number of communities (blocks)
+    k: Number of nearest neighbors within each community
+    inter_community_prob: Probability of connecting nodes between different communities
+    intra_community_prob: Probability of random edge addition/removal within a community
     """
     G = nx.Graph()
 
     # Add nodes
     G.add_nodes_from(range(n))
-    
-    # Create circulant structure within each block
-    for b in range(0, n, block_size):
-        for i in range(b, b + block_size):
+
+    # Calculate size of each community
+    community_size = n // num_communities
+
+    # Connect nodes within each community (circulant structure + perturbations)
+    for c in range(num_communities):
+        start = c * community_size
+        end = start + community_size
+        
+        for i in range(start, end):
+            # Circulant connections within the community
             for j in range(1, k + 1):
-                G.add_edge(i, (i + j) % block_size + b)  # Forward neighbor
-                G.add_edge(i, (i - j) % block_size + b)  # Backward neighbor
+                G.add_edge(i, (i + j) % community_size + start)  # Forward neighbor
+                G.add_edge(i, (i - j) % community_size + start)  # Backward neighbor
+            
+            # Random perturbations within the community
+            for j in range(start, end):
+                if np.random.rand() < intra_community_prob:
+                    if G.has_edge(i, j):
+                        G.remove_edge(i, j)  # Randomly remove edge
+                    else:
+                        G.add_edge(i, j)  # Randomly add edge
 
-    # Create reverse diagonal connections between blocks
-    for b in range(0, n - block_size, block_size):
-        for i in range(block_size):
-            G.add_edge(b + i, b + block_size - i - 1)
+    for i in range(num_communities):
+        for j in range(i + 1, num_communities):
+            start_i = i * community_size
+            start_j = j * community_size
 
-    # Randomly perturb some edges
-    for i in range(n):
-        for j in range(i + 1, n):
-            if np.random.rand() < perturbation_prob:
-                if G.has_edge(i, j):
-                    G.remove_edge(i, j)  # Randomly remove edge
-                else:
-                    G.add_edge(i, j)  # Randomly add edge
+            # Create regular patterns of connections between communities
+            for a in range(community_size):
+                if np.random.rand() < inter_community_prob:
+                    G.add_edge(start_i + a, start_j + (community_size - a - 1))  # Diagonal connections
+                if np.random.rand() < inter_community_prob:
+                    G.add_edge(start_i + a, start_j + a)  # Straight diagonal within blocks
 
     return G
 
@@ -116,15 +125,16 @@ def main():
     start_time = time()
     print("=== Laplacian Eigenvector Visualization Script ===\n")
 
-    # Parameters for block circulant graph
-    n = 1001  # Number of nodes
-    k = 2     # Number of nearest neighbors on each side within blocks
-    block_size = 50  # Size of each block
-    perturbation_prob = 0.05  # Probability of perturbing edges
+    # Parameters for the community graph
+    n = 1001  # Total number of nodes
+    num_communities = 10  # Number of communities (blocks)
+    k = 3  # Number of nearest neighbors on each side within communities
+    inter_community_prob = 0.1  # Probability of connecting nodes between different communities
+    intra_community_prob = 0.2  # Probability of perturbing edges within a community
     
-    # Generate block circulant graph
-    G = generate_block_circulant_graph(n, k, block_size, perturbation_prob)
-    print(f"Generated block circulant graph with {n} nodes.\n")
+    # Generate community graph with circulant structures
+    G = generate_community_graph(n, num_communities, k, inter_community_prob, intra_community_prob)
+    print(f"Generated community graph with {n} nodes and {num_communities} communities.\n")
     
     # Compute Laplacian and its eigenvectors
     eigenvalues, eigenvectors = compute_laplacian_eigenvectors(G)
@@ -134,7 +144,7 @@ def main():
     eigenvalues_sorted, eigenvectors_sorted = sort_data(eigenvalues, eigenvectors)
     
     # Save plot of sorted eigenvectors
-    create_2d_plot(eigenvectors_sorted, "Block Circulant Graph Eigenvectors", "block_circulant_eigenvectors_2d.png")
+    create_2d_plot(eigenvectors_sorted, "Community Graph Eigenvectors", "community_eigenvectors_2d.png")
 
     total_time = time() - start_time
     print(f"Visualization generated successfully in {total_time:.2f} seconds.")
