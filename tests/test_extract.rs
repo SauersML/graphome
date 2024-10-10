@@ -171,7 +171,7 @@ mod tests {
         }
 
         // Eigenvectors should be orthogonal
-        let product = eigvecs.transpose() * eigvecs;
+        let product = eigvecs.transpose() * eigvecs.clone();
         let identity = DMatrix::<f64>::identity(eigvecs.ncols(), eigvecs.ncols());
         for i in 0..identity.nrows() {
             for j in 0..identity.ncols() {
