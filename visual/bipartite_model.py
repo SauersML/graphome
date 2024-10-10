@@ -5,21 +5,33 @@ import matplotlib.colors as mcolors
 from time import time
 import os
 
-def generate_bipartite_graph(n):
+def generate_approx_bipartite_graph(n, perturbation_prob):
     """
-    Generates a bipartite graph with perfect matching between two sets of nodes.
+    Generates an approximately bipartite graph.
     n: Total number of nodes (must be even)
+    perturbation_prob: Probability of adding random edges within sets or between mismatched nodes.
     """
     G = nx.Graph()
-    
+
     # Split nodes into two equal sets
     set1 = range(n // 2)
     set2 = range(n // 2, n)
-    
+
     # Add edges between corresponding nodes in set1 and set2 (perfect matching)
     for i in range(n // 2):
         G.add_edge(set1[i], set2[i])  # Connect node i from set1 to node i from set2
-    
+
+    # Add random perturbations within each set based on the perturbation_prob
+    for i in set1:
+        for j in set1:
+            if i != j and np.random.rand() < perturbation_prob:
+                G.add_edge(i, j)  # Random edge within set1
+
+    for i in set2:
+        for j in set2:
+            if i != j and np.random.rand() < perturbation_prob:
+                G.add_edge(i, j)  # Random edge within set2
+
     return G
 
 def compute_laplacian_eigenvectors(G):
@@ -96,10 +108,11 @@ def main():
 
     # Parameters for the graph
     n = 1000  # Total number of nodes (must be even)
-    
-    # Generate a bipartite graph with perfect matching
-    G = generate_bipartite_graph(n)
-    print(f"Generated bipartite graph with {n} nodes and perfect matching.\n")
+    perturbation_prob = 0.00005  # Set this to control how bipartite the graph is (0 is fully bipartite)
+
+    # Generate an approximately bipartite graph
+    G = generate_approx_bipartite_graph(n, perturbation_prob)
+    print(f"Generated approximately bipartite graph with {n} nodes and perturbation probability {perturbation_prob}.\n")
     
     # Compute Laplacian and its eigenvectors
     eigenvalues, eigenvectors = compute_laplacian_eigenvectors(G)
@@ -108,9 +121,9 @@ def main():
     # Sort eigenvectors by eigenvalues
     eigenvalues_sorted, eigenvectors_sorted = sort_data(eigenvalues, eigenvectors)
     
-    filename = "bipartite_eigenvectors_2d.png"
+    filename = "approx_bipartite_eigenvectors_2d.png"
     
-    create_2d_plot(eigenvectors_sorted, "Bipartite Graph Eigenvectors", filename)
+    create_2d_plot(eigenvectors_sorted, "Approximately Bipartite Graph Eigenvectors", filename)
 
     total_time = time() - start_time
     print(f"Visualization generated successfully in {total_time:.2f} seconds.")
