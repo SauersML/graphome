@@ -167,7 +167,7 @@ pub fn adjacency_matrix_to_ndarray(edges: &[(u32, u32)], start_node: usize, end_
 }
 
 /// Converts an ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
+pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
     let (rows, cols) = matrix.dim();
     let mut nalgebra_matrix = DMatrix::<f64>::zeros(rows, cols);
 
