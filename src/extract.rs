@@ -206,7 +206,7 @@ pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
 }
 
 /// Saves a nalgebra::DVector<f64> to a CSV file
-fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
+pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
     vector: &DVector<f64>,
     csv_path: P,
 ) -> io::Result<()> {
