@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from time import time
 import os
+import concurrent.futures
 
 def generate_path_community_graph(n, num_communities, inter_community_prob):
     """
@@ -102,34 +103,44 @@ def create_2d_plot(eigenvectors, method_name, filename):
     plt.close()
     print(f"Plot saved successfully as '{filename}'.")
 
+
 def main():
     start_time = time()
     print("=== Laplacian Eigenvector Visualization Script ===\n")
 
     # Parameters for the community graph
     n = 1001  # Total number of nodes
-    num_communities = 2  # Number of communities (blocks)
-    inter_community_prob = 0.0  # Probability of connecting nodes between different communities
-    
-    # Generate community graph with path structures
-    G = generate_path_community_graph(n, num_communities, inter_community_prob)
-    print(f"Generated path community graph with {n} nodes and {num_communities} communities.\n")
-    
-    # Compute Laplacian and its eigenvectors
-    eigenvalues, eigenvectors = compute_laplacian_eigenvectors(G)
-    print("Computed Laplacian matrix and its eigenvalues/eigenvectors.\n")
-    
-    # Sort eigenvectors by eigenvalues
-    eigenvalues_sorted, eigenvectors_sorted = sort_data(eigenvalues, eigenvectors)
-    
-    filename = "community_eigenvectors_2d.png"
-    
-    create_2d_plot(eigenvectors_sorted, "Community Graph Eigenvectors", filename)
+    variable_to_modify = 'inter_community_prob'  # Could be 'num_communities' or 'inter_community_prob'
+    num_steps = 10  # Number of steps
+    steps = np.linspace(0.0, 0.4, num_steps)  # Range of values for inter_community_prob (or num_communities)
+
+    def generate_graph_data(num_communities, inter_community_prob):
+        G = generate_path_community_graph(n, num_communities, inter_community_prob)
+        eigenvalues, eigenvectors = compute_laplacian_eigenvectors(G)
+        eigenvalues_sorted, eigenvectors_sorted = sort_data(eigenvalues, eigenvectors)
+        return eigenvectors_sorted, num_communities, inter_community_prob
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+
+        # Modify either num_communities or inter_community_prob
+        if variable_to_modify == 'num_communities':
+            for step in steps:
+                futures.append(executor.submit(generate_graph_data, int(step), 0.2))  # inter_community_prob fixed
+        elif variable_to_modify == 'inter_community_prob':
+            for step in steps:
+                futures.append(executor.submit(generate_graph_data, 3, step))  # num_communities fixed
+
+        # Collect results and plot in the main thread
+        for future in concurrent.futures.as_completed(futures):
+            eigenvectors_sorted, num_communities, inter_community_prob = future.result()
+            filename = f"community_eigenvectors_2d_nc{num_communities}_p{inter_community_prob:.2f}.png"
+            create_2d_plot(eigenvectors_sorted, f"nc={num_communities}, p={inter_community_prob:.2f}", filename)
+            print(f"Plot saved: {filename}")
 
     total_time = time() - start_time
-    print(f"Visualization generated successfully in {total_time:.2f} seconds.")
+    print(f"Visualizations generated successfully in {total_time:.2f} seconds.")
 
-    os.system(f"open {filename}")
 
 if __name__ == "__main__":
     main()
