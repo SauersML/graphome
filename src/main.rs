@@ -3,8 +3,8 @@
 use clap::{Parser, Subcommand};
 use std::io;
 
-mod convert;
-mod extract;
+pub mod convert;
+pub mod extract;
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
