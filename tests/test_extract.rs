@@ -272,7 +272,7 @@ mod tests {
 
         let eigvals = symmetric_eigen.eigenvalues;
 
-        for &lambda in eigvals.iter() {
+        for &lambda in eigvals.iter().cloned() {
             assert!(lambda >= -1e-6); // Allowing a small negative due to floating point precision
         }
     }
@@ -417,7 +417,7 @@ mod tests {
         let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&laplacian)?;
         let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
         let eigvals = symmetric_eigen.eigenvalues;
-        for &lambda in eigvals.iter() {
+        for &lambda in eigvals.iter().cloned() {
             assert!(lambda >= -1e-6);
         }
 
