@@ -1,4 +1,4 @@
-use crate::extract::*;
+use graphome::extract::*;
 
 use ndarray::prelude::*;
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
