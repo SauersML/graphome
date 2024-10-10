@@ -130,8 +130,8 @@ def main():
     n = 1001  # Total number of nodes
     num_communities = 5  # Number of communities (blocks)
     k = 2  # Number of nearest neighbors on each side within communities
-    inter_community_prob = 0.1  # Probability of connecting nodes between different communities
-    intra_community_prob = 0.000001  # Probability of perturbing edges within a community
+    inter_community_prob = 0.0  # Probability of connecting nodes between different communities
+    intra_community_prob = 0.0  # Probability of perturbing edges within a community
     
     # Generate community graph with circulant structures
     G = generate_community_graph(n, num_communities, k, inter_community_prob, intra_community_prob)
