@@ -133,7 +133,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 }
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
-fn load_adjacency_matrix<P: AsRef<Path>>(
+pub fn load_adjacency_matrix<P: AsRef<Path>>(
     path: P,
     start_node: usize,
     end_node: usize
@@ -157,7 +157,7 @@ fn load_adjacency_matrix<P: AsRef<Path>>(
 }
 
 /// Converts the adjacency matrix edge list to ndarray::Array2<f64>
-fn adjacency_matrix_to_ndarray(edges: &[(u32, u32)], start_node: usize, end_node: usize) -> Array2<f64> {
+pub fn adjacency_matrix_to_ndarray(edges: &[(u32, u32)], start_node: usize, end_node: usize) -> Array2<f64> {
     let mut adj_array = Array2::<f64>::zeros((end_node - start_node + 1, end_node - start_node + 1));
     for &(a, b) in edges {
         let local_a = a as usize - start_node;
@@ -181,7 +181,7 @@ fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> 
 }
 
 /// Saves a 2D ndarray::Array2<f64> to a CSV file
-fn save_matrix_to_csv<P: AsRef<Path>>(
+pub fn save_matrix_to_csv<P: AsRef<Path>>(
     matrix: &Array2<f64>,
     csv_path: P,
 ) -> io::Result<()> {
@@ -194,7 +194,7 @@ fn save_matrix_to_csv<P: AsRef<Path>>(
 }
 
 /// Saves a nalgebra::DMatrix<f64> to a CSV file
-fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
+pub fn save_nalgebra_vector_to_csvfn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
     matrix: &DMatrix<f64>,
     csv_path: P,
 ) -> io::Result<()> {
