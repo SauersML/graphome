@@ -10,7 +10,7 @@ import glob
 import re
 import argparse
 from multiprocessing import Pool, cpu_count
-import imageio
+import imageio.v2 as imageio
 from time import time
 
 def extract_start_number(filename):
@@ -76,7 +76,7 @@ def plot_eigenvectors(job):
         plt.tight_layout()
         filename = f"frame_{frame_index:04d}_{title}.jpg"
         output_path = os.path.join(output_dir, filename)
-        plt.savefig(output_path, dpi=150, facecolor='black', format='jpeg')
+        plt.savefig(output_path, dpi=200, facecolor='black', format='jpeg')
         plt.close()
 
         return True, frame_index, sorted_flag
@@ -162,4 +162,4 @@ def main():
     print("All animations have been generated successfully.")
 
 if __name__ == "__main__":
-        main()
+    main()
