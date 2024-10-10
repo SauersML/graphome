@@ -127,10 +127,10 @@ def main():
 
     # Parameters for the community graph
     n = 1001  # Total number of nodes
-    num_communities = 10  # Number of communities (blocks)
-    k = 3  # Number of nearest neighbors on each side within communities
+    num_communities = 5  # Number of communities (blocks)
+    k = 2  # Number of nearest neighbors on each side within communities
     inter_community_prob = 0.1  # Probability of connecting nodes between different communities
-    intra_community_prob = 0.2  # Probability of perturbing edges within a community
+    intra_community_prob = 0.000001  # Probability of perturbing edges within a community
     
     # Generate community graph with circulant structures
     G = generate_community_graph(n, num_communities, k, inter_community_prob, intra_community_prob)
@@ -148,6 +148,8 @@ def main():
 
     total_time = time() - start_time
     print(f"Visualization generated successfully in {total_time:.2f} seconds.")
+
+    plt.show()
 
 if __name__ == "__main__":
     main()
