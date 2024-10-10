@@ -9,8 +9,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 
-use crate::extract::*;
-
 use bitvec::prelude::*;
 
 use csv::WriterBuilder;
