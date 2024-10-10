@@ -108,7 +108,7 @@ def main():
 
     # Parameters for the community graph
     n = 1001  # Total number of nodes
-    num_communities = 5  # Number of communities (blocks)
+    num_communities = 2  # Number of communities (blocks)
     inter_community_prob = 0.0  # Probability of connecting nodes between different communities
     
     # Generate community graph with path structures
