@@ -1,5 +1,3 @@
-src/extract.rs
-
 //! Module for extracting adjacency submatrix from edge list and performing analysis.
 
 use ndarray::prelude::*;
@@ -10,6 +8,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
+
+use crate::extract::*;
 
 use bitvec::prelude::*;
 
