@@ -110,9 +110,9 @@ def main():
 
     # Parameters for the community graph
     n = 1001  # Total number of nodes
-    variable_to_modify = 'inter_community_prob'  # Could be 'num_communities' or 'inter_community_prob'
+    variable_to_modify = 'num_communities'  # Could be 'num_communities' or 'inter_community_prob'
     num_steps = 10  # Number of steps
-    steps = np.linspace(0.0, 0.4, num_steps)  # Range of values for inter_community_prob (or num_communities)
+    steps = np.linspace(1, 10, num_steps)  # Range of values for inter_community_prob (or num_communities)
 
     def generate_graph_data(num_communities, inter_community_prob):
         G = generate_path_community_graph(n, num_communities, inter_community_prob)
