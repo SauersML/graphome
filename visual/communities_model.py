@@ -5,7 +5,7 @@ import matplotlib.colors as mcolors
 from time import time
 import os
 
-def generate_community_graph(n, num_communities, k, inter_community_prob=0.5, intra_community_prob=0.02):
+def generate_community_graph(n, num_communities, k, inter_community_prob, intra_community_prob):
     """
     n: Total number of nodes
     num_communities: Number of communities (blocks)
@@ -144,8 +144,9 @@ def main():
     # Sort eigenvectors by eigenvalues
     eigenvalues_sorted, eigenvectors_sorted = sort_data(eigenvalues, eigenvectors)
     
-    # Save plot of sorted eigenvectors
-    create_2d_plot(eigenvectors_sorted, "Community Graph Eigenvectors", "community_eigenvectors_2d.png")
+    filename = "community_eigenvectors_2d.png"
+    
+    create_2d_plot(eigenvectors_sorted, "Community Graph Eigenvectors", filename)
 
     total_time = time() - start_time
     print(f"Visualization generated successfully in {total_time:.2f} seconds.")
