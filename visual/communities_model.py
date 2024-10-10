@@ -3,8 +3,9 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from time import time
+import os
 
-def generate_community_graph(n, num_communities, k, inter_community_prob=0.05, intra_community_prob=0.2):
+def generate_community_graph(n, num_communities, k, inter_community_prob=0.5, intra_community_prob=0.02):
     """
     n: Total number of nodes
     num_communities: Number of communities (blocks)
@@ -149,7 +150,7 @@ def main():
     total_time = time() - start_time
     print(f"Visualization generated successfully in {total_time:.2f} seconds.")
 
-    plt.show()
+    os.system(f"open {filename}")
 
 if __name__ == "__main__":
     main()
