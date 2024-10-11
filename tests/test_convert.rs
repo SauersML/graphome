@@ -40,42 +40,52 @@ mod tests {
     #[test]
     fn test_gfa_to_adjacency_matrix_basic_conversion() {
         use std::collections::HashSet;
-
-        // Create a temporary GFA file with 'S' and 'L' lines
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+    
+        // GFA content
         let gfa_content = "\
-H	VN:Z:1.0
-S	0	A
-S	1	B
-S	2	C
-L	A	+	B	+	*
-L	A	+	C	+	*
-L	B	+	C	+	*
-P	0_path	A+,B+,C+
-";
+    H\tVN:Z:1.0
+    S\tA\tACCTT
+    S\tB\tTCAAGG
+    S\tC\tCTTGATT
+    L\tA\t+\tB\t+\t*
+    L\tB\t+\tA\t+\t*
+    L\tA\t+\tC\t+\t*
+    L\tC\t+\tA\t+\t*
+    L\tB\t+\tC\t+\t*
+    L\tC\t+\tB\t+\t*
+    P\tbasic_path\tA+,B+,C+
+        ";
+    
+        // Create temporary GFA file
         let mut temp_gfa = NamedTempFile::new().unwrap();
         write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
-
-        // Output .gam file
+    
+        // Create temporary output .gam file
         let temp_gam = NamedTempFile::new().unwrap();
-
+    
         // Run the conversion
-        convert_gfa_to_edge_list(
+        convert::convert_gfa_to_edge_list(
             temp_gfa.path(),
             temp_gam.path(),
         ).unwrap();
-
+    
         // Read the .gam file
         let edges = read_edges_from_bin(temp_gam.path()).unwrap();
-
+    
         // Define expected edges
         let expected_edges = vec![
-            (0, 1),
-            (0, 2),
-            (1, 2),
+            (0, 1), // A -> B
+            (1, 0), // B -> A
+            (0, 2), // A -> C
+            (2, 0), // C -> A
+            (1, 2), // B -> C
+            (2, 1), // C -> B
         ];
         let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
         let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
-
+    
         assert_eq!(actual_set, expected_set, "Edges do not match expected values.");
     }
 
@@ -186,83 +196,111 @@ P	0_path	A+,B+,C+
     #[test]
     fn test_unique_indices_mapping_with_special_characters() {
         use std::collections::HashSet;
-
-        // Create a temporary GFA file with 'S' and 'L' lines including special characters
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+    
+        // GFA content
         let gfa_content = "\
-H	VN:Z:1.0
-S	0	A!
-S	1	B@
-S	2	C#
-L	A!	+	B@	+	*
-L	B@	+	C#	+	*
-L	A!	+	C#	+	*
-P	0_path	A!,B@+,C#+
-";
+    H\tVN:Z:1.0
+    S\tA\tACCTT
+    S\tB\tTCAAGG
+    S\tC\tCTTGATT
+    L\tA\t+\tB\t+\t*
+    L\tB\t+\tA\t+\t*
+    L\tA\t+\tC\t+\t*
+    L\tC\t+\tA\t+\t*
+    L\tB\t+\tC\t+\t*
+    L\tC\t+\tB\t+\t*
+    P\tspecial_chars_path\tA+,B+,C+
+        ";
+    
+        // Create temporary GFA file
         let mut temp_gfa = NamedTempFile::new().unwrap();
         write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
-
-        // Output .gam file
+    
+        // Create temporary output .gam file
         let temp_gam = NamedTempFile::new().unwrap();
-
+    
         // Run the conversion
-        convert_gfa_to_edge_list(
+        convert::convert_gfa_to_edge_list(
             temp_gfa.path(),
             temp_gam.path(),
         ).unwrap();
-
+    
         // Read the .gam file
         let edges = read_edges_from_bin(temp_gam.path()).unwrap();
-
+    
         // Define expected edges
         let expected_edges = vec![
-            (0, 1),
-            (1, 2),
-            (0, 2),
+            (0, 1), // A -> B
+            (1, 0), // B -> A
+            (0, 2), // A -> C
+            (2, 0), // C -> A
+            (1, 2), // B -> C
+            (2, 1), // C -> B
         ];
         let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
         let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
-
+    
         assert_eq!(actual_set, expected_set, "Edges do not match expected values.");
     }
 
     /// Test 3.1: Are the edges written to the output file fully correct with respect to the original GFA file?
     #[test]
     fn test_edges_written_correctly() {
-        // Setup: Create a mock GFA file with multiple links
-        let mut gfa = NamedTempFile::new().expect("Failed to create temporary GFA file");
-        write!(gfa.as_file_mut(), "H\tVN:Z:1.0\n").unwrap();
-        write!(gfa.as_file_mut(), "S\tA\tACGT\n").unwrap();
-        write!(gfa.as_file_mut(), "S\tB\tCGTA\n").unwrap();
-        write!(gfa.as_file_mut(), "S\tC\tGTAC\n").unwrap();
-        write!(gfa.as_file_mut(), "S\tD\tTGCA\n").unwrap();
-        write!(gfa.as_file_mut(), "L\tA\t+\tB\t+\t*\n").unwrap();
-        write!(gfa.as_file_mut(), "L\tB\t+\tC\t+\t*\n").unwrap();
-        write!(gfa.as_file_mut(), "L\tC\t+\tD\t+\t*\n").unwrap();
-        write!(gfa.as_file_mut(), "L\tA\t+\tD\t+\t*\n").unwrap();
-
-        // Define output path
+        use std::collections::HashSet;
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+    
+        // GFA content
+        let gfa_content = "\
+    H\tVN:Z:1.0
+    S\tA\tACCTT
+    S\tB\tCGTA
+    S\tC\tGTAC
+    S\tD\tTGCA
+    L\tA\t+\tB\t+\t*
+    L\tB\t+\tA\t+\t*
+    L\tA\t+\tC\t+\t*
+    L\tC\t+\tA\t+\t*
+    L\tC\t+\tD\t+\t*
+    L\tD\t+\tC\t+\t*
+    L\tB\t+\tD\t+\t*
+    L\tD\t+\tB\t+\t*
+    P\tedges_path\tA+,B+,C+,D+
+        ";
+    
+        // Create temporary GFA file
+        let mut temp_gfa = NamedTempFile::new().unwrap();
+        write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
+    
+        // Create temporary output .gam file
         let temp_gam = NamedTempFile::new().unwrap();
-
-        // Execute conversion
-        convert_gfa_to_edge_list(gfa.path(), temp_gam.path()).expect("Conversion failed");
-
-        // Read edges
-        let edges = read_edges_from_bin(temp_gam.path()).expect("Failed to read edges from binary file");
-
-        // Expected mapping:
-        // "A" -> 0
-        // "B" -> 1
-        // "C" -> 2
-        // "D" -> 3
-
+    
+        // Run the conversion
+        convert::convert_gfa_to_edge_list(
+            temp_gfa.path(),
+            temp_gam.path(),
+        ).unwrap();
+    
+        // Read the .gam file
+        let edges = read_edges_from_bin(temp_gam.path()).unwrap();
+    
+        // Define expected edges
         let expected_edges = vec![
-            (0, 1), // "A" -> "B"
-            (1, 2), // "B" -> "C"
-            (2, 3), // "C" -> "D"
-            (0, 3), // "A" -> "D"
+            (0, 1), // A -> B
+            (1, 0), // B -> A
+            (0, 2), // A -> C
+            (2, 0), // C -> A
+            (2, 3), // C -> D
+            (3, 2), // D -> C
+            (1, 3), // B -> D
+            (3, 1), // D -> B
         ];
-
-        assert_eq!(edges, expected_edges, "Edges do not match expected values.");
+        let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
+        let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
+    
+        assert_eq!(actual_set, expected_set, "Edges do not match expected values.");
     }
 
     /// Test 3.2: Handling non-existent segments in links gracefully.
@@ -302,49 +340,57 @@ P	0_path	A!,B@+,C#+
     #[test]
     fn test_adjacency_matrix_symmetry() {
         use std::collections::HashSet;
-
-        // Create a temporary GFA file with 'S' and 'L' lines defining symmetric edges
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+    
+        // GFA content
         let gfa_content = "\
-H	VN:Z:1.0
-S	0	A
-S	1	B
-S	2	C
-S	3	D
-L	A	+	B	+	*
-L	B	+	A	+	*
-L	B	+	C	+	*
-L	C	+	B	+	*
-L	C	+	D	+	*
-L	D	+	C	+	*
-P	0_path	A+,B+,C+,D+
-";
+    H\tVN:Z:1.0
+    S\tA\tACCTT
+    S\tB\tCGTA
+    S\tC\tGTAC
+    S\tD\tTGCA
+    L\tA\t+\tB\t+\t*
+    L\tB\t+\tA\t+\t*
+    L\tB\t+\tC\t+\t*
+    L\tC\t+\tB\t+\t*
+    L\tC\t+\tD\t+\t*
+    L\tD\t+\tC\t+\t*
+    L\tA\t+\tD\t+\t*
+    L\tD\t+\tA\t+\t*
+    P\tsymmetry_path\tA+,B+,C+,D+
+        ";
+    
+        // Create temporary GFA file
         let mut temp_gfa = NamedTempFile::new().unwrap();
         write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
-
-        // Output .gam file
+    
+        // Create temporary output .gam file
         let temp_gam = NamedTempFile::new().unwrap();
-
+    
         // Run the conversion
-        convert_gfa_to_edge_list(
+        convert::convert_gfa_to_edge_list(
             temp_gfa.path(),
             temp_gam.path(),
         ).unwrap();
-
+    
         // Read the .gam file
         let edges = read_edges_from_bin(temp_gam.path()).unwrap();
-
-        // Define expected symmetric edges
+    
+        // Define expected edges (both directions)
         let expected_edges = vec![
-            (0, 1),
-            (1, 0),
-            (1, 2),
-            (2, 1),
-            (2, 3),
-            (3, 2),
+            (0, 1), // A -> B
+            (1, 0), // B -> A
+            (1, 2), // B -> C
+            (2, 1), // C -> B
+            (2, 3), // C -> D
+            (3, 2), // D -> C
+            (0, 3), // A -> D
+            (3, 0), // D -> A
         ];
         let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
         let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
-
+    
         assert_eq!(actual_set, expected_set, "Adjacency matrix is not symmetric.");
     }
 }
