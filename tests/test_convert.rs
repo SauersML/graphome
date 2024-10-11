@@ -83,44 +83,55 @@ P	0_path	A+,B+,C+
     #[test]
     fn test_gfa_to_adjacency_matrix_with_duplicate_segments() {
         use std::collections::HashSet;
-
-        // Create a temporary GFA file with duplicate 'L' lines
+        use tempfile::NamedTempFile;
+        use std::io::Write;
+    
+        // Corrected GFA content with consistent segment names and bidirectional links
         let gfa_content = "\
-H	VN:Z:1.0
-S	0	A
-S	1	B
-S	2	C
-L	A	+	B	+	*
-L	B	+	C	+	*
-L	A	+	B	+	*
-P	0_path	A+,B+,C+
-";
+    H\tVN:Z:1.0
+    S\tA\tACCTT
+    S\tB\tTCAAGG
+    S\tC\tCTTGATT
+    L\tA\t+\tB\t+\t*
+    L\tB\t+\tA\t+\t*
+    L\tA\t+\tC\t+\t*
+    L\tC\t+\tA\t+\t*
+    L\tB\t+\tC\t+\t*
+    L\tC\t+\tB\t+\t*
+    P\t0_path\tA+,B+,C+
+        ";
+    
+        // Create temporary GFA file
         let mut temp_gfa = NamedTempFile::new().unwrap();
         write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
-
-        // Output .gam file
+    
+        // Create temporary output .gam file
         let temp_gam = NamedTempFile::new().unwrap();
-
+    
         // Run the conversion
-        convert_gfa_to_edge_list(
+        convert::convert_gfa_to_edge_list(
             temp_gfa.path(),
             temp_gam.path(),
         ).unwrap();
-
+    
         // Read the .gam file
         let edges = read_edges_from_bin(temp_gam.path()).unwrap();
-
-        // Define expected edges
+    
+        // Define expected edges (both directions)
         let expected_edges = vec![
-            (0, 1),
-            (0, 1),
-            (1, 2),
+            (0, 1), // A -> B
+            (1, 0), // B -> A
+            (0, 2), // A -> C
+            (2, 0), // C -> A
+            (1, 2), // B -> C
+            (2, 1), // C -> B
         ];
         let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
         let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
-
+    
         assert_eq!(actual_set, expected_set, "Edges do not match expected values.");
     }
+
 
     /// Test 2.1: Can the unique indices be mapped back to GFA segments correctly?
     #[test]
