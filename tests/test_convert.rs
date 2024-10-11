@@ -86,7 +86,7 @@ P	0_path	A+,B+,C+
         use tempfile::NamedTempFile;
         use std::io::Write;
     
-        // Corrected GFA content with consistent segment names and bidirectional links
+        // GFA content
         let gfa_content = "\
     H\tVN:Z:1.0
     S\tA\tACCTT
@@ -140,7 +140,7 @@ P	0_path	A+,B+,C+
         use tempfile::NamedTempFile;
         use std::io::Write;
     
-        // Corrected GFA content with consistent segment names and bidirectional links
+        // GFA content
         let gfa_content = "\
     H\tVN:Z:1.0
     S\tA\tACCTT
