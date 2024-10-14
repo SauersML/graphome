@@ -229,6 +229,40 @@ mod tests {
         Ok(())
     }
 
+    /// Test that multiple links between the same segments are handled correctly without introducing duplicate edges
+    #[test]
+    fn test_multiple_links_between_same_segments() -> io::Result<()> {
+        // Create a temporary GFA file with multiple links between the same segments
+        let mut gfa_file = NamedTempFile::new()?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\tA\t*")?;
+        writeln!(gfa_file, "S\tB\t*")?;
+        writeln!(gfa_file, "L\tA\t+\tB\t+\t100M")?;
+        writeln!(gfa_file, "L\tA\t+\tB\t+\t150M")?; // Duplicate link with different overlap
+        writeln!(gfa_file, "L\tA\t+\tB\t+\t200M")?; // Another duplicate link
+        
+        // Output file for adjacency matrix
+        let output_file = NamedTempFile::new()?;
+        
+        // Run the conversion
+        convert_gfa_to_edge_list(gfa_file.path(), output_file.path())?;
+        
+        // Read the output and verify the edges
+        let edges = read_edges_from_file(output_file.path())?;
+        let expected_edges = HashSet::from([
+            (0, 1), // From A to B
+            (1, 0), // From B to A
+        ]);
+        
+        assert_eq!(
+            edges, expected_edges,
+            "Multiple links between the same segments should not create duplicate edges."
+        );
+        
+        Ok(())
+    }
+
+
     /// Test unique indices mapping with more complex segment names.
     #[test]
     fn test_unique_indices_mapping_with_special_characters_more() -> io::Result<()> {
