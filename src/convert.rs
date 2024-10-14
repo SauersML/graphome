@@ -82,7 +82,6 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Segments")
-            .unwrap()
             .progress_chars("#>-"),
     );
 
@@ -161,7 +160,6 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
-            .unwrap()
             .progress_chars("#>-"),
     );
 
