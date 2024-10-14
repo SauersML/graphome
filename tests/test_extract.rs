@@ -203,7 +203,7 @@ mod tests {
             let v = eigvecs.column(i);
             
             // Compute L * v
-            let lv = laplacian * &v;
+            let lv = &laplacian * &v;
             
             // Compute λ * v
             let lambda_v: DVector<f64> = v * lambda;
