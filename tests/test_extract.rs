@@ -207,7 +207,7 @@ mod tests {
             let lv = laplacian * &v;
             
             // Compute λ * v
-            let lambda_v = v * lambda;
+            let lambda_v: DVector<f64> = v * lambda;
             
             // Allow a small tolerance for floating-point comparisons
             let tolerance = 1e-6;
