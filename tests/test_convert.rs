@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{self, Read, Write}; // Added `Read`
+use std::io::{self, Read, Write};
 use tempfile::NamedTempFile;
 
 use graphome::convert::convert_gfa_to_edge_list;
