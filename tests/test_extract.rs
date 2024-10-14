@@ -1,4 +1,3 @@
-use graphome::convert::*;
 use graphome::extract::*;
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
@@ -8,11 +7,6 @@ use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-use bitvec::prelude::*;
-use csv::WriterBuilder;
-use std::cmp::min;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 #[cfg(test)]
 mod tests {
