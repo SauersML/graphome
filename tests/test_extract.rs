@@ -15,7 +15,7 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
-    /// Helper function to create a mock .gam file with given edges.
+    /// Helper function to create a mock .gam file with given edges
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
         let file = File::create(path)?;
         let mut writer = BufWriter::new(file);
@@ -27,7 +27,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that the mock .gam file is created correctly.
+    /// Test that the mock .gam file is created correctly
     #[test]
     fn test_create_mock_gam_file() -> io::Result<()> {
         let dir = tempdir()?;
@@ -58,7 +58,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that load_adjacency_matrix correctly loads edges from a .gam file.
+    /// Test that load_adjacency_matrix correctly loads edges from a .gam file
     #[test]
     fn test_load_adjacency_matrix() -> io::Result<()> {
         let dir = tempdir()?;
@@ -78,7 +78,131 @@ mod tests {
         Ok(())
     }
 
-    /// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix.
+    /// Test extracting a submatrix covering all nodes and verifying it matches the original adjacency matrix
+    #[test]
+    fn test_full_range_extraction() -> io::Result<()> {
+        // Create a temporary GFA file with sample data
+        let mut gfa_file = NamedTempFile::new()?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        writeln!(gfa_file, "S\t3\t*")?;
+        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
+        writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
+        
+        // Output file for adjacency matrix
+        let output_gam = NamedTempFile::new()?;
+        
+        // Run the conversion
+        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+        
+        // Define the full range (all nodes)
+        let start_node = 0;
+        let end_node = 2;
+        
+        // Output file for the extracted submatrix
+        let output_subgam = NamedTempFile::new()?;
+        
+        // Run the extraction
+        extract::extract_and_analyze_submatrix(
+            output_gam.path(),
+            start_node,
+            end_node,
+            output_subgam.path(),
+        )?;
+        
+        // Load the original adjacency matrix
+        let original_edges = read_edges_from_file(output_gam.path())?;
+        
+        // Load the extracted submatrix
+        let extracted_edges = read_edges_from_file(output_subgam.path())?;
+        
+        // Verify that both edge sets are identical
+        assert_eq!(
+            original_edges, extracted_edges,
+            "The extracted submatrix should match the original adjacency matrix."
+        );
+        
+        Ok(())
+    }
+
+    
+    /// Test extracting a submatrix for a subset of nodes and ensuring correct inclusion and exclusion of edges
+    #[test]
+    fn test_partial_range_extraction() -> io::Result<()> {
+        // Create a temporary GFA file with sample data
+        let mut gfa_file = NamedTempFile::new()?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        writeln!(gfa_file, "S\t3\t*")?;
+        writeln!(gfa_file, "S\t4\t*")?;
+        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
+        writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
+        writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
+        
+        // Output file for adjacency matrix
+        let output_gam = NamedTempFile::new()?;
+        
+        // Run the conversion
+        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+        
+        // Define a partial range (nodes 2 to 3)
+        let start_node = 1;
+        let end_node = 2;
+        
+        // Output file for the extracted submatrix
+        let output_subgam = NamedTempFile::new()?;
+        
+        // Run the extraction
+        extract::extract_and_analyze_submatrix(
+            output_gam.path(),
+            start_node,
+            end_node,
+            output_subgam.path(),
+        )?;
+        
+        // Load the original adjacency matrix
+        let original_edges = read_edges_from_file(output_gam.path())?;
+        
+        // Load the extracted submatrix
+        let extracted_edges = read_edges_from_file(output_subgam.path())?;
+        
+        // Define expected edges within the range
+        let expected_extracted_edges = HashSet::from([
+            (1, 2), // From node 2 to node 3
+            (2, 1), // From node 3 to node 2
+        ]);
+        
+        // Define edges that should be excluded
+        let excluded_edges = HashSet::from([
+            (0, 1), // From node 1 to node 2
+            (0, 3), // From node 1 to node 4
+            (1, 3), // From node 2 to node 4
+        ]);
+        
+        // Verify that extracted edges match expected edges
+        assert_eq!(
+            extracted_edges, expected_extracted_edges,
+            "Extracted submatrix does not contain the correct subset of edges."
+        );
+        
+        // Ensure excluded edges are not present
+        for edge in excluded_edges {
+            assert!(
+                !extracted_edges.contains(&edge),
+                "Excluded edge {:?} should not be present in the extracted submatrix.",
+                edge
+            );
+        }
+        
+        Ok(())
+    }
+
+
+    /// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix
     #[test]
     fn test_adjacency_matrix_to_ndarray_correct_conversion() {
         let edges = vec![(0, 1), (1, 2), (2, 0)];
@@ -96,7 +220,7 @@ mod tests {
         assert_eq!(adj_matrix, expected);
     }
 
-    /// Test that the adjacency matrix is symmetric.
+    /// Test that the adjacency matrix is symmetric
     #[test]
     fn test_adjacency_matrix_is_symmetric() {
         let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
@@ -109,7 +233,7 @@ mod tests {
         }
     }
 
-    /// Test that degree matrix is correctly computed from adjacency matrix.
+    /// Test that degree matrix is correctly computed from adjacency matrix
     #[test]
     fn test_degree_matrix_computation() {
         let adj_matrix = array![
@@ -134,7 +258,7 @@ mod tests {
         assert_eq!(degree_matrix, expected_degree_matrix);
     }
 
-    /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices.
+    /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices
     #[test]
     fn test_laplacian_computation() {
         let adj_matrix = array![
@@ -158,7 +282,7 @@ mod tests {
         assert_eq!(laplacian, expected_laplacian);
     }
 
-    /// Test that eigendecomposition produces non-negative eigenvalues for Laplacian.
+    /// Test that eigendecomposition produces non-negative eigenvalues for Laplacian
     #[test]
     fn test_eigendecomposition_non_negative_eigenvalues() {
         let laplacian = DMatrix::<f64>::from_row_slice(
@@ -176,7 +300,57 @@ mod tests {
         }
     }
 
-    /// Test that saving the adjacency matrix to CSV works correctly.
+
+    /// Test the correctness of the eigendecomposition process by verifying that L * v = λ * v for each eigenpair
+    #[test]
+    fn test_eigendecomposition_correctness() -> io::Result<()> {
+        // Define a small Laplacian matrix manually
+        let laplacian = DMatrix::from_row_slice(
+            3,
+            3,
+            &[
+                2.0, -1.0, -1.0,
+                -1.0, 2.0, -1.0,
+                -1.0, -1.0, 2.0,
+            ],
+        );
+        
+        // Perform eigendecomposition
+        let symmetric_eigen = SymmetricEigen::new(laplacian.clone());
+        
+        let eigvals = symmetric_eigen.eigenvalues;
+        let eigvecs = symmetric_eigen.eigenvectors;
+        
+        // Iterate through each eigenpair and verify L * v = λ * v
+        for i in 0..eigvals.len() {
+            let lambda = eigvals[i];
+            let v = eigvecs.column(i);
+            
+            // Compute L * v
+            let lv = laplacian * &v;
+            
+            // Compute λ * v
+            let lambda_v = v * lambda;
+            
+            // Allow a small tolerance for floating-point comparisons
+            let tolerance = 1e-6;
+            for j in 0..v.len() {
+                assert!(
+                    (lv[j] - lambda_v[j]).abs() < tolerance,
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, λ*v[{}] = {}",
+                    i,
+                    j,
+                    lv[j],
+                    j,
+                    lambda_v[j]
+                );
+            }
+        }
+        
+        Ok(())
+    }
+
+    /// Test that saving the adjacency matrix to CSV works correctly
     #[test]
     fn test_save_matrix_to_csv() -> io::Result<()> {
         // Create a temporary matrix
@@ -205,7 +379,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that saving the nalgebra matrix to CSV works correctly.
+    /// Test that saving the nalgebra matrix to CSV works correctly
     #[test]
     fn test_save_nalgebra_matrix_to_csv() -> io::Result<()> {
         // Create a temporary matrix
@@ -233,7 +407,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that saving the nalgebra vector to CSV works correctly.
+    /// Test that saving the nalgebra vector to CSV works correctly
     #[test]
     fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
         // Create a temporary vector
