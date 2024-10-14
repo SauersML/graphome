@@ -1,15 +1,13 @@
-//! Module for extracting adjacency submatrix from edge list and performing analysis.
+// src/extract.rs
+
+// Module for extracting adjacency submatrix from edge list and performing analysis.
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
-use ndarray::parallel::prelude::*;
 use ndarray::prelude::*;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
-use bitvec::prelude::*;
 
 use csv::WriterBuilder;
 
@@ -29,26 +27,15 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Load the adjacency matrix from the .gam file
     println!(
-        "📂 Loading adjacency matrix from {:?}",
+        "Loading adjacency matrix from {:?}",
         edge_list_path.as_ref()
     );
 
-    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(
-        &edge_list_path,
-        start_node,
-        end_node,
-    )?));
-
+    let adjacency_matrix = load_adjacency_matrix(&edge_list_path, start_node, end_node)?;
     println!("✅ Loaded adjacency matrix.");
 
-    // Initialize progress tracking
-    let total_nodes = end_node - start_node + 1;
-
-    // Compute Laplacian and eigendecomposition
-    println!("🔬 Computing Laplacian matrix and eigendecomposition...");
-
-    let adj_matrix =
-        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
+    // Convert to ndarray
+    let adj_matrix = adjacency_matrix_to_ndarray(&adjacency_matrix, start_node, end_node);
 
     // Compute degree matrix
     let degrees = adj_matrix.sum_axis(Axis(1));
@@ -56,19 +43,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Compute Laplacian matrix: L = D - A
     let laplacian = &degree_matrix - &adj_matrix;
-
-    // Progress print for Laplacian matrix processing
-    for i in 0..total_nodes {
-        if i % (total_nodes / 10).max(1) == 0 {
-            let elapsed = start_time.elapsed();
-            let progress = (i as f64 / total_nodes as f64) * 100.0;
-            let estimated_remaining = elapsed / (i as u32 + 1) * (total_nodes as u32 - i as u32);
-            println!(
-                "Laplacian Matrix: Processed {} out of {} nodes ({:.2}%) | Estimated remaining: {:.2?}",
-                i, total_nodes, progress, estimated_remaining
-            );
-        }
-    }
 
     // Save Laplacian matrix to CSV
     let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
@@ -86,21 +60,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     let eigvals = symmetric_eigen.eigenvalues;
     let eigvecs = symmetric_eigen.eigenvectors;
-
-    // Progress print for eigenvector matrix computation
-    let total_eigenvectors = eigvecs.ncols();
-    for i in 0..total_eigenvectors {
-        if i % (total_eigenvectors / 10).max(1) == 0 {
-            let elapsed = start_time.elapsed();
-            let progress = (i as f64 / total_eigenvectors as f64) * 100.0;
-            let estimated_remaining =
-                elapsed / (i as u32 + 1) * (total_eigenvectors as u32 - i as u32);
-            println!(
-                "Eigenvector Matrix: Processed {} out of {} vectors ({:.2}%) | Estimated remaining: {:.2?}",
-                i, total_eigenvectors, progress, estimated_remaining
-            );
-        }
-    }
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
@@ -162,8 +121,8 @@ pub fn adjacency_matrix_to_ndarray(
     start_node: usize,
     end_node: usize,
 ) -> Array2<f64> {
-    let mut adj_array =
-        Array2::<f64>::zeros((end_node - start_node + 1, end_node - start_node + 1));
+    let size = end_node - start_node + 1;
+    let mut adj_array = Array2::<f64>::zeros((size, size));
     for &(a, b) in edges {
         let local_a = a as usize - start_node;
         let local_b = b as usize - start_node;
