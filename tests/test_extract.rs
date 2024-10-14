@@ -14,6 +14,7 @@ use graphome::convert::read_edges_from_file;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use graphome::extract;
     use std::fs::File;
     use std::io::Read;
 
