@@ -132,17 +132,17 @@ mod tests {
             output_analysis.path(),
         )?;
         
-        // Define expected edges within the range
-        let expected_edges = HashSet::from([
+        // Define expected edges within the range as a Vec
+        let expected_edges: Vec<(u32, u32)> = vec![
             (0, 1), // From node 1 to node 2
             (1, 0), // From node 2 to node 1
             (1, 2), // From node 2 to node 3
             (2, 1), // From node 3 to node 2
             (0, 2), // From node 1 to node 3
             (2, 0), // From node 3 to node 1
-        ]);
+        ];
         
-        // Load the Laplacian matrix
+        // Load the Laplacian matrix from CSV
         let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
         
@@ -163,7 +163,6 @@ mod tests {
             "Laplacian matrix does not match expected values for full range extraction."
         );
         
-        // Optionally, verify eigenvalues and eigenvectors
         // Load eigenvalues
         let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
@@ -187,13 +186,12 @@ mod tests {
         // but orthogonality and correctness of eigenvalues should hold.
         
         // Verify that L * v = lambda * v for each eigenpair
-        let nalgebra_laplacian = adjacency_matrix_to_ndarray(&expected_edges, start_node, end_node);
-        let nalgebra_laplacian = adjacency_matrix_to_ndarray(&expected_edges, start_node, end_node);
+        // Reconstruct the Laplacian matrix as nalgebra::DMatrix<f64>
         let nalgebra_laplacian = Array2::<f64>::from_shape_vec((3,3), vec![
             2.0, -1.0, -1.0,
             -1.0, 2.0, -1.0,
             -1.0, -1.0, 2.0,
-        ])?;
+        ]).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&nalgebra_laplacian)?;
         let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
         let eigvals = symmetric_eigen.eigenvalues;
@@ -227,7 +225,7 @@ mod tests {
         Ok(())
     }
 
-    
+
     /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
     #[test]
     fn test_partial_range_extraction() -> io::Result<()> {
@@ -264,12 +262,21 @@ mod tests {
             output_analysis.path(),
         )?;
     
+        // Define expected edges within the range as a Vec
+        let expected_edges: Vec<(u32, u32)> = vec![
+            (1, 2), // From node 2 to node 3
+            (2, 1), // From node 3 to node 2
+        ];
+    
         // Load the Laplacian matrix from CSV
         let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
     
-        // Verify the Laplacian matrix for nodes 2 and 3:
-        // 2 connected to 3, 3 connected to 2, so Laplacian is:
+        // Verify the Laplacian matrix
+        // For nodes 2 and 3, the adjacency is:
+        // 2 connected to 3
+        // 3 connected to 2
+        // Thus, the Laplacian should be:
         // [1, -1]
         // [-1, 1]
         let expected_laplacian = array![
@@ -296,7 +303,7 @@ mod tests {
         let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
         let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
     
-        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ] (Z-normalized)
+        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ]
         let expected_eigenvectors = array![
             [0.70710678, 0.70710678],
             [0.70710678, -0.70710678],
@@ -330,7 +337,8 @@ mod tests {
         }
         let nrows = matrix.len();
         let ncols = if nrows > 0 { matrix[0].len() } else { 0 };
-        Ok(Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())?)
+        Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
     
     /// Helper function to load a CSV file as a nalgebra::DVector<f64>
@@ -347,6 +355,7 @@ mod tests {
         }
         Ok(vector)
     }
+
 
 
     /// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix
