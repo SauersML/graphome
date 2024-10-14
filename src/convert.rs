@@ -14,13 +14,13 @@ use indicatif::{ProgressBar, ProgressStyle};
 /// Converts a GFA file to an adjacency matrix in edge list format.
 ///
 /// This function performs a two-pass approach:
-/// 1. **First Pass:** Parses the GFA file to collect all unique segment names and assigns them deterministic indices based on sorted order.
-/// 2. **Second Pass:** Parses the links and writes bidirectional edges to the output file in parallel.
+/// 1. First Pass: Parses the GFA file to collect all unique segment names and assigns them deterministic indices based on sorted order.
+/// 2. Second Pass: Parses the links and writes bidirectional edges to the output file in parallel.
 ///
 /// # Arguments
 ///
-/// * `gfa_path` - Path to the input GFA file.
-/// * `output_path` - Path to the output adjacency matrix file.
+///  `gfa_path` - Path to the input GFA file.
+///  `output_path` - Path to the output adjacency matrix file.
 ///
 /// # Errors
 ///
@@ -57,7 +57,7 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 ///
 /// # Arguments
 ///
-/// * `gfa_path` - Path to the input GFA file.
+///  `gfa_path` - Path to the input GFA file.
 ///
 /// # Errors
 ///
@@ -113,9 +113,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 ///
 /// # Arguments
 ///
-/// * `gfa_path` - Path to the input GFA file.
-/// * `segment_indices` - Mapping from segment names to indices.
-/// * `output_path` - Path to the output adjacency matrix file.
+///  `gfa_path` - Path to the input GFA file.
+///  `segment_indices` - Mapping from segment names to indices.
+///  `output_path` - Path to the output adjacency matrix file.
 ///
 /// # Errors
 ///
