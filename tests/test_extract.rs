@@ -96,8 +96,8 @@ mod tests {
         dir.close()?;
         Ok(())
     }
-
     
+        
     /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
     fn test_full_range_extraction() -> io::Result<()> {
@@ -167,7 +167,7 @@ mod tests {
         let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
         
-        // Expected eigenvalues for the Laplacian matrix [ [2, -1, -1], [-1, 2, -1], [-1, -1, 2] ] are [0, 3, 3]
+        // Expected eigenvalues
         let expected_eigenvalues = vec![0.0, 3.0, 3.0];
         assert_eq!(
             eigenvalues, expected_eigenvalues,
@@ -185,15 +185,19 @@ mod tests {
         // Note: The actual eigenvectors may vary based on the eigendecomposition implementation,
         // but orthogonality and correctness of eigenvalues should hold.
         
-        // Verify that L * v = lambda * v for each eigenpair
-        // Reconstruct the Laplacian matrix as nalgebra::DMatrix<f64>
-        let nalgebra_laplacian = Array2::<f64>::from_shape_vec((3,3), vec![
-            2.0, -1.0, -1.0,
-            -1.0, 2.0, -1.0,
-            -1.0, -1.0, 2.0,
-        ]).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&nalgebra_laplacian)?;
-        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+        // Reconstruct the expected Laplacian matrix as nalgebra::DMatrix<f64>
+        let expected_laplacian_nalgebra = DMatrix::<f64>::from_row_slice(
+            3,
+            3,
+            &[
+                2.0, -1.0, -1.0,
+                -1.0, 2.0, -1.0,
+                -1.0, -1.0, 2.0,
+            ],
+        );
+        
+        // Perform eigendecomposition
+        let symmetric_eigen = SymmetricEigen::new(expected_laplacian_nalgebra.clone());
         let eigvals = symmetric_eigen.eigenvalues;
         let eigvecs = symmetric_eigen.eigenvectors;
         
@@ -202,7 +206,7 @@ mod tests {
             let v = eigvecs.column(i);
             
             // Compute L * v
-            let lv = &nalgebra_laplacian * &v;
+            let lv = &expected_laplacian_nalgebra * &v;
             
             // Compute lambda * v
             let lambda_v = v * lambda;
