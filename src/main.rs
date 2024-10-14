@@ -62,12 +62,7 @@ fn main() -> io::Result<()> {
             end_node,
             output,
         } => {
-            extract::extract_and_analyze_submatrix(
-                input,
-                *start_node,
-                *end_node,
-                output,
-            )?;
+            extract::extract_and_analyze_submatrix(input, *start_node, *end_node, output)?;
         }
     }
 
