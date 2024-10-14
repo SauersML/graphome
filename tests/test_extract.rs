@@ -18,6 +18,22 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
+
+    /// Helper function to read edges from the binary edge list file
+    fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
+        let mut edges = HashSet::new();
+        let mut file = File::open(path)?;
+        let mut buffer = [0u8; 8];
+    
+        while let Ok(_) = file.read_exact(&mut buffer) {
+            let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+            let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+            edges.insert((from, to));
+        }
+    
+        Ok(edges)
+    }
+
     /// Helper function to create a mock .gam file with given edges
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
         let file = File::create(path)?;
