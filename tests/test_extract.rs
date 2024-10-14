@@ -235,16 +235,38 @@ mod tests {
         let dir = tempdir()?;
         let gam_path = dir.path().join("test.gam");
         let output_path = dir.path().join("submatrix.gam");
-
+    
         let mock_edges = vec![(0, 1), (1, 2), (2, 0), (1, 3), (3, 4), (4, 1)];
-
+    
         create_mock_gam_file(&gam_path, &mock_edges)?;
-
+    
         // Define node range that includes nodes 1,2,3,4
         let start_node = 1;
         let end_node = 4;
-
+    
         extract_and_analyze_submatrix(&gam_path, start_node, end_node, &output_path)?;
+    
+        // Check if output files exist
+        let laplacian_csv_path = output_path.with_extension("laplacian.csv");
+        assert!(
+            laplacian_csv_path.exists(),
+            "Laplacian CSV file does not exist at {:?}",
+            laplacian_csv_path
+        );
+    
+        let eigen_csv_path = output_path.with_extension("eigenvectors.csv");
+        assert!(
+            eigen_csv_path.exists(),
+            "Eigenvectors CSV file does not exist at {:?}",
+            eigen_csv_path
+        );
+    
+        let eigenvalues_csv_path = output_path.with_extension("eigenvalues.csv");
+        assert!(
+            eigenvalues_csv_path.exists(),
+            "Eigenvalues CSV file does not exist at {:?}",
+            eigenvalues_csv_path
+        );
 
         // Load the extracted submatrix
         let extracted_edges = load_adjacency_matrix(&output_path, start_node, end_node)?;
