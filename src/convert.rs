@@ -16,6 +16,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 ///
 /// This function reads the GFA file, extracts segments and assigns indices,
 /// then parses the links and writes the edges to an output file.
+/// Both (from, to) and (to, from) edges are written to ensure bidirectionality.
 ///
 /// # Arguments
 ///
@@ -95,10 +96,10 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         .lines()
         .par_bridge()
         .filter_map(Result::ok)
-        .filter(|line| line.starts_with('S'))
+        .filter(|line| line.starts_with("S\t"))
         .for_each(|line| {
             let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
+            if parts.len() >= 3 {
                 let segment_name = parts[1].to_string();
                 let mut indices = segment_indices.lock().unwrap();
                 if !indices.contains_key(&segment_name) {
@@ -126,14 +127,16 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     Ok((
         Arc::try_unwrap(segment_indices)
-            .unwrap()
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to unwrap segment_indices"))?
             .into_inner()
-            .unwrap(),
+            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to lock segment_indices"))?,
         segment_counter,
     ))
 }
 
 /// Parses the GFA file to extract links and write edges to the output file.
+///
+/// Writes both (from, to) and (to, from) to ensure bidirectional edges.
 ///
 /// # Arguments
 ///
@@ -162,7 +165,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     println!("🔍 Parsing links and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
-    let total_links_estimate = 990_554; // This is very wrong
+    let total_links_estimate = 990_554; // This is an arbitrary estimate
     println!(
         "⚠️  Note: Progress bar is based on an estimated total of {} links.",
         total_links_estimate
@@ -181,10 +184,10 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
         .lines()
         .par_bridge()
         .filter_map(Result::ok)
-        .filter(|line| line.starts_with('L'))
+        .filter(|line| line.starts_with("L\t"))
         .for_each(|line| {
             let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 5 {
+            if parts.len() >= 6 {
                 let from_name = parts[1];
                 let to_name = parts[3];
 
@@ -192,12 +195,16 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     (segment_indices.get(from_name), segment_indices.get(to_name))
                 {
                     let mut writer = writer.lock().unwrap();
+                    // Write (from, to)
                     writer.write_all(&from_index.to_le_bytes()).unwrap();
                     writer.write_all(&to_index.to_le_bytes()).unwrap();
+                    // Write (to, from) for bidirectionality
+                    writer.write_all(&to_index.to_le_bytes()).unwrap();
+                    writer.write_all(&from_index.to_le_bytes()).unwrap();
 
                     let mut edge_counter = edge_counter.lock().unwrap();
-                    *edge_counter += 1;
-                    pb.inc(1);
+                    *edge_counter += 2;
+                    pb.inc(2);
                 }
             }
         });
