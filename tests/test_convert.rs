@@ -7,24 +7,25 @@ use tempfile::NamedTempFile;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
-/// Helper function to read edges from the binary edge list file
-fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
-    let mut edges = HashSet::new();
-    let mut file = File::open(path)?;
-    let mut buffer = [0u8; 8];
-
-    while let Ok(_) = file.read_exact(&mut buffer) {
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-        edges.insert((from, to));
-    }
-
-    Ok(edges)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Helper function to read edges from the binary edge list file
+    fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
+        let mut edges = HashSet::new();
+        let mut file = File::open(path)?;
+        let mut buffer = [0u8; 8];
+    
+        while let Ok(_) = file.read_exact(&mut buffer) {
+            let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+            let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+            edges.insert((from, to));
+        }
+    
+        Ok(edges)
+    }
 
     /// Test that the adjacency matrix is symmetric after conversion
     #[test]
