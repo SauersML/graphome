@@ -229,7 +229,7 @@ mod tests {
         Ok(())
     }
 
-
+    
     /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
     #[test]
     fn test_partial_range_extraction() -> io::Result<()> {
@@ -307,7 +307,7 @@ mod tests {
         let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
         let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
     
-        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ]
+        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ] (Z-normalized)
         let expected_eigenvectors = array![
             [0.70710678, 0.70710678],
             [0.70710678, -0.70710678],
@@ -359,8 +359,6 @@ mod tests {
         }
         Ok(vector)
     }
-
-
 
     /// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix
     #[test]
