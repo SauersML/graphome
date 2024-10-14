@@ -90,7 +90,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     // Remove duplicates by converting to a HashSet
     let unique_segments: HashSet<String> = segment_names.into_iter().collect();
 
-    // Sort the segments to ensure deterministic ordering (lexicographical sort)
+    // Sort the segments for deterministic ordering (lexicographical sort)
     let mut sorted_segments: Vec<String> = unique_segments.into_iter().collect();
     sorted_segments.sort();
 
@@ -109,7 +109,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
-/// Writes both (from, to) and (to, from) to ensure bidirectional edges.
+/// Writes both (from, to) and (to, from) for bidirectional edges.
 /// Processing is done in parallel for performance.
 ///
 /// # Arguments
@@ -145,11 +145,14 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
         total_links_estimate
     );
     let pb = ProgressBar::new(total_links_estimate as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
-            .progress_chars("#>-"),
-    );
+
+    // Configure the progress bar style
+    let style = ProgressStyle::default_bar()
+        .template("{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
+        .unwrap() // Handle the Result here
+        .progress_chars("#>-");
+
+    pb.set_style(style);
 
     let edge_counter = Arc::new(Mutex::new(0u64));
 
@@ -197,7 +200,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
         println!("Total number of links parsed: {}", total_edges);
     }
 
-    // Flush the writer to ensure all data is written
+    // Flush the writer
     writer.lock().unwrap().flush()?;
 
     Ok(())
