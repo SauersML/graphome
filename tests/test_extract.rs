@@ -227,54 +227,84 @@ mod tests {
     /// Test that saving the adjacency matrix to CSV works correctly.
     #[test]
     fn test_save_matrix_to_csv() -> io::Result<()> {
-        let dir = tempdir()?;
-        let csv_path = dir.path().join("adjacency.csv");
-
-        let adj_matrix = array![[0.0, 1.0], [1.0, 0.0],];
-
-        save_matrix_to_csv(&adj_matrix, &csv_path)?;
-
-        let saved_content = fs::read_to_string(&csv_path)?;
-        let expected_content = "0,1\n1,0\n";
-        assert_eq!(saved_content, expected_content);
-
-        dir.close()?;
+        // Create a temporary matrix
+        let matrix = Array2::from_shape_vec((2, 2), vec![0.0, 1.0, 1.0, 0.0])?;
+    
+        // Output file
+        let output_file = NamedTempFile::new()?;
+    
+        // Save matrix to CSV
+        save_matrix_to_csv(&matrix, output_file.path())?;
+    
+        // Read the output file
+        let mut file = File::open(output_file.path())?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+    
+        // Expected output with floats
+        let expected = "0.0,1.0\n1.0,0.0\n";
+    
+        assert_eq!(
+            contents, expected,
+            "Saved matrix does not match expected float values."
+        );
+    
         Ok(())
     }
 
     /// Test that saving the nalgebra matrix to CSV works correctly.
     #[test]
     fn test_save_nalgebra_matrix_to_csv() -> io::Result<()> {
-        let dir = tempdir()?;
-        let csv_path = dir.path().join("nalgebra_matrix.csv");
-
-        let nalgebra_matrix = DMatrix::<f64>::from_row_slice(2, 2, &[0.0, 1.0, 1.0, 0.0]);
-
-        save_nalgebra_matrix_to_csv(&nalgebra_matrix, &csv_path)?;
-
-        let saved_content = fs::read_to_string(&csv_path)?;
-        let expected_content = "0,1\n1,0\n";
-        assert_eq!(saved_content, expected_content);
-
-        dir.close()?;
+        // Create a temporary matrix
+        let matrix = DMatrix::from_row_slice(2, 2, &[0.0, 1.0, 1.0, 0.0]);
+    
+        // Output file
+        let output_file = NamedTempFile::new()?;
+    
+        // Save matrix to CSV
+        save_nalgebra_matrix_to_csv(&matrix, output_file.path())?;
+    
+        // Read the output file
+        let mut file = File::open(output_file.path())?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+    
+        // Expected output with floats
+        let expected = "0.0,1.0\n1.0,0.0\n";
+    
+        assert_eq!(
+            contents, expected,
+            "Saved nalgebra matrix does not match expected float values."
+        );
+    
         Ok(())
     }
 
     /// Test that saving the nalgebra vector to CSV works correctly.
     #[test]
     fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
-        let dir = tempdir()?;
-        let csv_path = dir.path().join("eigenvalues.csv");
-
-        let nalgebra_vector = DVector::<f64>::from_row_slice(&[0.0, 3.0, 3.0]);
-
-        save_nalgebra_vector_to_csv(&nalgebra_vector, &csv_path)?;
-
-        let saved_content = fs::read_to_string(&csv_path)?;
-        let expected_content = "0,3,3\n";
-        assert_eq!(saved_content, expected_content);
-
-        dir.close()?;
+        // Create a temporary vector
+        let vector = DVector::from_vec(vec![0.0, 3.0, 3.0]);
+    
+        // Output file
+        let output_file = NamedTempFile::new()?;
+    
+        // Save vector to CSV
+        save_nalgebra_vector_to_csv(&vector, output_file.path())?;
+    
+        // Read the output file
+        let mut file = File::open(output_file.path())?;
+        let mut contents = String::new();
+        file.read_to_string(&mut contents)?;
+    
+        // Expected output with floats
+        let expected = "0.0,3.0,3.0\n";
+    
+        assert_eq!(
+            contents, expected,
+            "Saved vector does not match expected float values."
+        );
+    
         Ok(())
     }
 
