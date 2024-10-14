@@ -9,6 +9,7 @@ use std::path::Path;
 use tempfile::{NamedTempFile, tempdir};
 
 use graphome::convert::convert_gfa_to_edge_list;
+use graphome::convert::read_edges_from_file;
 
 #[cfg(test)]
 mod tests {
