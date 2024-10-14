@@ -26,7 +26,7 @@ fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)
 mod tests {
     use super::*;
 
-    /// Test that the adjacency matrix is symmetric after conversion.
+    /// Test that the adjacency matrix is symmetric after conversion
     #[test]
     fn test_adjacency_matrix_symmetry() -> io::Result<()> {
         // Create a temporary GFA file with sample data
@@ -64,7 +64,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that unique indices are correctly mapped even with special characters in segment names.
+    /// Test that unique indices are correctly mapped even with special characters in segment names
     #[test]
     fn test_unique_indices_mapping_with_special_characters() -> io::Result<()> {
         // Create a temporary GFA file with segments having special characters
@@ -94,7 +94,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that duplicate segments and links are handled correctly.
+    /// Test that duplicate segments and links are handled correctly
     #[test]
     fn test_gfa_to_adjacency_matrix_with_duplicate_segments() -> io::Result<()> {
         // Create a temporary GFA file with duplicate segment names
@@ -126,7 +126,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that unique indices are correctly mapped for non-duplicate segments.
+    /// Test that unique indices are correctly mapped for non-duplicate segments
     #[test]
     fn test_unique_indices_mapping() -> io::Result<()> {
         // Create a temporary GFA file with unique segments
@@ -156,7 +156,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test the basic conversion from GFA to adjacency matrix.
+    /// Test the basic conversion from GFA to adjacency matrix
     #[test]
     fn test_gfa_to_adjacency_matrix_basic_conversion() -> io::Result<()> {
         // Create a temporary GFA file with basic segments and links
@@ -191,7 +191,7 @@ mod tests {
         Ok(())
     }
 
-    /// Test that edges are written correctly for multiple segments and links.
+    /// Test that edges are written correctly for multiple segments and links
     #[test]
     fn test_edges_written_correctly() -> io::Result<()> {
         // Create a temporary GFA file with multiple segments and links
@@ -263,7 +263,7 @@ mod tests {
     }
 
 
-    /// Test unique indices mapping with more complex segment names.
+    /// Test unique indices mapping with more complex segment names
     #[test]
     fn test_unique_indices_mapping_with_special_characters_more() -> io::Result<()> {
         // Create a temporary GFA file with segments having complex names
