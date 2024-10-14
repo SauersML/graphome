@@ -20,8 +20,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 ///
 /// # Arguments
 ///
-///  `gfa_path` - Path to the input GFA file.
-///  `output_path` - Path to the output adjacency matrix file.
+/// * `gfa_path` - Path to the input GFA file.
+/// * `output_path` - Path to the output adjacency matrix file.
 ///
 /// # Errors
 ///
@@ -34,20 +34,20 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     let start_time = Instant::now();
 
     println!(
-        "📂 Starting to parse GFA file: {}",
+        "Starting to parse GFA file: {}",
         gfa_path.as_ref().display()
     );
 
     // Step 1: Parse the GFA file to extract segments and assign deterministic indices
     let (segment_indices, num_segments) = parse_segments(&gfa_path)?;
-    println!("✅ Total segments (nodes) identified: {}", num_segments);
+    println!("Total segments (nodes) identified: {}", num_segments);
 
     // Step 2: Parse links and write edges in parallel
     parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
-    println!("🔗 Finished parsing links and writing edges.");
+    println!("Finished parsing links and writing edges.");
 
     let duration = start_time.elapsed();
-    println!("⏰ Completed in {:.2?} seconds.", duration);
+    println!("Completed in {:.2?} seconds.", duration);
 
     Ok(())
 }
@@ -58,7 +58,7 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 ///
 /// # Arguments
 ///
-///  `gfa_path` - Path to the input GFA file.
+/// * `gfa_path` - Path to the input GFA file.
 ///
 /// # Errors
 ///
@@ -73,7 +73,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     let mut segment_names = Vec::new();
 
-    println!("🔍 Parsing segments from GFA file...");
+    println!("Parsing segments from GFA file...");
 
     // Collect all segment names
     for line_result in reader.lines() {
@@ -102,7 +102,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     let segment_counter = sorted_segments.len() as u32;
 
-    println!("✅ Total segments (nodes) identified: {}", segment_counter);
+    println!("Total segments (nodes) identified: {}", segment_counter);
 
     Ok((segment_indices, segment_counter))
 }
@@ -114,9 +114,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 ///
 /// # Arguments
 ///
-///  `gfa_path` - Path to the input GFA file.
-///  `segment_indices` - Mapping from segment names to indices.
-///  `output_path` - Path to the output adjacency matrix file.
+/// * `gfa_path` - Path to the input GFA file.
+/// * `segment_indices` - Mapping from segment names to indices.
+/// * `output_path` - Path to the output adjacency matrix file.
 ///
 /// # Errors
 ///
@@ -136,18 +136,18 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     let output_file = File::create(&output_path)?;
     let writer = Arc::new(Mutex::new(BufWriter::new(output_file)));
 
-    println!("🔍 Parsing links and writing edges...");
+    println!("Parsing links and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
     let total_links_estimate = 990_554; // Adjust based on actual data if known
     println!(
-        "⚠️  Note: Progress bar is based on an estimated total of {} links.",
+        "Note: Progress bar is based on an estimated total of {} links.",
         total_links_estimate
     );
     let pb = ProgressBar::new(total_links_estimate as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
+            .template("{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
             .progress_chars("#>-"),
     );
 
@@ -183,18 +183,18 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
             }
         });
 
-    pb.finish_with_message("✅ Finished parsing links.");
+    pb.finish_with_message("Finished parsing links.");
 
     let total_edges = *edge_counter.lock().unwrap();
 
     // Inform about any excess links beyond the estimate
     if total_edges > total_links_estimate as u64 {
         println!(
-            "ℹ️  Note: Actual number of links ({}) exceeded the estimated total ({}).",
+            "Note: Actual number of links ({}) exceeded the estimated total ({}).",
             total_edges, total_links_estimate
         );
     } else {
-        println!("ℹ️  Total number of links parsed: {}", total_edges);
+        println!("Total number of links parsed: {}", total_edges);
     }
 
     // Flush the writer to ensure all data is written
