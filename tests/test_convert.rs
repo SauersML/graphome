@@ -25,7 +25,6 @@ fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
 
     /// Test that the adjacency matrix is symmetric after conversion.
     #[test]
