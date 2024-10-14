@@ -4,11 +4,8 @@ use graphome::extract::*;
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::prelude::*;
-use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::io::{self, Read};
+use tempfile::NamedTempFile;
 
 #[cfg(test)]
 mod tests {
@@ -83,13 +80,13 @@ mod tests {
     /// Test that degree matrix is correctly computed from adjacency matrix.
     #[test]
     fn test_degree_matrix_computation() {
-        let adj_matrix = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
+        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 1.0, 0.0],];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
 
-        let expected_degrees = array![2.0, 2.0, 2.0];
-        let expected_degree_matrix = array![[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0],];
+        let expected_degrees = array![1.0, 3.0, 2.0, 2.0];
+        let expected_degree_matrix = array![[1.0, 0.0, 0.0, 0.0], [0.0, 3.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0], [0.0, 0.0, 0.0, 2.0],];
 
         assert_eq!(degrees, expected_degrees);
         assert_eq!(degree_matrix, expected_degree_matrix);
@@ -98,13 +95,13 @@ mod tests {
     /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices.
     #[test]
     fn test_laplacian_computation() {
-        let adj_matrix = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
+        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 1.0, 0.0],];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
         let laplacian = &degree_matrix - &adj_matrix;
 
-        let expected_laplacian = array![[2.0, -1.0, -1.0], [-1.0, 2.0, -1.0], [-1.0, -1.0, 2.0],];
+        let expected_laplacian = array![[1.0, -1.0, 0.0, 0.0], [-1.0, 3.0, -1.0, -1.0], [0.0, -1.0, 2.0, -1.0], [0.0, -1.0, -1.0, 1.0],];
 
         assert_eq!(laplacian, expected_laplacian);
     }
@@ -155,17 +152,16 @@ mod tests {
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
+        let laplacian = &degree_matrix - &adj_matrix;
 
-        let expected_degrees = array![1.0, 3.0, 2.0, 2.0];
-        let expected_degree_matrix = array![
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 3.0, 0.0, 0.0],
-            [0.0, 0.0, 2.0, 0.0],
-            [0.0, 0.0, 0.0, 2.0],
+        let expected_laplacian = array![
+            [1.0, -1.0, 0.0, 0.0],
+            [-1.0, 3.0, -1.0, -1.0],
+            [0.0, -1.0, 2.0, -1.0],
+            [0.0, -1.0, -1.0, 1.0],
         ];
 
-        assert_eq!(degrees, expected_degrees);
-        assert_eq!(degree_matrix, expected_degree_matrix);
+        assert_eq!(laplacian, expected_laplacian);
     }
 
     /// Test that the adjacency matrix is symmetric.
@@ -202,13 +198,13 @@ mod tests {
             [1.0, -1.0, 0.0, 0.0],
             [-1.0, 3.0, -1.0, -1.0],
             [0.0, -1.0, 2.0, -1.0],
-            [0.0, -1.0, -1.0, 2.0],
+            [0.0, -1.0, -1.0, 1.0],
         ];
 
         assert_eq!(laplacian, expected_laplacian);
     }
 
-    /// Test that the eigendecomposition produces non-negative eigenvalues for Laplacian.
+    /// Test that eigendecomposition produces non-negative eigenvalues for Laplacian.
     #[test]
     fn test_eigendecomposition_non_negative_eigenvalues() {
         let laplacian = DMatrix::<f64>::from_row_slice(
@@ -231,26 +227,26 @@ mod tests {
     fn test_save_matrix_to_csv() -> io::Result<()> {
         // Create a temporary matrix
         let matrix = Array2::from_shape_vec((2, 2), vec![0.0, 1.0, 1.0, 0.0])?;
-    
+
         // Output file
         let output_file = NamedTempFile::new()?;
-    
+
         // Save matrix to CSV
         save_matrix_to_csv(&matrix, output_file.path())?;
-    
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-    
+
         // Expected output with floats
         let expected = "0.0,1.0\n1.0,0.0\n";
-    
+
         assert_eq!(
             contents, expected,
             "Saved matrix does not match expected float values."
         );
-    
+
         Ok(())
     }
 
@@ -259,26 +255,26 @@ mod tests {
     fn test_save_nalgebra_matrix_to_csv() -> io::Result<()> {
         // Create a temporary matrix
         let matrix = DMatrix::from_row_slice(2, 2, &[0.0, 1.0, 1.0, 0.0]);
-    
+
         // Output file
         let output_file = NamedTempFile::new()?;
-    
+
         // Save matrix to CSV
         save_nalgebra_matrix_to_csv(&matrix, output_file.path())?;
-    
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-    
+
         // Expected output with floats
         let expected = "0.0,1.0\n1.0,0.0\n";
-    
+
         assert_eq!(
             contents, expected,
             "Saved nalgebra matrix does not match expected float values."
         );
-    
+
         Ok(())
     }
 
@@ -287,26 +283,26 @@ mod tests {
     fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
         // Create a temporary vector
         let vector = DVector::from_vec(vec![0.0, 3.0, 3.0]);
-    
+
         // Output file
         let output_file = NamedTempFile::new()?;
-    
+
         // Save vector to CSV
         save_nalgebra_vector_to_csv(&vector, output_file.path())?;
-    
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-    
+
         // Expected output with floats
         let expected = "0.0,3.0,3.0\n";
-    
+
         assert_eq!(
             contents, expected,
             "Saved vector does not match expected float values."
         );
-    
+
         Ok(())
     }
 
@@ -379,7 +375,7 @@ mod tests {
         // Check saved CSV files
         let laplacian_csv_path = output_path.with_extension("laplacian.csv");
         let laplacian_saved = fs::read_to_string(&laplacian_csv_path)?;
-        let expected_laplacian_csv = "2,-1,-1,0\n-1,3,-1,-1\n-1,-1,2,-0\n0,-1,-0,1\n";
+        let expected_laplacian_csv = "2.0,-1.0,-1.0,0.0\n-1.0,3.0,-1.0,-1.0\n-1.0,-1.0,2.0,-0.0\n0.0,-1.0,-0.0,1.0\n";
         assert_eq!(laplacian_saved, expected_laplacian_csv);
 
         let eigen_csv_path = output_path.with_extension("eigenvectors.csv");
