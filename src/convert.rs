@@ -3,20 +3,19 @@
 //! Module for converting GFA file to adjacency matrix in edge list format.
 
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
 /// Converts a GFA file to an adjacency matrix in edge list format.
 ///
-/// This function reads the GFA file, extracts segments and assigns indices,
-/// then parses the links and writes the edges to an output file.
-/// Both (from, to) and (to, from) edges are written to ensure bidirectionality.
+/// This function performs a two-pass approach:
+/// 1. **First Pass:** Parses the GFA file to collect all unique segment names and assigns them deterministic indices based on sorted order.
+/// 2. **Second Pass:** Parses the links and writes bidirectional edges to the output file in parallel.
 ///
 /// # Arguments
 ///
@@ -38,11 +37,11 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
         gfa_path.as_ref().display()
     );
 
-    // Step 1: Parse the GFA file to extract segments and assign indices
+    // Step 1: Parse the GFA file to extract segments and assign deterministic indices
     let (segment_indices, num_segments) = parse_segments(&gfa_path)?;
     println!("✅ Total segments (nodes) identified: {}", num_segments);
 
-    // Step 2: Parse links and write edges
+    // Step 2: Parse links and write edges in parallel
     parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
     println!("🔗 Finished parsing links and writing edges.");
 
@@ -53,19 +52,19 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 }
 
 /// Parses the GFA file to extract segments and assign unique indices deterministically.
-/// 
+///
 /// Returns a mapping from segment names to indices and the total number of segments.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `gfa_path` - Path to the input GFA file.
-/// 
+///
 /// # Errors
-/// 
+///
 /// Returns an `io::Result` with any file or I/O errors encountered.
-/// 
+///
 /// # Panics
-/// 
+///
 /// This function does not explicitly panic.
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
     let file = File::open(&gfa_path)?;
@@ -90,9 +89,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     // Remove duplicates by converting to a HashSet
     let unique_segments: HashSet<String> = segment_names.into_iter().collect();
 
-    // Sort the segments for deterministic ordering
+    // Sort the segments to ensure deterministic ordering (lexicographical sort)
     let mut sorted_segments: Vec<String> = unique_segments.into_iter().collect();
-    sorted_segments.sort(); // Lexicographical sort
+    sorted_segments.sort();
 
     // Assign indices based on sorted order
     let mut segment_indices = HashMap::new();
@@ -110,6 +109,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
 /// Writes both (from, to) and (to, from) to ensure bidirectional edges.
+/// Processing is done in parallel for performance.
 ///
 /// # Arguments
 ///
@@ -138,7 +138,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     println!("🔍 Parsing links and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
-    let total_links_estimate = 990_554; // This is an arbitrary estimate
+    let total_links_estimate = 990_554; // Adjust based on actual data if known
     println!(
         "⚠️  Note: Progress bar is based on an estimated total of {} links.",
         total_links_estimate
@@ -196,7 +196,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
         println!("ℹ️  Total number of links parsed: {}", total_edges);
     }
 
-    // Flush the writer
+    // Flush the writer to ensure all data is written
     writer.lock().unwrap().flush()?;
 
     Ok(())
