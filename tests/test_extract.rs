@@ -7,7 +7,6 @@ use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use std::collections::HashSet;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
@@ -416,30 +415,30 @@ mod tests {
                 -1.0, -1.0, 2.0,
             ],
         );
-
+        
         // Perform eigendecomposition
         let symmetric_eigen = SymmetricEigen::new(laplacian.clone());
-
+        
         let eigvals = symmetric_eigen.eigenvalues;
         let eigvecs = symmetric_eigen.eigenvectors;
-
+        
         // Iterate through each eigenpair and verify L * v = λ * v
         for i in 0..eigvals.len() {
             let lambda = eigvals[i];
             let v = eigvecs.column(i);
-
+        
             // Compute L * v
             let lv = &laplacian * &v;
-
-            // Compute lambda * v
-            let lambda_v = v * lambda;
-
+        
+            // Compute λ * v
+            let lambda_v: DVector<f64> = v * lambda;  // Explicitly specifying the type for lambda_v
+        
             // Allow a small tolerance for floating-point comparisons
             let tolerance = 1e-6;
             for j in 0..v.len() {
                 assert!(
-                    (lv[j] - lambda_v[j]).abs() < tolerance,
-                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
+                    (lv[j] - lambda_v[j]).abs() < tolerance,  // Ensure floating-point precision with abs()
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, λ*v[{}] = {}",
                     i,
                     j,
                     lv[j],
