@@ -15,8 +15,7 @@ mod tests {
     use super::*;
     use std::fs::{self, File};
     use std::io::{BufWriter, Write};
-    use tempfile::tempdir;
-    use std::path::Path;
+    use tempfile::{NamedTempFile, tempdir};
 
     /// Helper function to create a mock .gam file with given edges.
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
@@ -81,10 +80,12 @@ mod tests {
     /// Test that degree matrix is correctly computed from adjacency matrix.
     #[test]
     fn test_degree_matrix_computation() {
-        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0],
-                                [1.0, 0.0, 1.0, 1.0],
-                                [0.0, 1.0, 0.0, 1.0],
-                                [0.0, 1.0, 1.0, 0.0]];
+        let adj_matrix = array![
+            [0.0, 1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0, 0.0],
+        ];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
@@ -104,10 +105,12 @@ mod tests {
     /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices.
     #[test]
     fn test_laplacian_computation() {
-        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0],
-                                [1.0, 0.0, 1.0, 1.0],
-                                [0.0, 1.0, 0.0, 1.0],
-                                [0.0, 1.0, 1.0, 0.0]];
+        let adj_matrix = array![
+            [0.0, 1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0, 0.0],
+        ];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
