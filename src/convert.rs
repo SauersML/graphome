@@ -5,7 +5,7 @@
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Write, BufRead};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -32,7 +32,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> io::Result<()> {
     let start_time = Instant::now();
 
-    println!("📂 Starting to parse GFA file: {}", gfa_path.as_ref().display());
+    println!(
+        "📂 Starting to parse GFA file: {}",
+        gfa_path.as_ref().display()
+    );
 
     // Step 1: Parse the GFA file to extract segments and assign indices
     let (segment_indices, num_segments) = parse_segments(&gfa_path)?;
@@ -81,7 +84,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let pb = ProgressBar::new(total_segments_estimate as u64);
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Segments")
+            .template(
+                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Segments",
+            )
             .progress_chars("#>-"),
     );
 
@@ -119,7 +124,13 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         println!("ℹ️  Total number of segments parsed: {}", segment_counter);
     }
 
-    Ok((Arc::try_unwrap(segment_indices).unwrap().into_inner().unwrap(), segment_counter))
+    Ok((
+        Arc::try_unwrap(segment_indices)
+            .unwrap()
+            .into_inner()
+            .unwrap(),
+        segment_counter,
+    ))
 }
 
 /// Parses the GFA file to extract links and write edges to the output file.
@@ -177,10 +188,9 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                 let from_name = parts[1];
                 let to_name = parts[3];
 
-                if let (Some(&from_index), Some(&to_index)) = (
-                    segment_indices.get(from_name),
-                    segment_indices.get(to_name),
-                ) {
+                if let (Some(&from_index), Some(&to_index)) =
+                    (segment_indices.get(from_name), segment_indices.get(to_name))
+                {
                     let mut writer = writer.lock().unwrap();
                     writer.write_all(&from_index.to_le_bytes()).unwrap();
                     writer.write_all(&to_index.to_le_bytes()).unwrap();
