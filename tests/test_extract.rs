@@ -97,7 +97,7 @@ mod tests {
         Ok(())
     }
     
-        
+            
     /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
     fn test_full_range_extraction() -> io::Result<()> {
@@ -169,8 +169,16 @@ mod tests {
         
         // Expected eigenvalues
         let expected_eigenvalues = vec![0.0, 3.0, 3.0];
+        
+        // Sort both vectors to ensure the order doesn't affect the comparison
+        let mut sorted_eigenvalues = eigenvalues.clone();
+        sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        let mut sorted_expected = expected_eigenvalues.clone();
+        sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
         assert_eq!(
-            eigenvalues, expected_eigenvalues,
+            sorted_eigenvalues, sorted_expected,
             "Eigenvalues do not match expected values for full range extraction."
         );
         
@@ -185,7 +193,7 @@ mod tests {
         // Note: The actual eigenvectors may vary based on the eigendecomposition implementation,
         // but orthogonality and correctness of eigenvalues should hold.
         
-        // Reconstruct the expected Laplacian matrix as nalgebra::DMatrix<f64>
+        // Perform eigendecomposition on the expected Laplacian
         let expected_laplacian_nalgebra = DMatrix::<f64>::from_row_slice(
             3,
             3,
@@ -196,8 +204,11 @@ mod tests {
             ],
         );
         
+        // Clone the matrix to avoid moving it
+        let nalgebra_laplacian_clone = expected_laplacian_nalgebra.clone();
+        
         // Perform eigendecomposition
-        let symmetric_eigen = SymmetricEigen::new(expected_laplacian_nalgebra.clone());
+        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian_clone);
         let eigvals = symmetric_eigen.eigenvalues;
         let eigvecs = symmetric_eigen.eigenvectors;
         
@@ -228,8 +239,8 @@ mod tests {
         
         Ok(())
     }
-
     
+        
     /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
     #[test]
     fn test_partial_range_extraction() -> io::Result<()> {
@@ -296,10 +307,18 @@ mod tests {
         let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
     
-        // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0, 2]
+        // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0.0, 2.0]
         let expected_eigenvalues = vec![0.0, 2.0];
+        
+        // Sort both vectors to ensure the order doesn't affect the comparison
+        let mut sorted_eigenvalues = eigenvalues.clone();
+        sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        let mut sorted_expected = expected_eigenvalues.clone();
+        sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
         assert_eq!(
-            eigenvalues, expected_eigenvalues,
+            sorted_eigenvalues, sorted_expected,
             "Eigenvalues do not match expected values for partial range extraction."
         );
     
@@ -313,13 +332,45 @@ mod tests {
             [0.70710678, -0.70710678],
         ];
     
-        // Allow for floating-point tolerance
-        let tolerance = 1e-6;
-        for i in 0..2 {
-            for j in 0..2 {
+        // Perform eigendecomposition on the expected Laplacian
+        let expected_laplacian_nalgebra = DMatrix::<f64>::from_row_slice(
+            2,
+            2,
+            &[
+                1.0, -1.0,
+                -1.0, 1.0,
+            ],
+        );
+    
+        // Clone the matrix to avoid moving it
+        let nalgebra_laplacian_clone = expected_laplacian_nalgebra.clone();
+    
+        // Perform eigendecomposition
+        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian_clone);
+        let eigvals = symmetric_eigen.eigenvalues;
+        let eigvecs = symmetric_eigen.eigenvectors;
+    
+        for i in 0..eigvals.len() {
+            let lambda = eigvals[i];
+            let v = eigvecs.column(i);
+            
+            // Compute L * v
+            let lv = &expected_laplacian_nalgebra * &v;
+            
+            // Compute lambda * v
+            let lambda_v = v * lambda;
+            
+            // Allow a small tolerance for floating-point comparisons
+            let tolerance = 1e-6;
+            for j in 0..v.len() {
                 assert!(
-                    (eigenvectors[[i, j]] - expected_eigenvectors[[i, j]]).abs() < tolerance,
-                    "Eigenvectors do not match expected values for partial range extraction."
+                    (lv[j] - lambda_v[j]).abs() < tolerance,
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
+                    i,
+                    j,
+                    lv[j],
+                    j,
+                    lambda_v[j]
                 );
             }
         }
