@@ -4,18 +4,16 @@ use graphome::extract::*;
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::prelude::*;
-use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
+use std::fs;
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use tempfile::{NamedTempFile, tempdir};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs::{self, File};
-    use std::io::{BufWriter, Write};
-    use tempfile::{NamedTempFile, tempdir};
+    use std::fs::File;
+    use std::io::Read;
 
     /// Helper function to create a mock .gam file with given edges.
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
@@ -29,22 +27,52 @@ mod tests {
         Ok(())
     }
 
+    /// Test that the mock .gam file is created correctly.
+    #[test]
+    fn test_create_mock_gam_file() -> io::Result<()> {
+        let dir = tempdir()?;
+        let gam_path = dir.path().join("mock.gam");
+
+        let mock_edges = vec![(0, 1), (1, 2), (2, 0)];
+        create_mock_gam_file(&gam_path, &mock_edges)?;
+
+        // Read the file back and verify its contents
+        let mut file = File::open(&gam_path)?;
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer)?;
+
+        // Each edge consists of 8 bytes (4 bytes for `from` and 4 bytes for `to`)
+        assert_eq!(buffer.len(), mock_edges.len() * 8);
+
+        for (i, &(from, to)) in mock_edges.iter().enumerate() {
+            let offset = i * 8;
+            let from_bytes = &buffer[offset..offset + 4];
+            let to_bytes = &buffer[offset + 4..offset + 8];
+            let from_loaded = u32::from_le_bytes([from_bytes[0], from_bytes[1], from_bytes[2], from_bytes[3]]);
+            let to_loaded = u32::from_le_bytes([to_bytes[0], to_bytes[1], to_bytes[2], to_bytes[3]]);
+            assert_eq!(from_loaded, from);
+            assert_eq!(to_loaded, to);
+        }
+
+        dir.close()?;
+        Ok(())
+    }
+
     /// Test that load_adjacency_matrix correctly loads edges from a .gam file.
     #[test]
-    fn test_load_adjacency_matrix_correctly_loads_edges() -> io::Result<()> {
+    fn test_load_adjacency_matrix() -> io::Result<()> {
         let dir = tempdir()?;
         let gam_path = dir.path().join("test.gam");
 
         let mock_edges = vec![(1, 2), (2, 3), (3, 1)];
-
         create_mock_gam_file(&gam_path, &mock_edges)?;
 
         let loaded_edges = load_adjacency_matrix(&gam_path, 1, 3)?;
 
-        assert_eq!(loaded_edges.len(), 3);
-        assert!(loaded_edges.contains(&(1, 2)));
-        assert!(loaded_edges.contains(&(2, 3)));
-        assert!(loaded_edges.contains(&(3, 1)));
+        assert_eq!(loaded_edges.len(), mock_edges.len());
+        for &(from, to) in &mock_edges {
+            assert!(loaded_edges.contains(&(from, to)));
+        }
 
         dir.close()?;
         Ok(())
@@ -59,7 +87,11 @@ mod tests {
 
         let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
 
-        let expected = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
+        let expected = array![
+            [0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+        ];
 
         assert_eq!(adj_matrix, expected);
     }
@@ -229,23 +261,23 @@ mod tests {
         Ok(())
     }
 
-    /// Test the full extraction and analysis process.
+    /// Test the full extraction and analysis process as an integration test.
     #[test]
     fn test_extract_and_analyze_submatrix_end_to_end() -> io::Result<()> {
         let dir = tempdir()?;
         let gam_path = dir.path().join("test.gam");
         let output_path = dir.path().join("submatrix.gam");
-    
+
         let mock_edges = vec![(0, 1), (1, 2), (2, 0), (1, 3), (3, 4), (4, 1)];
-    
+
         create_mock_gam_file(&gam_path, &mock_edges)?;
-    
+
         // Define node range that includes nodes 1,2,3,4
         let start_node = 1;
         let end_node = 4;
-    
+
         extract_and_analyze_submatrix(&gam_path, start_node, end_node, &output_path)?;
-    
+
         // Check if output files exist
         let laplacian_csv_path = output_path.with_extension("laplacian.csv");
         assert!(
@@ -253,14 +285,14 @@ mod tests {
             "Laplacian CSV file does not exist at {:?}",
             laplacian_csv_path
         );
-    
+
         let eigen_csv_path = output_path.with_extension("eigenvectors.csv");
         assert!(
             eigen_csv_path.exists(),
             "Eigenvectors CSV file does not exist at {:?}",
             eigen_csv_path
         );
-    
+
         let eigenvalues_csv_path = output_path.with_extension("eigenvalues.csv");
         assert!(
             eigenvalues_csv_path.exists(),
@@ -305,7 +337,14 @@ mod tests {
         ];
         for i in 0..laplacian.nrows() {
             for j in 0..laplacian.ncols() {
-                assert!((laplacian[[i, j]] - expected_laplacian[[i, j]]).abs() < 1e-6);
+                assert!(
+                    (laplacian[[i, j]] - expected_laplacian[[i, j]]).abs() < 1e-6,
+                    "Mismatch at position ({}, {}): expected {}, got {}",
+                    i,
+                    j,
+                    expected_laplacian[[i, j]],
+                    laplacian[[i, j]]
+                );
             }
         }
 
@@ -314,21 +353,45 @@ mod tests {
         let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
         let eigvals = symmetric_eigen.eigenvalues;
         for lambda in eigvals.iter().cloned() {
-            assert!(lambda >= -1e-6);
+            assert!(
+                lambda >= -1e-6,
+                "Eigenvalue {} is negative, which is unexpected.",
+                lambda
+            );
         }
 
         // Check saved CSV files
+        // Laplacian CSV
         let laplacian_csv_path = output_path.with_extension("laplacian.csv");
         let laplacian_saved = fs::read_to_string(&laplacian_csv_path)?;
         let expected_laplacian_csv = "2,-1,-1,0\n-1,3,-1,-1\n-1,-1,2,-0\n0,-1,-0,1\n";
-        assert_eq!(laplacian_saved, expected_laplacian_csv);
+        assert_eq!(
+            laplacian_saved, expected_laplacian_csv,
+            "Laplacian CSV content does not match expected."
+        );
 
+        // Eigenvectors CSV
         let eigen_csv_path = output_path.with_extension("eigenvectors.csv");
         let eigenvectors_saved = fs::read_to_string(&eigen_csv_path)?;
-        // Eigenvectors can vary in sign and order
+        // Eigenvectors can vary in sign and order, so we check the number of lines and columns
         let eigenvectors_lines: Vec<&str> = eigenvectors_saved.lines().collect();
-        assert_eq!(eigenvectors_lines.len(), 4); // 4 eigenvectors
+        assert_eq!(
+            eigenvectors_lines.len(),
+            4,
+            "Eigenvectors CSV should have 4 rows, found {}.",
+            eigenvectors_lines.len()
+        );
+        for line in eigenvectors_lines {
+            let columns: Vec<&str> = line.split(',').collect();
+            assert_eq!(
+                columns.len(),
+                4,
+                "Each row in eigenvectors CSV should have 4 columns, found {}.",
+                columns.len()
+            );
+        }
 
+        // Eigenvalues CSV
         let eigenvalues_csv_path = output_path.with_extension("eigenvalues.csv");
         let eigenvalues_saved = fs::read_to_string(&eigenvalues_csv_path)?;
         let eigenvalues: Vec<f64> = eigenvalues_saved
@@ -336,9 +399,18 @@ mod tests {
             .split(',')
             .map(|s| s.parse::<f64>().unwrap())
             .collect();
-        assert_eq!(eigenvalues.len(), 4);
+        assert_eq!(
+            eigenvalues.len(),
+            4,
+            "Eigenvalues CSV should have 4 values, found {}.",
+            eigenvalues.len()
+        );
         for &lambda in &eigenvalues {
-            assert!(lambda >= -1e-6);
+            assert!(
+                lambda >= -1e-6,
+                "Eigenvalue {} is negative, which is unexpected.",
+                lambda
+            );
         }
 
         dir.close()?;
