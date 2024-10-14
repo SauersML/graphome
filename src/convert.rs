@@ -52,86 +52,59 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     Ok(())
 }
 
-/// Parses the GFA file to extract segments and assign unique indices.
-///
+/// Parses the GFA file to extract segments and assign unique indices deterministically.
+/// 
 /// Returns a mapping from segment names to indices and the total number of segments.
-///
+/// 
 /// # Arguments
-///
+/// 
 /// * `gfa_path` - Path to the input GFA file.
-///
+/// 
 /// # Errors
-///
+/// 
 /// Returns an `io::Result` with any file or I/O errors encountered.
-///
+/// 
 /// # Panics
-///
+/// 
 /// This function does not explicitly panic.
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
     let file = File::open(&gfa_path)?;
     let reader = BufReader::new(file);
 
-    let segment_indices = Arc::new(Mutex::new(HashMap::new()));
-    let segment_counter = Arc::new(Mutex::new(0u32));
+    let mut segment_names = Vec::new();
 
     println!("🔍 Parsing segments from GFA file...");
 
-    // Initialize a progress bar with an estimated total number of segments
-    let total_segments_estimate = 110_884_673;
-    println!(
-        "⚠️  Note: Progress bar is based on an estimated total of {} segments.",
-        total_segments_estimate
-    );
-    let pb = ProgressBar::new(total_segments_estimate as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template(
-                "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Segments",
-            )
-            .progress_chars("#>-"),
-    );
-
-    // Read lines in parallel
-    reader
-        .lines()
-        .par_bridge()
-        .filter_map(Result::ok)
-        .filter(|line| line.starts_with("S\t"))
-        .for_each(|line| {
+    // Collect all segment names
+    for line_result in reader.lines() {
+        let line = line_result?;
+        if line.starts_with("S\t") {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
                 let segment_name = parts[1].to_string();
-                let mut indices = segment_indices.lock().unwrap();
-                if !indices.contains_key(&segment_name) {
-                    let mut counter = segment_counter.lock().unwrap();
-                    indices.insert(segment_name, *counter);
-                    *counter += 1;
-                    pb.inc(1);
-                }
+                segment_names.push(segment_name);
             }
-        });
-
-    pb.finish_with_message("✅ Finished parsing segments.");
-
-    let segment_counter = *segment_counter.lock().unwrap();
-
-    // Inform about any excess segments beyond the estimate
-    if segment_counter as u64 > total_segments_estimate as u64 {
-        println!(
-            "ℹ️  Note: Actual number of segments ({}) exceeded the estimated total ({}).",
-            segment_counter, total_segments_estimate
-        );
-    } else {
-        println!("ℹ️  Total number of segments parsed: {}", segment_counter);
+        }
     }
 
-    Ok((
-        Arc::try_unwrap(segment_indices)
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to unwrap segment_indices"))?
-            .into_inner()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Failed to lock segment_indices"))?,
-        segment_counter,
-    ))
+    // Remove duplicates by converting to a HashSet
+    let unique_segments: HashSet<String> = segment_names.into_iter().collect();
+
+    // Sort the segments for deterministic ordering
+    let mut sorted_segments: Vec<String> = unique_segments.into_iter().collect();
+    sorted_segments.sort(); // Lexicographical sort
+
+    // Assign indices based on sorted order
+    let mut segment_indices = HashMap::new();
+    for (index, segment_name) in sorted_segments.iter().enumerate() {
+        segment_indices.insert(segment_name.clone(), index as u32);
+    }
+
+    let segment_counter = sorted_segments.len() as u32;
+
+    println!("✅ Total segments (nodes) identified: {}", segment_counter);
+
+    Ok((segment_indices, segment_counter))
 }
 
 /// Parses the GFA file to extract links and write edges to the output file.
