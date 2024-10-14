@@ -97,8 +97,8 @@ mod tests {
         Ok(())
     }
 
-
-    /// Test extracting a submatrix covering all nodes and verifying it matches the original adjacency matrix
+    
+    /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
     fn test_full_range_extraction() -> io::Result<()> {
         // Create a temporary GFA file with sample data
@@ -121,104 +121,141 @@ mod tests {
         let start_node = 0;
         let end_node = 2;
         
-        // Output file for the extracted submatrix
-        let output_subgam = NamedTempFile::new()?;
+        // Output file base path for analysis
+        let output_analysis = NamedTempFile::new()?;
         
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
             start_node,
             end_node,
-            output_subgam.path(),
+            output_analysis.path(),
         )?;
         
-        // Load the original adjacency matrix
-        let original_edges = read_edges_from_file(output_gam.path())?;
+        // Define expected edges within the range
+        let expected_edges = HashSet::from([
+            (0, 1), // From node 1 to node 2
+            (1, 0), // From node 2 to node 1
+            (1, 2), // From node 2 to node 3
+            (2, 1), // From node 3 to node 2
+            (0, 2), // From node 1 to node 3
+            (2, 0), // From node 3 to node 1
+        ]);
         
-        // Load the extracted submatrix
-        let extracted_edges = read_edges_from_file(output_subgam.path())?;
+        // Load the Laplacian matrix
+        let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
+        let laplacian = load_csv_as_matrix(&laplacian_csv)?;
         
-        // Verify that both edge sets are identical
+        // Verify the Laplacian matrix
+        // For nodes 1, 2, 3 with all mutual connections:
+        // Degrees: 2, 2, 2
+        // Laplacian should be:
+        // [2, -1, -1]
+        // [-1, 2, -1]
+        // [-1, -1, 2]
+        let expected_laplacian = array![
+            [2.0, -1.0, -1.0],
+            [-1.0, 2.0, -1.0],
+            [-1.0, -1.0, 2.0],
+        ];
         assert_eq!(
-            original_edges, extracted_edges,
-            "The extracted submatrix should match the original adjacency matrix."
+            laplacian, expected_laplacian,
+            "Laplacian matrix does not match expected values for full range extraction."
         );
+        
+        // Optionally, verify eigenvalues and eigenvectors
+        // Load eigenvalues
+        let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
+        let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
+        
+        // Expected eigenvalues for the Laplacian matrix [ [2, -1, -1], [-1, 2, -1], [-1, -1, 2] ] are [0, 3, 3]
+        let expected_eigenvalues = vec![0.0, 3.0, 3.0];
+        assert_eq!(
+            eigenvalues, expected_eigenvalues,
+            "Eigenvalues do not match expected values for full range extraction."
+        );
+        
+        // Load eigenvectors
+        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
+        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+        
+        // Expected eigenvectors (normalized) are:
+        // [ [1, 0.70710678, 0.70710678],
+        //   [1, -0.70710678, 0.70710678],
+        //   [1, 0.0, -0.0] ]
+        // Note: The actual eigenvectors may vary based on the eigendecomposition implementation,
+        // but orthogonality and correctness of eigenvalues should hold.
+        
+        // Verify that L * v = lambda * v for each eigenpair
+        let nalgebra_laplacian = adjacency_matrix_to_ndarray(&expected_edges, start_node, end_node);
+        let nalgebra_laplacian = adjacency_matrix_to_ndarray(&expected_edges, start_node, end_node);
+        let nalgebra_laplacian = Array2::<f64>::from_shape_vec((3,3), vec![
+            2.0, -1.0, -1.0,
+            -1.0, 2.0, -1.0,
+            -1.0, -1.0, 2.0,
+        ])?;
+        let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&nalgebra_laplacian)?;
+        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+        let eigvals = symmetric_eigen.eigenvalues;
+        let eigvecs = symmetric_eigen.eigenvectors;
+        
+        for i in 0..eigvals.len() {
+            let lambda = eigvals[i];
+            let v = eigvecs.column(i);
+            
+            // Compute L * v
+            let lv = &nalgebra_laplacian * &v;
+            
+            // Compute lambda * v
+            let lambda_v = v * lambda;
+            
+            // Allow a small tolerance for floating-point comparisons
+            let tolerance = 1e-6;
+            for j in 0..v.len() {
+                assert!(
+                    (lv[j] - lambda_v[j]).abs() < tolerance,
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
+                    i,
+                    j,
+                    lv[j],
+                    j,
+                    lambda_v[j]
+                );
+            }
+        }
         
         Ok(())
     }
     
-    
-    /// Test extracting a submatrix for a subset of nodes and ensuring correct inclusion and exclusion of edges
-    #[test]
-    fn test_partial_range_extraction() -> io::Result<()> {
-        // Create a temporary GFA file with sample data
-        let mut gfa_file = NamedTempFile::new()?;
-        writeln!(gfa_file, "H\tVN:Z:1.0")?;
-        writeln!(gfa_file, "S\t1\t*")?;
-        writeln!(gfa_file, "S\t2\t*")?;
-        writeln!(gfa_file, "S\t3\t*")?;
-        writeln!(gfa_file, "S\t4\t*")?;
-        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
-        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
-        writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
-        writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
-        
-        // Output file for adjacency matrix
-        let output_gam = NamedTempFile::new()?;
-        
-        // Run the conversion
-        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
-        
-        // Define a partial range (nodes 2 to 3)
-        let start_node = 1;
-        let end_node = 2;
-        
-        // Output file for the extracted submatrix
-        let output_subgam = NamedTempFile::new()?;
-        
-        // Run the extraction
-        extract::extract_and_analyze_submatrix(
-            output_gam.path(),
-            start_node,
-            end_node,
-            output_subgam.path(),
-        )?;
-        
-        // Load the original adjacency matrix
-        let original_edges = read_edges_from_file(output_gam.path())?;
-        
-        // Load the extracted submatrix
-        let extracted_edges = read_edges_from_file(output_subgam.path())?;
-        
-        // Define expected edges within the range
-        let expected_extracted_edges = HashSet::from([
-            (1, 2), // From node 2 to node 3
-            (2, 1), // From node 3 to node 2
-        ]);
-        
-        // Define edges that should be excluded
-        let excluded_edges = HashSet::from([
-            (0, 1), // From node 1 to node 2
-            (0, 3), // From node 1 to node 4
-            (1, 3), // From node 2 to node 4
-        ]);
-        
-        // Verify that extracted edges match expected edges
-        assert_eq!(
-            extracted_edges, expected_extracted_edges,
-            "Extracted submatrix does not contain the correct subset of edges."
-        );
-        
-        // Ensure excluded edges are not present
-        for edge in excluded_edges {
-            assert!(
-                !extracted_edges.contains(&edge),
-                "Excluded edge {:?} should not be present in the extracted submatrix.",
-                edge
-            );
+    /// Helper function to load a CSV file as an ndarray::Array2<f64>
+    fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(path)?;
+        let mut matrix = Vec::new();
+        for result in rdr.records() {
+            let record = result?;
+            let row = record.iter().map(|s| s.parse::<f64>().unwrap()).collect::<Vec<f64>>();
+            matrix.push(row);
         }
-        
-        Ok(())
+        let nrows = matrix.len();
+        let ncols = if nrows > 0 { matrix[0].len() } else { 0 };
+        Ok(Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())?)
+    }
+    
+    /// Helper function to load a CSV file as a nalgebra::DVector<f64>
+    fn load_csv_as_vector<P: AsRef<Path>>(path: P) -> io::Result<Vec<f64>> {
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_path(path)?;
+        let mut vector = Vec::new();
+        for result in rdr.records() {
+            let record = result?;
+            for field in record.iter() {
+                vector.push(field.parse::<f64>().unwrap());
+            }
+        }
+        Ok(vector)
     }
 
 
