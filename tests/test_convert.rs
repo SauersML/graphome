@@ -40,55 +40,55 @@ mod tests {
 
     /// Test 1.1: Is GFA file to an adjacency matrix in edge list format without data loss and correctly?
     #[test]
-    fn test_gfa_to_adjacency_matrix_basic_conversion() {
-        use std::collections::HashSet;
-        use std::io::Write;
-        use tempfile::NamedTempFile;
-
-        // GFA content
-        let gfa_content = "\
-    H\tVN:Z:1.0
-    S\tA\tACCTT
-    S\tB\tTCAAGG
-    S\tC\tCTTGATT
-    L\tA\t+\tB\t+\t*
-    L\tB\t+\tA\t+\t*
-    L\tA\t+\tC\t+\t*
-    L\tC\t+\tA\t+\t*
-    L\tB\t+\tC\t+\t*
-    L\tC\t+\tB\t+\t*
-    P\tbasic_path\tA+,B+,C+
-        ";
-
-        // Create temporary GFA file
-        let mut temp_gfa = NamedTempFile::new().unwrap();
-        write!(temp_gfa.as_file_mut(), "{}", gfa_content).unwrap();
-
-        // Create temporary output .gam file
-        let temp_gam = NamedTempFile::new().unwrap();
-
+    fn test_gfa_to_adjacency_matrix_basic_conversion() -> io::Result<()> {
+        // Create a temporary GFA file with sample data
+        let mut gfa_file = NamedTempFile::new()?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\tA\t*")?;
+        writeln!(gfa_file, "S\tB\t*")?;
+        writeln!(gfa_file, "S\tC\t*")?;
+        writeln!(gfa_file, "L\tA\t+\tB\t+\t0M")?;
+        writeln!(gfa_file, "L\tB\t+\tC\t+\t0M")?;
+        writeln!(gfa_file, "L\tA\t+\tC\t+\t0M")?;
+    
+        // Output file for adjacency matrix
+        let output_file = NamedTempFile::new()?;
+    
         // Run the conversion
-        convert::convert_gfa_to_edge_list(temp_gfa.path(), temp_gam.path()).unwrap();
-
-        // Read the .gam file
-        let edges = read_edges_from_bin(temp_gam.path()).unwrap();
-
-        // Define expected edges
-        let expected_edges = vec![
-            (0, 1), // A -> B
-            (1, 0), // B -> A
-            (0, 2), // A -> C
-            (2, 0), // C -> A
-            (1, 2), // B -> C
-            (2, 1), // C -> B
-        ];
-        let expected_set: HashSet<(u32, u32)> = expected_edges.into_iter().collect();
-        let actual_set: HashSet<(u32, u32)> = edges.into_iter().collect();
-
+        convert_gfa_to_edge_list(gfa_file.path(), output_file.path())?;
+    
+        // Read the output and verify the edges
+        let edges = read_edges_from_file(output_file.path())?;
+        let expected_edges = HashSet::from([
+            (0, 1),
+            (1, 0),
+            (1, 2),
+            (2, 1),
+            (0, 2),
+            (2, 0),
+        ]);
+    
         assert_eq!(
-            actual_set, expected_set,
+            edges, expected_edges,
             "Edges do not match expected values."
         );
+    
+        Ok(())
+    }
+
+    // Helper function to read edges from the binary edge list file
+    fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
+        let mut edges = HashSet::new();
+        let mut file = File::open(path)?;
+        let mut buffer = [0u8; 8];
+    
+        while let Ok(_) = file.read_exact(&mut buffer) {
+            let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+            let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+            edges.insert((from, to));
+        }
+    
+        Ok(edges)
     }
 
     /// Test 1.2: Is GFA file with duplicate segments converted correctly without data loss?
