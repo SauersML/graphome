@@ -226,6 +226,96 @@ mod tests {
         
         Ok(())
     }
+
+    
+    /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
+    #[test]
+    fn test_partial_range_extraction() -> io::Result<()> {
+        // Create a temporary GFA file with sample data
+        let mut gfa_file = NamedTempFile::new()?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        writeln!(gfa_file, "S\t3\t*")?;
+        writeln!(gfa_file, "S\t4\t*")?;
+        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
+        writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
+        writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
+    
+        // Output file for adjacency matrix
+        let output_gam = NamedTempFile::new()?;
+    
+        // Run the conversion
+        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+    
+        // Define a partial range (nodes 2 to 3)
+        let start_node = 1;
+        let end_node = 2;
+    
+        // Output file base path for analysis
+        let output_analysis = NamedTempFile::new()?;
+    
+        // Run the extraction
+        extract::extract_and_analyze_submatrix(
+            output_gam.path(),
+            start_node,
+            end_node,
+            output_analysis.path(),
+        )?;
+    
+        // Load the Laplacian matrix from CSV
+        let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
+        let laplacian = load_csv_as_matrix(&laplacian_csv)?;
+    
+        // Verify the Laplacian matrix for nodes 2 and 3:
+        // 2 connected to 3, 3 connected to 2, so Laplacian is:
+        // [1, -1]
+        // [-1, 1]
+        let expected_laplacian = array![
+            [1.0, -1.0],
+            [-1.0, 1.0],
+        ];
+        assert_eq!(
+            laplacian, expected_laplacian,
+            "Laplacian matrix does not match expected values for partial range extraction."
+        );
+    
+        // Load the eigenvalues from CSV
+        let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
+        let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
+    
+        // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0, 2]
+        let expected_eigenvalues = vec![0.0, 2.0];
+        assert_eq!(
+            eigenvalues, expected_eigenvalues,
+            "Eigenvalues do not match expected values for partial range extraction."
+        );
+    
+        // Load the eigenvectors from CSV
+        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
+        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    
+        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ] (Z-normalized)
+        let expected_eigenvectors = array![
+            [0.70710678, 0.70710678],
+            [0.70710678, -0.70710678],
+        ];
+    
+        // Allow for floating-point tolerance
+        let tolerance = 1e-6;
+        for i in 0..2 {
+            for j in 0..2 {
+                assert!(
+                    (eigenvectors[[i, j]] - expected_eigenvectors[[i, j]]).abs() < tolerance,
+                    "Eigenvectors do not match expected values for partial range extraction."
+                );
+            }
+        }
+    
+        Ok(())
+    }
+    
     
     /// Helper function to load a CSV file as an ndarray::Array2<f64>
     fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
