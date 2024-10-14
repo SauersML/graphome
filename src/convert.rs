@@ -1,12 +1,13 @@
 // src/convert.rs
 
-//! Module for converting GFA file to adjacency matrix in edge list format.
+// Module for converting GFA file to adjacency matrix in edge list format.
 
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use indicatif::{ProgressBar, ProgressStyle};
