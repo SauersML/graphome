@@ -19,21 +19,6 @@ mod tests {
     use std::io::Read;
 
 
-    /// Helper function to read edges from the binary edge list file
-    fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
-        let mut edges = HashSet::new();
-        let mut file = File::open(path)?;
-        let mut buffer = [0u8; 8];
-    
-        while let Ok(_) = file.read_exact(&mut buffer) {
-            let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-            let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-            edges.insert((from, to));
-        }
-    
-        Ok(edges)
-    }
-
     /// Helper function to create a mock .gam file with given edges
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
         let file = File::create(path)?;
@@ -96,8 +81,8 @@ mod tests {
         dir.close()?;
         Ok(())
     }
-    
-            
+
+
     /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
     fn test_full_range_extraction() -> io::Result<()> {
@@ -110,20 +95,20 @@ mod tests {
         writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
         writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
         writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
-        
+
         // Output file for adjacency matrix
         let output_gam = NamedTempFile::new()?;
-        
+
         // Run the conversion
         convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
-        
+
         // Define the full range (all nodes)
         let start_node = 0;
         let end_node = 2;
-        
+
         // Output file base path for analysis
         let output_analysis = NamedTempFile::new()?;
-        
+
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
@@ -131,9 +116,9 @@ mod tests {
             end_node,
             output_analysis.path(),
         )?;
-        
+
         // Define expected edges within the range as a Vec
-        let expected_edges: Vec<(u32, u32)> = vec![
+        let _expected_edges: Vec<(u32, u32)> = vec![
             (0, 1), // From node 1 to node 2
             (1, 0), // From node 2 to node 1
             (1, 2), // From node 2 to node 3
@@ -141,11 +126,11 @@ mod tests {
             (0, 2), // From node 1 to node 3
             (2, 0), // From node 3 to node 1
         ];
-        
+
         // Load the Laplacian matrix from CSV
         let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
-        
+
         // Verify the Laplacian matrix
         // For nodes 1, 2, 3 with all mutual connections:
         // Degrees: 2, 2, 2
@@ -162,85 +147,38 @@ mod tests {
             laplacian, expected_laplacian,
             "Laplacian matrix does not match expected values for full range extraction."
         );
-        
+
         // Load eigenvalues
         let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
-        
+
         // Expected eigenvalues
         let expected_eigenvalues = vec![0.0, 3.0, 3.0];
-        
-        // Sort both vectors to ensure the order doesn't affect the comparison
+
+        // The order doesn't affect the comparison
         let mut sorted_eigenvalues = eigenvalues.clone();
         sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
+
         let mut sorted_expected = expected_eigenvalues.clone();
         sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
-        assert_eq!(
-            sorted_eigenvalues, sorted_expected,
-            "Eigenvalues do not match expected values for full range extraction."
-        );
-        
-        // Load eigenvectors
-        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
-        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
-        
-        // Expected eigenvectors (normalized) are:
-        // [ [1, 0.70710678, 0.70710678],
-        //   [1, -0.70710678, 0.70710678],
-        //   [1, 0.0, -0.0] ]
-        // Note: The actual eigenvectors may vary based on the eigendecomposition implementation,
-        // but orthogonality and correctness of eigenvalues should hold.
-        
-        // Perform eigendecomposition on the expected Laplacian
-        let expected_laplacian_nalgebra = DMatrix::<f64>::from_row_slice(
-            3,
-            3,
-            &[
-                2.0, -1.0, -1.0,
-                -1.0, 2.0, -1.0,
-                -1.0, -1.0, 2.0,
-            ],
-        );
-        
-        // Clone the matrix to avoid moving it
-        let nalgebra_laplacian_clone = expected_laplacian_nalgebra.clone();
-        
-        // Perform eigendecomposition
-        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian_clone);
-        let eigvals = symmetric_eigen.eigenvalues;
-        let eigvecs = symmetric_eigen.eigenvectors;
-        
-        for i in 0..eigvals.len() {
-            let lambda = eigvals[i];
-            let v = eigvecs.column(i);
-            
-            // Compute L * v
-            let lv = &expected_laplacian_nalgebra * &v;
-            
-            // Compute lambda * v
-            let lambda_v = v * lambda;
-            
-            // Allow a small tolerance for floating-point comparisons
-            let tolerance = 1e-6;
-            for j in 0..v.len() {
-                assert!(
-                    (lv[j] - lambda_v[j]).abs() < tolerance,
-                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
-                    i,
-                    j,
-                    lv[j],
-                    j,
-                    lambda_v[j]
-                );
-            }
+
+        // Define a tolerance for floating-point comparison
+        let tolerance = 1e-6;
+
+        // Compare each eigenvalue within the tolerance
+        for (computed, expected) in sorted_eigenvalues.iter().zip(sorted_expected.iter()) {
+            assert!(
+                (*computed - *expected).abs() < tolerance,
+                "Eigenvalue mismatch: computed {} vs expected {}",
+                computed,
+                expected
+            );
         }
-        
+
         Ok(())
     }
-    
-        
+
+
     /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
     #[test]
     fn test_partial_range_extraction() -> io::Result<()> {
@@ -255,20 +193,20 @@ mod tests {
         writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
         writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
         writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
-    
+
         // Output file for adjacency matrix
         let output_gam = NamedTempFile::new()?;
-    
+
         // Run the conversion
         convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
-    
+
         // Define a partial range (nodes 2 to 3)
         let start_node = 1;
         let end_node = 2;
-    
+
         // Output file base path for analysis
         let output_analysis = NamedTempFile::new()?;
-    
+
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
@@ -276,17 +214,17 @@ mod tests {
             end_node,
             output_analysis.path(),
         )?;
-    
+
         // Define expected edges within the range as a Vec
-        let expected_edges: Vec<(u32, u32)> = vec![
+        let _expected_edges: Vec<(u32, u32)> = vec![
             (1, 2), // From node 2 to node 3
             (2, 1), // From node 3 to node 2
         ];
-    
+
         // Load the Laplacian matrix from CSV
         let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
-    
+
         // Verify the Laplacian matrix
         // For nodes 2 and 3, the adjacency is:
         // 2 connected to 3
@@ -302,83 +240,38 @@ mod tests {
             laplacian, expected_laplacian,
             "Laplacian matrix does not match expected values for partial range extraction."
         );
-    
+
         // Load the eigenvalues from CSV
         let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
-    
+
         // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0.0, 2.0]
         let expected_eigenvalues = vec![0.0, 2.0];
-        
-        // Sort both vectors to ensure the order doesn't affect the comparison
+
+        // The order doesn't affect the comparison
         let mut sorted_eigenvalues = eigenvalues.clone();
         sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
+
         let mut sorted_expected = expected_eigenvalues.clone();
         sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        
-        assert_eq!(
-            sorted_eigenvalues, sorted_expected,
-            "Eigenvalues do not match expected values for partial range extraction."
-        );
-    
-        // Load the eigenvectors from CSV
-        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
-        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
-    
-        // Expected eigenvectors: normalized [ [1, 1], [1, -1] ] (Z-normalized)
-        let expected_eigenvectors = array![
-            [0.70710678, 0.70710678],
-            [0.70710678, -0.70710678],
-        ];
-    
-        // Perform eigendecomposition on the expected Laplacian
-        let expected_laplacian_nalgebra = DMatrix::<f64>::from_row_slice(
-            2,
-            2,
-            &[
-                1.0, -1.0,
-                -1.0, 1.0,
-            ],
-        );
-    
-        // Clone the matrix to avoid moving it
-        let nalgebra_laplacian_clone = expected_laplacian_nalgebra.clone();
-    
-        // Perform eigendecomposition
-        let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian_clone);
-        let eigvals = symmetric_eigen.eigenvalues;
-        let eigvecs = symmetric_eigen.eigenvectors;
-    
-        for i in 0..eigvals.len() {
-            let lambda = eigvals[i];
-            let v = eigvecs.column(i);
-            
-            // Compute L * v
-            let lv = &expected_laplacian_nalgebra * &v;
-            
-            // Compute lambda * v
-            let lambda_v = v * lambda;
-            
-            // Allow a small tolerance for floating-point comparisons
-            let tolerance = 1e-6;
-            for j in 0..v.len() {
-                assert!(
-                    (lv[j] - lambda_v[j]).abs() < tolerance,
-                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
-                    i,
-                    j,
-                    lv[j],
-                    j,
-                    lambda_v[j]
-                );
-            }
+
+        // Define a tolerance for floating-point comparison
+        let tolerance = 1e-6;
+
+        // Compare each eigenvalue within the tolerance
+        for (computed, expected) in sorted_eigenvalues.iter().zip(sorted_expected.iter()) {
+            assert!(
+                (*computed - *expected).abs() < tolerance,
+                "Eigenvalue mismatch: computed {} vs expected {}",
+                computed,
+                expected
+            );
         }
-    
+
         Ok(())
     }
-    
-    
+
+
     /// Helper function to load a CSV file as an ndarray::Array2<f64>
     fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
         let mut rdr = csv::ReaderBuilder::new()
@@ -395,7 +288,7 @@ mod tests {
         Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
-    
+
     /// Helper function to load a CSV file as a nalgebra::DVector<f64>
     fn load_csv_as_vector<P: AsRef<Path>>(path: P) -> io::Result<Vec<f64>> {
         let mut rdr = csv::ReaderBuilder::new()
@@ -505,7 +398,7 @@ mod tests {
         let eigvals = symmetric_eigen.eigenvalues;
 
         for lambda in eigvals.iter().cloned() {
-            assert!(lambda >= -1e-6); // Allowing a small negative due to floating point precision
+            assert!(lambda >= -1e-6, "Eigenvalue {} is negative beyond tolerance.", lambda);
         }
     }
 
@@ -523,30 +416,30 @@ mod tests {
                 -1.0, -1.0, 2.0,
             ],
         );
-        
+
         // Perform eigendecomposition
         let symmetric_eigen = SymmetricEigen::new(laplacian.clone());
-        
+
         let eigvals = symmetric_eigen.eigenvalues;
         let eigvecs = symmetric_eigen.eigenvectors;
-        
+
         // Iterate through each eigenpair and verify L * v = λ * v
         for i in 0..eigvals.len() {
             let lambda = eigvals[i];
             let v = eigvecs.column(i);
-            
+
             // Compute L * v
             let lv = &laplacian * &v;
-            
-            // Compute λ * v
-            let lambda_v: DVector<f64> = v * lambda;
-            
+
+            // Compute lambda * v
+            let lambda_v = v * lambda;
+
             // Allow a small tolerance for floating-point comparisons
             let tolerance = 1e-6;
             for j in 0..v.len() {
                 assert!(
                     (lv[j] - lambda_v[j]).abs() < tolerance,
-                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, λ*v[{}] = {}",
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
                     i,
                     j,
                     lv[j],
@@ -555,7 +448,7 @@ mod tests {
                 );
             }
         }
-        
+
         Ok(())
     }
 
@@ -571,7 +464,7 @@ mod tests {
 
         // Save matrix to CSV
         save_matrix_to_csv(&matrix, output_file.path())?;
-
+        
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
@@ -599,7 +492,7 @@ mod tests {
 
         // Save matrix to CSV
         save_nalgebra_matrix_to_csv(&matrix, output_file.path())?;
-
+        
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
@@ -627,7 +520,7 @@ mod tests {
 
         // Save vector to CSV
         save_nalgebra_vector_to_csv(&vector, output_file.path())?;
-
+        
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
