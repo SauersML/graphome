@@ -4,7 +4,6 @@ use graphome::extract::*;
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::prelude::*;
-use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use tempfile::{NamedTempFile, tempdir};
