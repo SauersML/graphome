@@ -7,7 +7,7 @@ use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
 use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use std::collections::HashSet
+use std::collections::HashSet;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
