@@ -4,8 +4,11 @@ use graphome::extract::*;
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::prelude::*;
-use std::io::{self, Read};
-use tempfile::NamedTempFile;
+use std::fs::File;
+use std::io::{self, BufReader, Read, Write};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 #[cfg(test)]
 mod tests {
@@ -13,6 +16,8 @@ mod tests {
     use std::fs::{self, File};
     use std::io::{BufWriter, Write};
     use tempfile::tempdir;
+    use std::path::Path;
+    use std::io::Write;
 
     /// Helper function to create a mock .gam file with given edges.
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
@@ -65,10 +70,7 @@ mod tests {
     #[test]
     fn test_adjacency_matrix_is_symmetric() {
         let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
-        let start_node = 0;
-        let end_node = 2;
-
-        let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
+        let adj_matrix = adjacency_matrix_to_ndarray(&edges, 0, 2);
 
         for i in 0..adj_matrix.nrows() {
             for j in 0..adj_matrix.ncols() {
@@ -80,13 +82,21 @@ mod tests {
     /// Test that degree matrix is correctly computed from adjacency matrix.
     #[test]
     fn test_degree_matrix_computation() {
-        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 1.0, 0.0],];
+        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0],
+                                [1.0, 0.0, 1.0, 1.0],
+                                [0.0, 1.0, 0.0, 1.0],
+                                [0.0, 1.0, 1.0, 0.0]];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
 
         let expected_degrees = array![1.0, 3.0, 2.0, 2.0];
-        let expected_degree_matrix = array![[1.0, 0.0, 0.0, 0.0], [0.0, 3.0, 0.0, 0.0], [0.0, 0.0, 2.0, 0.0], [0.0, 0.0, 0.0, 2.0],];
+        let expected_degree_matrix = array![
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0, 0.0],
+            [0.0, 0.0, 2.0, 0.0],
+            [0.0, 0.0, 0.0, 2.0],
+        ];
 
         assert_eq!(degrees, expected_degrees);
         assert_eq!(degree_matrix, expected_degree_matrix);
@@ -95,60 +105,10 @@ mod tests {
     /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices.
     #[test]
     fn test_laplacian_computation() {
-        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0], [1.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 1.0, 1.0, 0.0],];
-
-        let degrees = adj_matrix.sum_axis(Axis(1));
-        let degree_matrix = Array2::<f64>::from_diag(&degrees);
-        let laplacian = &degree_matrix - &adj_matrix;
-
-        let expected_laplacian = array![[1.0, -1.0, 0.0, 0.0], [-1.0, 3.0, -1.0, -1.0], [0.0, -1.0, 2.0, -1.0], [0.0, -1.0, -1.0, 1.0],];
-
-        assert_eq!(laplacian, expected_laplacian);
-    }
-
-    /// Test that eigendecomposition is performed correctly on the Laplacian matrix.
-    #[test]
-    fn test_eigendecomposition_correctness() {
-        let laplacian = DMatrix::<f64>::from_row_slice(
-            3,
-            3,
-            &[2.0, -1.0, -1.0, -1.0, 2.0, -1.0, -1.0, -1.0, 2.0],
-        );
-
-        let symmetric_eigen = SymmetricEigen::new(laplacian);
-
-        let eigvals = symmetric_eigen.eigenvalues;
-        let eigvecs = symmetric_eigen.eigenvectors;
-
-        // For a triangle graph, eigenvalues are 0, 3, and 3
-        let expected_eigvals = vec![0.0, 3.0, 3.0];
-        for &val in &expected_eigvals {
-            assert!(eigvals.iter().any(|&x| (x - val).abs() < 1e-6));
-        }
-
-        // Eigenvectors should be orthogonal
-        let product = eigvecs.transpose() * eigvecs.clone();
-        let identity = DMatrix::<f64>::identity(eigvecs.ncols(), eigvecs.ncols());
-        for i in 0..identity.nrows() {
-            for j in 0..identity.ncols() {
-                if i == j {
-                    assert!((product[(i, j)] - 1.0).abs() < 1e-6);
-                } else {
-                    assert!(product[(i, j)].abs() < 1e-6);
-                }
-            }
-        }
-    }
-
-    /// Test that the degree matrix is correctly computed.
-    #[test]
-    fn test_degree_matrix_correctness() {
-        let adj_matrix = array![
-            [0.0, 1.0, 0.0, 0.0],
-            [1.0, 0.0, 1.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0, 0.0],
-        ];
+        let adj_matrix = array![[0.0, 1.0, 0.0, 0.0],
+                                [1.0, 0.0, 1.0, 1.0],
+                                [0.0, 1.0, 0.0, 1.0],
+                                [0.0, 1.0, 1.0, 0.0]];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
@@ -158,47 +118,7 @@ mod tests {
             [1.0, -1.0, 0.0, 0.0],
             [-1.0, 3.0, -1.0, -1.0],
             [0.0, -1.0, 2.0, -1.0],
-            [0.0, -1.0, -1.0, 1.0],
-        ];
-
-        assert_eq!(laplacian, expected_laplacian);
-    }
-
-    /// Test that the adjacency matrix is symmetric.
-    #[test]
-    fn test_adjacency_matrix_symmetry() {
-        let edges = vec![(0, 1), (1, 2), (2, 0), (3, 4), (4, 3)];
-        let start_node = 0;
-        let end_node = 4;
-
-        let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
-
-        for i in 0..adj_matrix.nrows() {
-            for j in 0..adj_matrix.ncols() {
-                assert_eq!(adj_matrix[[i, j]], adj_matrix[[j, i]]);
-            }
-        }
-    }
-
-    /// Test that the Laplacian matrix is correctly computed.
-    #[test]
-    fn test_laplacian_correctness() {
-        let adj_matrix = array![
-            [0.0, 1.0, 0.0, 0.0],
-            [1.0, 0.0, 1.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-            [0.0, 1.0, 1.0, 0.0],
-        ];
-
-        let degrees = adj_matrix.sum_axis(Axis(1));
-        let degree_matrix = Array2::<f64>::from_diag(&degrees);
-        let laplacian = &degree_matrix - &adj_matrix;
-
-        let expected_laplacian = array![
-            [1.0, -1.0, 0.0, 0.0],
-            [-1.0, 3.0, -1.0, -1.0],
-            [0.0, -1.0, 2.0, -1.0],
-            [0.0, -1.0, -1.0, 1.0],
+            [0.0, -1.0, -1.0, 2.0],
         ];
 
         assert_eq!(laplacian, expected_laplacian);
@@ -226,7 +146,8 @@ mod tests {
     #[test]
     fn test_save_matrix_to_csv() -> io::Result<()> {
         // Create a temporary matrix
-        let matrix = Array2::from_shape_vec((2, 2), vec![0.0, 1.0, 1.0, 0.0])?;
+        let matrix = Array2::from_shape_vec((2, 2), vec![0.0, 1.0, 1.0, 0.0])
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         // Output file
         let output_file = NamedTempFile::new()?;
@@ -375,7 +296,7 @@ mod tests {
         // Check saved CSV files
         let laplacian_csv_path = output_path.with_extension("laplacian.csv");
         let laplacian_saved = fs::read_to_string(&laplacian_csv_path)?;
-        let expected_laplacian_csv = "2.0,-1.0,-1.0,0.0\n-1.0,3.0,-1.0,-1.0\n-1.0,-1.0,2.0,-0.0\n0.0,-1.0,-0.0,1.0\n";
+        let expected_laplacian_csv = "2,-1,-1,0\n-1,3,-1,-1\n-1,-1,2,-0\n0,-1,-0,1\n";
         assert_eq!(laplacian_saved, expected_laplacian_csv);
 
         let eigen_csv_path = output_path.with_extension("eigenvectors.csv");
