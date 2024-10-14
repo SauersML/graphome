@@ -1,7 +1,8 @@
+use graphome::convert::*;
 use graphome::extract::*;
 
-use ndarray::prelude::*;
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
+use ndarray::prelude::*;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
@@ -10,9 +11,8 @@ use std::time::Instant;
 
 use bitvec::prelude::*;
 use csv::WriterBuilder;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
-
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 #[cfg(test)]
 mod tests {
@@ -39,11 +39,7 @@ mod tests {
         let dir = tempdir()?;
         let gam_path = dir.path().join("test.gam");
 
-        let mock_edges = vec![
-            (1, 2),
-            (2, 3),
-            (3, 1),
-        ];
+        let mock_edges = vec![(1, 2), (2, 3), (3, 1)];
 
         create_mock_gam_file(&gam_path, &mock_edges)?;
 
@@ -61,21 +57,13 @@ mod tests {
     /// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix.
     #[test]
     fn test_adjacency_matrix_to_ndarray_correct_conversion() {
-        let edges = vec![
-            (0, 1),
-            (1, 2),
-            (2, 0),
-        ];
+        let edges = vec![(0, 1), (1, 2), (2, 0)];
         let start_node = 0;
         let end_node = 2;
 
         let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
 
-        let expected = array![
-            [0.0, 1.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-        ];
+        let expected = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
 
         assert_eq!(adj_matrix, expected);
     }
@@ -83,12 +71,7 @@ mod tests {
     /// Test that the adjacency matrix is symmetric.
     #[test]
     fn test_adjacency_matrix_is_symmetric() {
-        let edges = vec![
-            (0, 1),
-            (1, 2),
-            (2, 0),
-            (0, 2),
-        ];
+        let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
         let start_node = 0;
         let end_node = 2;
 
@@ -104,21 +87,13 @@ mod tests {
     /// Test that degree matrix is correctly computed from adjacency matrix.
     #[test]
     fn test_degree_matrix_computation() {
-        let adj_matrix = array![
-            [0.0, 1.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-        ];
+        let adj_matrix = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
 
         let expected_degrees = array![2.0, 2.0, 2.0];
-        let expected_degree_matrix = array![
-            [2.0, 0.0, 0.0],
-            [0.0, 2.0, 0.0],
-            [0.0, 0.0, 2.0],
-        ];
+        let expected_degree_matrix = array![[2.0, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0],];
 
         assert_eq!(degrees, expected_degrees);
         assert_eq!(degree_matrix, expected_degree_matrix);
@@ -127,21 +102,13 @@ mod tests {
     /// Test that Laplacian matrix is correctly computed from degree and adjacency matrices.
     #[test]
     fn test_laplacian_computation() {
-        let adj_matrix = array![
-            [0.0, 1.0, 1.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-        ];
+        let adj_matrix = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
         let degree_matrix = Array2::<f64>::from_diag(&degrees);
         let laplacian = &degree_matrix - &adj_matrix;
 
-        let expected_laplacian = array![
-            [2.0, -1.0, -1.0],
-            [-1.0, 2.0, -1.0],
-            [-1.0, -1.0, 2.0],
-        ];
+        let expected_laplacian = array![[2.0, -1.0, -1.0], [-1.0, 2.0, -1.0], [-1.0, -1.0, 2.0],];
 
         assert_eq!(laplacian, expected_laplacian);
     }
@@ -152,11 +119,7 @@ mod tests {
         let laplacian = DMatrix::<f64>::from_row_slice(
             3,
             3,
-            &[
-                2.0, -1.0, -1.0,
-                -1.0, 2.0, -1.0,
-                -1.0, -1.0, 2.0,
-            ],
+            &[2.0, -1.0, -1.0, -1.0, 2.0, -1.0, -1.0, -1.0, 2.0],
         );
 
         let symmetric_eigen = SymmetricEigen::new(laplacian);
@@ -212,13 +175,7 @@ mod tests {
     /// Test that the adjacency matrix is symmetric.
     #[test]
     fn test_adjacency_matrix_symmetry() {
-        let edges = vec![
-            (0, 1),
-            (1, 2),
-            (2, 0),
-            (3, 4),
-            (4, 3),
-        ];
+        let edges = vec![(0, 1), (1, 2), (2, 0), (3, 4), (4, 3)];
         let start_node = 0;
         let end_node = 4;
 
@@ -261,11 +218,7 @@ mod tests {
         let laplacian = DMatrix::<f64>::from_row_slice(
             3,
             3,
-            &[
-                2.0, -1.0, -1.0,
-                -1.0, 2.0, -1.0,
-                -1.0, -1.0, 2.0,
-            ],
+            &[2.0, -1.0, -1.0, -1.0, 2.0, -1.0, -1.0, -1.0, 2.0],
         );
 
         let symmetric_eigen = SymmetricEigen::new(laplacian);
@@ -283,10 +236,7 @@ mod tests {
         let dir = tempdir()?;
         let csv_path = dir.path().join("adjacency.csv");
 
-        let adj_matrix = array![
-            [0.0, 1.0],
-            [1.0, 0.0],
-        ];
+        let adj_matrix = array![[0.0, 1.0], [1.0, 0.0],];
 
         save_matrix_to_csv(&adj_matrix, &csv_path)?;
 
@@ -304,14 +254,7 @@ mod tests {
         let dir = tempdir()?;
         let csv_path = dir.path().join("nalgebra_matrix.csv");
 
-        let nalgebra_matrix = DMatrix::<f64>::from_row_slice(
-            2,
-            2,
-            &[
-                0.0, 1.0,
-                1.0, 0.0,
-            ],
-        );
+        let nalgebra_matrix = DMatrix::<f64>::from_row_slice(2, 2, &[0.0, 1.0, 1.0, 0.0]);
 
         save_nalgebra_matrix_to_csv(&nalgebra_matrix, &csv_path)?;
 
@@ -348,14 +291,7 @@ mod tests {
         let gam_path = dir.path().join("test.gam");
         let output_path = dir.path().join("submatrix.gam");
 
-        let mock_edges = vec![
-            (0, 1),
-            (1, 2),
-            (2, 0),
-            (1, 3),
-            (3, 4),
-            (4, 1),
-        ];
+        let mock_edges = vec![(0, 1), (1, 2), (2, 0), (1, 3), (3, 4), (4, 1)];
 
         create_mock_gam_file(&gam_path, &mock_edges)?;
 
@@ -369,14 +305,7 @@ mod tests {
         let extracted_edges = load_adjacency_matrix(&output_path, start_node, end_node)?;
 
         // Expected edges in the submatrix: (1,2), (1,3), (2,1), (3,1), (3,4), (4,1)
-        let expected_edges = vec![
-            (1, 2),
-            (2, 1),
-            (1, 3),
-            (3, 1),
-            (3, 4),
-            (4, 1),
-        ];
+        let expected_edges = vec![(1, 2), (2, 1), (1, 3), (3, 1), (3, 4), (4, 1)];
 
         assert_eq!(extracted_edges.len(), expected_edges.len());
         for &(from, to) in &expected_edges {
