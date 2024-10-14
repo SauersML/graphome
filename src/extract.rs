@@ -1,13 +1,13 @@
 //! Module for extracting adjacency submatrix from edge list and performing analysis.
 
-use ndarray::prelude::*;
+use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::parallel::prelude::*;
+use ndarray::prelude::*;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use nalgebra::{DMatrix, DVector, SymmetricEigen};
 
 use bitvec::prelude::*;
 
@@ -28,9 +28,16 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     let start_time = Instant::now();
 
     // Load the adjacency matrix from the .gam file
-    println!("📂 Loading adjacency matrix from {:?}", edge_list_path.as_ref());
+    println!(
+        "📂 Loading adjacency matrix from {:?}",
+        edge_list_path.as_ref()
+    );
 
-    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(&edge_list_path, start_node, end_node)?));
+    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(
+        &edge_list_path,
+        start_node,
+        end_node,
+    )?));
 
     println!("✅ Loaded adjacency matrix.");
 
@@ -40,7 +47,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     // Compute Laplacian and eigendecomposition
     println!("🔬 Computing Laplacian matrix and eigendecomposition...");
 
-    let adj_matrix = adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
+    let adj_matrix =
+        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
 
     // Compute degree matrix
     let degrees = adj_matrix.sum_axis(Axis(1));
@@ -63,11 +71,12 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     }
 
     // Save Laplacian matrix to CSV
-    let laplacian_csv_path = output_path
-        .as_ref()
-        .with_extension("laplacian.csv");
+    let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
     save_matrix_to_csv(&laplacian, &laplacian_csv_path)?;
-    println!("✅ Laplacian matrix saved to {}", laplacian_csv_path.display());
+    println!(
+        "✅ Laplacian matrix saved to {}",
+        laplacian_csv_path.display()
+    );
 
     // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
     let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&laplacian)?;
@@ -84,7 +93,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
         if i % (total_eigenvectors / 10).max(1) == 0 {
             let elapsed = start_time.elapsed();
             let progress = (i as f64 / total_eigenvectors as f64) * 100.0;
-            let estimated_remaining = elapsed / (i as u32 + 1) * (total_eigenvectors as u32 - i as u32);
+            let estimated_remaining =
+                elapsed / (i as u32 + 1) * (total_eigenvectors as u32 - i as u32);
             println!(
                 "Eigenvector Matrix: Processed {} out of {} vectors ({:.2}%) | Estimated remaining: {:.2?}",
                 i, total_eigenvectors, progress, estimated_remaining
@@ -93,24 +103,14 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     }
 
     // Save eigenvectors to CSV
-    let eigen_csv_path = output_path
-        .as_ref()
-        .with_extension("eigenvectors.csv");
+    let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
     save_nalgebra_matrix_to_csv(&eigvecs, &eigen_csv_path)?;
-    println!(
-        "✅ Eigenvectors saved to {}",
-        eigen_csv_path.display()
-    );
+    println!("✅ Eigenvectors saved to {}", eigen_csv_path.display());
 
     // Save eigenvalues to CSV
-    let eigenvalues_csv_path = output_path
-        .as_ref()
-        .with_extension("eigenvalues.csv");
+    let eigenvalues_csv_path = output_path.as_ref().with_extension("eigenvalues.csv");
     save_nalgebra_vector_to_csv(&eigvals, &eigenvalues_csv_path)?;
-    println!(
-        "✅ Eigenvalues saved to {}",
-        eigenvalues_csv_path.display()
-    );
+    println!("✅ Eigenvalues saved to {}", eigenvalues_csv_path.display());
 
     // Print heatmaps
     println!("🎨 Printing heatmaps:");
@@ -134,7 +134,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
     path: P,
     start_node: usize,
-    end_node: usize
+    end_node: usize,
 ) -> io::Result<Vec<(u32, u32)>> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
@@ -146,7 +146,9 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
         let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
 
         // Only store edges between start_node and end_node
-        if (start_node..=end_node).contains(&(from as usize)) && (start_node..=end_node).contains(&(to as usize)) {
+        if (start_node..=end_node).contains(&(from as usize))
+            && (start_node..=end_node).contains(&(to as usize))
+        {
             edges.push((from, to));
         }
     }
@@ -155,8 +157,13 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
 }
 
 /// Converts the adjacency matrix edge list to ndarray::Array2<f64>
-pub fn adjacency_matrix_to_ndarray(edges: &[(u32, u32)], start_node: usize, end_node: usize) -> Array2<f64> {
-    let mut adj_array = Array2::<f64>::zeros((end_node - start_node + 1, end_node - start_node + 1));
+pub fn adjacency_matrix_to_ndarray(
+    edges: &[(u32, u32)],
+    start_node: usize,
+    end_node: usize,
+) -> Array2<f64> {
+    let mut adj_array =
+        Array2::<f64>::zeros((end_node - start_node + 1, end_node - start_node + 1));
     for &(a, b) in edges {
         let local_a = a as usize - start_node;
         let local_b = b as usize - start_node;
@@ -179,11 +186,10 @@ pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f6
 }
 
 /// Saves a 2D ndarray::Array2<f64> to a CSV file
-pub fn save_matrix_to_csv<P: AsRef<Path>>(
-    matrix: &Array2<f64>,
-    csv_path: P,
-) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new().has_headers(false).from_path(csv_path)?;
+pub fn save_matrix_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
     for row in matrix.rows() {
         wtr.serialize(row.to_vec())?;
     }
@@ -196,7 +202,9 @@ pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
     matrix: &DMatrix<f64>,
     csv_path: P,
 ) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new().has_headers(false).from_path(csv_path)?;
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
     for i in 0..matrix.nrows() {
         let row = matrix.row(i).iter().cloned().collect::<Vec<f64>>();
         wtr.serialize(row)?;
@@ -210,7 +218,9 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
     vector: &DVector<f64>,
     csv_path: P,
 ) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new().has_headers(false).from_path(csv_path)?;
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
     let row = vector.iter().cloned().collect::<Vec<f64>>();
     wtr.serialize(row)?;
     wtr.flush()?;
@@ -224,8 +234,14 @@ fn print_heatmap(matrix: &ArrayView2<f64>) {
 
     let non_zero_values: Vec<f64> = matrix.iter().cloned().filter(|&x| x != 0.0).collect();
 
-    let max_value = non_zero_values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let min_value = non_zero_values.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_value = non_zero_values
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_value = non_zero_values
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
 
     let stdout = StandardStream::stdout(ColorChoice::Always);
     let mut stdout = stdout.lock();
@@ -269,7 +285,9 @@ fn print_heatmap_ndarray(matrix: &DMatrix<f64>) {
 
     // Calculate mean and standard deviation for Z-normalization
     let mean = all_values.iter().sum::<f64>() / all_values.len() as f64;
-    let stddev = (all_values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / all_values.len() as f64).sqrt();
+    let stddev = (all_values.iter().map(|x| (x - mean).powi(2)).sum::<f64>()
+        / all_values.len() as f64)
+        .sqrt();
 
     // Collect final normalized values before printing
     let mut normalized_values: Vec<Vec<f64>> = Vec::new();
