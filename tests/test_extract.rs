@@ -17,7 +17,6 @@ mod tests {
     use std::io::{BufWriter, Write};
     use tempfile::tempdir;
     use std::path::Path;
-    use std::io::Write;
 
     /// Helper function to create a mock .gam file with given edges.
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
