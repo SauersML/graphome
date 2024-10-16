@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import time
 from scipy.sparse import csr_matrix, lil_matrix
-from scipy.sparse.linalg import eigs  # To compute all eigenvalues/eigenvectors
+from scipy.linalg import eig  # Full eigenvalue solver for dense matrices
+from scipy.sparse.linalg import eigs  # For computing a few eigenvalues/eigenvectors for sparse matrices
 import sys
 
 # Parameters
@@ -87,22 +88,23 @@ degree_matrix = csr_matrix(np.diag(adj_matrix.sum(axis=1).A1))
 laplacian_matrix = degree_matrix - adj_matrix
 print(f"Laplacian matrix computed in {time.time() - start_time:.2f} seconds.")
 
-# Perform full eigendecomposition with progress updates
+# Perform eigendecomposition with progress updates
 print("Performing eigendecomposition (this may take some time)...")
 start_time = time.time()
 
 def eigendecomposition_progress(laplacian_matrix):
-    num_iter = 0
     num_eigenvalues = laplacian_matrix.shape[0]
 
-    def progress_callback(x):
-        nonlocal num_iter
-        num_iter += 1
-        if num_iter % 10 == 0:
-            progress = (num_iter / num_eigenvalues) * 100
-            print(f"Progress: {progress:.2f}% complete")
+    if num_eigenvalues <= 1000:
+        # Use dense solver (scipy.linalg.eig) for small or full matrices
+        print(f"Matrix is small or full, using scipy.linalg.eig for dense matrix.")
+        eigenvalues, eigenvectors = eig(laplacian_matrix.toarray())
+    else:
+        # Use sparse solver (scipy.sparse.linalg.eigs) for large sparse matrices
+        print(f"Matrix is large, using scipy.sparse.linalg.eigs for sparse matrix.")
+        k = min(1000, num_eigenvalues - 1)  # Compute the first k smallest eigenvalues/eigenvectors
+        eigenvalues, eigenvectors = eigs(laplacian_matrix, k=k, which='SM', tol=0.0, maxiter=1000)
 
-    eigenvalues, eigenvectors = eigs(laplacian_matrix, k=num_eigenvalues - 1, which='SM', tol=0.0, maxiter=1000)
     return eigenvalues, eigenvectors
 
 eigenvalues, eigenvectors = eigendecomposition_progress(laplacian_matrix)
