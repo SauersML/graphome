@@ -1,11 +1,17 @@
 import requests
 import zipfile
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import time
-from scipy.sparse import csr_matrix
-from scipy.sparse.linalg import eigsh  # For faster sparse matrix eigendecomposition
+from scipy.sparse import csr_matrix, lil_matrix
+from scipy.sparse.linalg import eigs  # To compute all eigenvalues/eigenvectors
+import sys
+
+# Parameters
+LIMIT_WORDS = True  # Set to False if you want to process the entire dataset
+MAX_WORDS = 2000 if LIMIT_WORDS else None
 
 # Download the dataset
 url = "https://www.kaggle.com/api/v1/datasets/download/sauers/seamus"
@@ -31,10 +37,18 @@ with open('seamus.txt', 'r') as file:
     text = file.read()
 print(f"Text file read in {time.time() - start_time:.2f} seconds.")
 
+# Clean up the text: Keep only letters and spaces, and make lowercase
+print("Cleaning text...")
+start_time = time.time()
+text = re.sub(r'[^a-z\s]', '', text.lower())  # Remove non-letters, keep spaces, lowercase
+print(f"Text cleaned in {time.time() - start_time:.2f} seconds.")
+
 # Split words and find unique words
 print("Splitting words and finding unique words...")
 start_time = time.time()
 words = text.split()  # Assuming space-delimited
+if LIMIT_WORDS:
+    words = words[:MAX_WORDS]
 unique_words = list(set(words))
 n = len(unique_words)
 print(f"Found {n} unique words in {time.time() - start_time:.2f} seconds.")
@@ -45,51 +59,54 @@ start_time = time.time()
 word_to_index = {word: i for i, word in enumerate(unique_words)}
 print(f"Word-to-index mapping created in {time.time() - start_time:.2f} seconds.")
 
-# Initialize adjacency matrix
+# Initialize adjacency matrix using lil_matrix for efficiency
 print("Initializing adjacency matrix...")
 start_time = time.time()
-adj_matrix = csr_matrix((n, n), dtype=int)  # Use sparse matrix
+adj_matrix = lil_matrix((n, n), dtype=int)
 
-# Build adjacency matrix
+# Build adjacency matrix with progress updates
 print("Building adjacency matrix...")
+start_time = time.time()
 for i in range(len(words) - 1):
     word1, word2 = words[i], words[i + 1]
     idx1, idx2 = word_to_index[word1], word_to_index[word2]
     adj_matrix[idx1, idx2] = 1
     adj_matrix[idx2, idx1] = 1  # Assuming undirected
-print(f"Adjacency matrix built in {time.time() - start_time:.2f} seconds.")
+    if i % 10000 == 0:
+        sys.stdout.write(f"\rProgress: {(i/len(words))*100:.2f}%")
+        sys.stdout.flush()
+print(f"\nAdjacency matrix built in {time.time() - start_time:.2f} seconds.")
+
+# Convert adjacency matrix to csr_matrix for faster operations
+adj_matrix = adj_matrix.tocsr()
 
 # Compute Laplacian matrix
 print("Computing Laplacian matrix...")
 start_time = time.time()
-degree_matrix = csr_matrix(np.diag(adj_matrix.sum(axis=1)))
+degree_matrix = csr_matrix(np.diag(adj_matrix.sum(axis=1).A1))
 laplacian_matrix = degree_matrix - adj_matrix
 print(f"Laplacian matrix computed in {time.time() - start_time:.2f} seconds.")
 
-# Perform eigendecomposition with periodic progress
-print("Performing eigendecomposition (with progress updates)...")
+# Perform full eigendecomposition with progress updates
+print("Performing eigendecomposition (this may take some time)...")
 start_time = time.time()
 
-# Use sparse solver (eigsh) and only compute the first few eigenvectors for speed
-k = 100  # Number of eigenvalues/vectors to compute
-total_eigenvalues = laplacian_matrix.shape[0]
-
-def eigendecomposition_progress(laplacian_matrix, k):
-    # Progress tracker and callback for iterative eigenvalue solver
+def eigendecomposition_progress(laplacian_matrix):
     num_iter = 0
+    num_eigenvalues = laplacian_matrix.shape[0]
 
     def progress_callback(x):
         nonlocal num_iter
         num_iter += 1
-        progress = (num_iter / k) * 100
-        print(f"Progress: {progress:.2f}% complete")
+        if num_iter % 10 == 0:
+            progress = (num_iter / num_eigenvalues) * 100
+            print(f"Progress: {progress:.2f}% complete")
 
-    # Perform eigendecomposition on sparse Laplacian matrix with callback
-    eigenvalues, eigenvectors = eigsh(laplacian_matrix, k=k, which='SM', tol=0.0, maxiter=1000)
+    eigenvalues, eigenvectors = eigs(laplacian_matrix, k=num_eigenvalues - 1, which='SM', tol=0.0, maxiter=1000)
     return eigenvalues, eigenvectors
 
-eigenvalues, eigenvectors = eigendecomposition_progress(laplacian_matrix, k)
-print(f"Eigendecomposition completed in {time.time() - start_time:.2f} seconds.")
+eigenvalues, eigenvectors = eigendecomposition_progress(laplacian_matrix)
+print(f"\nEigendecomposition completed in {time.time() - start_time:.2f} seconds.")
 
 # Save adjacency matrix, eigenvalues, and eigenvectors
 print("Saving adjacency matrix, eigenvalues, and eigenvectors to CSV...")
