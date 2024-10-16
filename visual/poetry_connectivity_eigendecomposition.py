@@ -136,7 +136,9 @@ def create_2d_plot(eigenvalues, eigenvectors, sorted_data=False, filename="eigen
 
     num_eigenvectors = eigenvectors_plot.shape[1]
     num_components = eigenvectors_plot.shape[0]
-    data = eigenvectors_plot  # shape (num_components, num_eigenvectors)
+
+    # Use the real part of the eigenvectors for visualization
+    data = eigenvectors_plot.real  # shape (num_components, num_eigenvectors)
 
     print("Computing Z-normalization for color mapping...")
     znorm_start = time.time()
