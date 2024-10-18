@@ -1,6 +1,6 @@
 // src/extract.rs
 
-//! Module for extracting adjacency submatrix from edge list and performing analysis.
+//! Module for extracting adjacency submatrix from edge list, eigendecomposition, and performing analysis.
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::parallel::prelude::*;
@@ -80,14 +80,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
         laplacian_csv_path.display()
     );
 
-    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(&laplacian)?;
-
-    // Compute eigendecomposition using nalgebra's SymmetricEigen
-    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
-
-    let eigvals = symmetric_eigen.eigenvalues;
-    let eigvecs = symmetric_eigen.eigenvectors;
+    // Compute eigenvalues and eigenvectors in a separate function
+    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors(&laplacian)?;
 
     // Progress print for eigenvector matrix computation
     let total_eigenvectors = eigvecs.ncols();
@@ -130,6 +124,22 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     println!("⏰ Completed in {:.2?} seconds.", duration);
 
     Ok(())
+}
+
+/// Computes eigenvalues and eigenvectors for a given Laplacian matrix
+fn compute_eigenvalues_and_vectors(
+    laplacian: &Array2<f64>,
+) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
+    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
+    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(laplacian)?;
+
+    // Compute eigendecomposition using nalgebra's SymmetricEigen
+    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+
+    let eigvals = symmetric_eigen.eigenvalues;
+    let eigvecs = symmetric_eigen.eigenvectors;
+
+    Ok((eigvals, eigvecs))
 }
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
