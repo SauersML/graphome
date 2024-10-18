@@ -124,21 +124,47 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     Ok(())
 }
 
-/// Computes eigenvalues and eigenvectors for a given Laplacian matrix
+/// Converts a 2D matrix to a banded matrix representation required for dsbevd
+// Will be updated later
+fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
+    let (n, _) = matrix.dim();
+    let mut banded = Array2::<f64>::zeros((kd + 1, n));
+
+    for j in 0..n {
+        for i in 0..kd + 1 {
+            if j >= i {
+                banded[(kd - i, j)] = matrix[(j - i, j)];
+            }
+        }
+    }
+
+    banded
+}
+
+/// Computes eigenvalues and eigenvectors using LAPACK's dsbevd
 fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
-) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
-    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(laplacian)?;
+) -> io::Result<(Array1<f64>, Array2<f64>)> {
+    let n = laplacian.nrows();
+    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity (adjust if needed)
 
-    // Compute eigendecomposition using nalgebra's SymmetricEigen
-    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+    // Convert to the banded format expected by dsbevd
+    let banded_matrix = to_banded_format(laplacian, kd);
 
-    let eigvals = symmetric_eigen.eigenvalues;
-    let eigvecs = symmetric_eigen.eigenvectors;
+    // Prepare the output arrays for eigenvalues and eigenvectors
+    let mut eigvals = Array1::<f64>::zeros(n);
+    let mut eigvecs = Array2::<f64>::zeros((n, n));
+
+    // Use dsbevd to compute eigenvalues and eigenvectors
+    let result = banded_matrix.eigh(UPLO::Lower).unwrap();  // LAPACK call
+
+    // Extract eigenvalues and eigenvectors from result
+    eigvals.assign(&result.0);
+    eigvecs.assign(&result.1);
 
     Ok((eigvals, eigvecs))
 }
+
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
