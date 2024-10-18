@@ -5,18 +5,16 @@
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::parallel::prelude::*;
 use ndarray::prelude::*;
+use ndarray_linalg::{Lapack, EigVals};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-
+use std::error::Error;
 use bitvec::prelude::*;
-
 use csv::WriterBuilder;
-
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-
 use std::cmp::min;
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
