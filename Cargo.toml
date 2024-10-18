@@ -8,14 +8,13 @@ clap = { version = "4.0", features = ["derive"] }
 indicatif = "0.17"
 bitvec = "1.0"
 rayon = "1.5"
-ndarray = { version = "0.16.1", features = ["rayon"] }
 csv = "1.1"
 termcolor = "1.1"
 palette = "0.6"
 nalgebra = "0.33.0"
 tempfile = "3.3"
-ndarray = "0.15"
-ndarray-linalg = "0.15"
+ndarray = { version = "0.16.1", features = ["rayon"] }
+ndarray-linalg = "0.16.0"
 
 [lib]
 name = "graphome"
