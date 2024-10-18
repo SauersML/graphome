@@ -14,6 +14,8 @@ termcolor = "1.1"
 palette = "0.6"
 nalgebra = "0.33.0"
 tempfile = "3.3"
+ndarray = "0.15"
+ndarray-linalg = "0.15"
 
 [lib]
 name = "graphome"
