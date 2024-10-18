@@ -5,7 +5,7 @@
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::parallel::prelude::*;
 use ndarray::prelude::*;
-use ndarray_linalg::{Lapack, EigVals};
+use ndarray_linalg::{UPLO, Lapack, EigVals};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
