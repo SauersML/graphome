@@ -4,6 +4,9 @@
 
 use nalgebra::{DMatrix, DVector};
 use ndarray::prelude::*;
+use lapack_sys::{dsbevd_, UPLO};
+use std::ffi::c_char;
+use std::os::raw::c_int;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
@@ -13,10 +16,7 @@ use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
 
-use lapack_sys::{dsbevd_, UPLO};
-use std::ffi::c_char;
-use std::os::raw::c_int;
-
+/// Declare the LAPACK dsbevd function via FFI
 extern "C" {
     fn dsbevd_(
         jobz: *const c_char,
@@ -35,8 +35,6 @@ extern "C" {
         info: *mut c_int,
     );
 }
-
-
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -99,7 +97,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
         laplacian_csv_path.display()
     );
 
-    // Compute eigenvalues and eigenvectors
+    // Compute eigenvalues and eigenvectors using LAPACK's dsbevd
+    println!("🔬 Performing eigendecomposition using LAPACK's dsbevd...");
     let (eigvals, eigvecs) = compute_eigenvalues_and_vectors(&laplacian)?;
 
     // Progress print for eigenvector matrix computation
@@ -134,8 +133,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     println!("Eigenvectors:");
     let eigenvecs_subset = eigvecs.slice(s![.., 0..min(5000, eigvecs.ncols())]); // Display at max first 5000
-
-    print_heatmap_ndarray(&eigenvecs_subset.to_owned());
+    print_heatmap_ndarray(&eigvecs_subset.to_owned());
 
     println!("Eigenvalues:");
     print_eigenvalues_heatmap(&eigvals);
@@ -152,7 +150,7 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     let mut banded = Array2::<f64>::zeros((kd + 1, n));
 
     for j in 0..n {
-        for i in 0..kd + 1 {
+        for i in 0..=kd {
             if j >= i {
                 banded[(kd - i, j)] = matrix[(j - i, j)];
             }
@@ -261,18 +259,6 @@ pub fn adjacency_matrix_to_ndarray(
     adj_array
 }
 
-/// Converts an ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
-    let (rows, cols) = matrix.dim();
-    let mut nalgebra_matrix = DMatrix::<f64>::zeros(rows, cols);
-
-    for ((i, j), value) in matrix.indexed_iter() {
-        nalgebra_matrix[(i, j)] = *value;
-    }
-
-    Ok(nalgebra_matrix)
-}
-
 /// Saves a 2D ndarray::Array2<f64> to a CSV file
 pub fn save_array_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
     let mut wtr = WriterBuilder::new()
@@ -287,36 +273,6 @@ pub fn save_array_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> i
 
 /// Saves a 1D ndarray::Array1<f64> to a CSV file
 pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    let row = vector.iter().cloned().collect::<Vec<f64>>();
-    wtr.serialize(row)?;
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Saves a nalgebra::DMatrix<f64> to a CSV file
-pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
-    matrix: &DMatrix<f64>,
-    csv_path: P,
-) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    for i in 0..matrix.nrows() {
-        let row = matrix.row(i).iter().cloned().collect::<Vec<f64>>();
-        wtr.serialize(row)?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Saves a nalgebra::DVector<f64> to a CSV file
-pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
-    vector: &DVector<f64>,
-    csv_path: P,
-) -> io::Result<()> {
     let mut wtr = WriterBuilder::new()
         .has_headers(false)
         .from_path(csv_path)?;
