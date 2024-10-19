@@ -27,12 +27,3 @@ curl = "0.4.47"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
-
-[target.x86_64-apple-darwin]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
-
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
