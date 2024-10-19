@@ -2,17 +2,15 @@
 
 //! Module for extracting adjacency submatrix from edge list, eigendecomposition, and performing analysis.
 
-use nalgebra::{DMatrix, DVector, SymmetricEigen};
-use ndarray::parallel::prelude::*;
+use nalgebra::{DMatrix, DVector};
 use ndarray::prelude::*;
-use ndarray_linalg::{UPLO, Lapack, EigVals};
+use ndarray_linalg::{UPLO, EigVals};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::error::Error;
-use bitvec::prelude::*;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
@@ -126,7 +124,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 }
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
-// Will be updated later
 fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     let (n, _) = matrix.dim();
     let mut banded = Array2::<f64>::zeros((kd + 1, n));
@@ -147,31 +144,29 @@ fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows();
-    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity (will dyamically set later)
+    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity
 
     // Convert to the banded format expected by dsbevd
     let banded_matrix = to_banded_format(laplacian, kd);
 
-    // Prepare the output arrays for eigenvalues and eigenvectors
+    // Prepare arrays for eigenvalues and eigenvectors
     let mut eigvals = Array1::<f64>::zeros(n);
     let mut eigvecs = Array2::<f64>::zeros((n, n));
 
-    // Use dsbevd to compute eigenvalues and eigenvectors
-    
-    // Define the matrix layout, then LAPACK call
-    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n as i32, lda: n as i32 };
-    let result = ndarray_linalg::Lapack::eigh(true, layout, UPLO::Lower, banded_matrix.as_slice_mut().unwrap()).unwrap();
+    // LAPACK call to compute eigenvalues and eigenvectors
+    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n as i32, lda: kd as i32 + 1 };
+    let result = ndarray_linalg::Lapack::eigh(
+        true, 
+        layout, 
+        UPLO::Lower, 
+        banded_matrix.as_slice_mut().unwrap()
+    ).unwrap();
 
-    // Extract eigenvalues and eigenvectors from result
-    eigvals.assign(&result);  // Assign eigenvalues (result vector)
-
-    // TODO: get eigenvectors
-    eigvecs.assign(&result_eigenvectors); // Fix
-
+    eigvals.assign(&Array1::from_vec(result.0));
+    eigvecs.assign(&Array2::from_shape_vec((n, n), result.1).unwrap());
 
     Ok((eigvals, eigvecs))
 }
-
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
@@ -247,18 +242,6 @@ pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> 
         .from_path(csv_path)?;
     let row = vector.iter().cloned().collect::<Vec<f64>>();
     wtr.serialize(row)?;
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Saves a 2D ndarray::Array2<f64> to a CSV file
-pub fn save_matrix_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    for row in matrix.rows() {
-        wtr.serialize(row.to_vec())?;
-    }
     wtr.flush()?;
     Ok(())
 }
