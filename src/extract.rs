@@ -159,12 +159,15 @@ fn compute_eigenvalues_and_vectors(
     // Use dsbevd to compute eigenvalues and eigenvectors
     
     // Define the matrix layout, then LAPACK call
-    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n, lda: n };
+    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n as i32, lda: n as i32 };
     let result = ndarray_linalg::Lapack::eigh(true, layout, UPLO::Lower, banded_matrix.as_slice_mut().unwrap()).unwrap();
 
     // Extract eigenvalues and eigenvectors from result
-    eigvals.assign(&result.0);
-    eigvecs.assign(&result.1);
+    eigvals.assign(&result);  // Assign eigenvalues (result vector)
+
+    // TODO: get eigenvectors
+    eigvecs.assign(&result_eigenvectors); // Fix
+
 
     Ok((eigvals, eigvecs))
 }
