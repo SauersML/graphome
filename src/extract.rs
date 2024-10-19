@@ -147,7 +147,7 @@ fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows();
-    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity (adjust if needed)
+    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity (will dyamically set later)
 
     // Convert to the banded format expected by dsbevd
     let banded_matrix = to_banded_format(laplacian, kd);
@@ -158,8 +158,9 @@ fn compute_eigenvalues_and_vectors(
 
     // Use dsbevd to compute eigenvalues and eigenvectors
     
-    // LAPACK call
-    let result = ArrayBase::eigh(true, ndarray_linalg::layout::MatrixLayout::C(n, n), UPLO::Lower, &mut banded_matrix.as_slice_mut().unwrap()).unwrap();
+    // Define the matrix layout, then LAPACK call
+    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n, lda: n };
+    let result = ndarray_linalg::Lapack::eigh(true, layout, UPLO::Lower, banded_matrix.as_slice_mut().unwrap()).unwrap();
 
     // Extract eigenvalues and eigenvectors from result
     eigvals.assign(&result.0);
@@ -337,8 +338,8 @@ fn print_heatmap(matrix: &ArrayView2<f64>) {
     }
 }
 
-/// Prints a heatmap of a nalgebra::DMatrix<f64> to the terminal with Z-normalization
-fn print_heatmap_ndarray(matrix: &DMatrix<f64>) {
+/// Prints a heatmap of a nalgebra::Array2<f64> to the terminal with Z-normalization
+fn print_heatmap_ndarray(matrix: &Array2<f64>) {
     let num_rows = matrix.nrows();
     let num_cols = matrix.ncols();
 
@@ -403,7 +404,7 @@ fn print_heatmap_ndarray(matrix: &DMatrix<f64>) {
 }
 
 /// Prints a heatmap of eigenvalues
-fn print_eigenvalues_heatmap(vector: &DVector<f64>) {
+fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
     let num_eigvals = vector.len();
 
     let max_value = vector.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
