@@ -9,6 +9,7 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    println!("Build started");
     let lapack_url = "https://github.com/Reference-LAPACK/lapack/archive/refs/tags/v3.12.0.tar.gz";
     let lapack_dir = "lapack"; // Directory to store LAPACK files
     let tarball = format!("{}.tar.gz", lapack_dir);
@@ -22,11 +23,12 @@ fn main() {
     let dst = Config::new(lapack_dir)
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("LAPACKE", "ON")
-        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // Ensure -fPIC for static linking
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // -fPIC for static linking
         .build();
 
-    // Link with LAPACK and BLAS
+    // Tell Cargo to link with the static LAPACK library and ensure linking order
     println!("cargo:rustc-link-search=native={}/lib", dst.display());
+    println!("cargo:rustc-link-lib=static=lapacke");
     println!("cargo:rustc-link-lib=static=lapack");
     println!("cargo:rustc-link-lib=static=blas");
 }
@@ -42,7 +44,7 @@ fn download_and_extract(url: &str, tarball: &str, output_dir: &str) -> io::Resul
 fn download_file(url: &str, file_path: &str) -> io::Result<()> {
     let mut easy = Easy::new();
     easy.url(url).unwrap();
-    
+
     let mut response = Vec::new();
     {
         let mut transfer = easy.transfer();
