@@ -18,12 +18,8 @@ palette = "0.6"
 nalgebra = "0.33.0"
 tempfile = "3.3"
 ndarray = { version = "0.16.1", features = ["rayon"] }
-ndarray-linalg = "0.16.0"
-lapack = "0.19.0"
-
-[build-dependencies]
-cmake = "0.1"
-curl = "0.4.47"
+ndarray-linalg = { version = "0.16.0", features = ["openblas-src"] }
+openblas-src = "0.7.17"  # Add this line to include the openblas-src crate
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
