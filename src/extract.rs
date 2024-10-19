@@ -129,10 +129,9 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     let mut banded = Array2::<f64>::zeros((kd + 1, n));
 
     for j in 0..n {
-        for i in 0..=kd {
-            if j >= i {
-                banded[(kd - i, j)] = matrix[(j - i, j)];
-            }
+        for i in j..min(n, j + kd + 1) {
+            let row = i - j;
+            banded[[row, j]] = matrix[[i, j]];
         }
     }
 
