@@ -4,7 +4,6 @@
 
 use lapack_sys::dsbevd_;
 use ndarray::prelude::*;
-use ndarray_linalg::UPLO;
 use std::ffi::c_char;
 use std::os::raw::c_int;
 use std::fs::File;
