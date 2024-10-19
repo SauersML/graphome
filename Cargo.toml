@@ -19,7 +19,7 @@ nalgebra = "0.33.0"
 tempfile = "3.3"
 ndarray = { version = "0.16.1", features = ["rayon"] }
 ndarray-linalg = { version = "0.16.0", features = ["openblas-src"] }
-openblas-src = "0.7.17"  # Add this line to include the openblas-src crate
+openblas-src = "0.7.17"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
