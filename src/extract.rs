@@ -98,12 +98,12 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
-    save_nalgebra_matrix_to_csv(&eigvecs, &eigen_csv_path)?;
+    save_array_to_csv(&eigvecs, &eigen_csv_path)?;
     println!("✅ Eigenvectors saved to {}", eigen_csv_path.display());
 
     // Save eigenvalues to CSV
     let eigenvalues_csv_path = output_path.as_ref().with_extension("eigenvalues.csv");
-    save_nalgebra_vector_to_csv(&eigvals, &eigenvalues_csv_path)?;
+    save_vector_to_csv(&eigvals, &eigenvalues_csv_path)?;
     println!("✅ Eigenvalues saved to {}", eigenvalues_csv_path.display());
 
     // Print heatmaps
@@ -112,8 +112,9 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     print_heatmap(&laplacian.view());
 
     println!("Eigenvectors:");
-    let eigenvecs_subset = eigvecs.columns(0, min(5000, eigvecs.ncols())); // Display at max first 5000
-    print_heatmap_ndarray(&eigenvecs_subset.into_owned());
+    let eigenvecs_subset = eigvecs.slice(s![.., 0..min(5000, eigvecs.ncols())]); // Display at max first 5000
+
+    print_heatmap_ndarray(&eigenvecs_subset.to_owned());
 
     println!("Eigenvalues:");
     print_eigenvalues_heatmap(&eigvals);
@@ -156,7 +157,9 @@ fn compute_eigenvalues_and_vectors(
     let mut eigvecs = Array2::<f64>::zeros((n, n));
 
     // Use dsbevd to compute eigenvalues and eigenvectors
-    let result = banded_matrix.eigh(UPLO::Lower).unwrap();  // LAPACK call
+    
+    // LAPACK call
+    let result = ArrayBase::eigh(true, ndarray_linalg::layout::MatrixLayout::C(n, n), UPLO::Lower, &mut banded_matrix.as_slice_mut().unwrap()).unwrap();
 
     // Extract eigenvalues and eigenvectors from result
     eigvals.assign(&result.0);
@@ -219,6 +222,29 @@ pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f6
     }
 
     Ok(nalgebra_matrix)
+}
+
+/// Saves a 2D ndarray::Array2<f64> to a CSV file
+pub fn save_array_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    for row in matrix.rows() {
+        wtr.serialize(row.to_vec())?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Saves a 1D ndarray::Array1<f64> to a CSV file
+pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    let row = vector.iter().cloned().collect::<Vec<f64>>();
+    wtr.serialize(row)?;
+    wtr.flush()?;
+    Ok(())
 }
 
 /// Saves a 2D ndarray::Array2<f64> to a CSV file
