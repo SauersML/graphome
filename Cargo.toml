@@ -1,3 +1,7 @@
+[lib]
+name = "graphome"
+path = "src/lib.rs"
+
 [package]
 name = "graphome"
 version = "0.1.0"
