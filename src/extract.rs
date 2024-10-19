@@ -2,6 +2,8 @@
 
 //! Module for extracting adjacency submatrix from edge list, eigendecomposition, and performing analysis.
 
+// Try: export RUSTFLAGS="-llapack -lopenblas"
+
 use lapack_sys::dsbevd_;
 use ndarray::prelude::*;
 use std::ffi::c_char;
