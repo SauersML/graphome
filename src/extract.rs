@@ -4,7 +4,6 @@
 
 use nalgebra::{DMatrix, DVector};
 use ndarray::prelude::*;
-use ndarray_linalg::{UPLO};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
