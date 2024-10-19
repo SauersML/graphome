@@ -2,9 +2,9 @@
 
 //! Module for extracting adjacency submatrix from edge list, eigendecomposition, and performing analysis.
 
-use nalgebra::{DMatrix, DVector};
+use lapack_sys::dsbevd_;
 use ndarray::prelude::*;
-use lapack_sys::{dsbevd_, UPLO};
+use ndarray_linalg::UPLO;
 use std::ffi::c_char;
 use std::os::raw::c_int;
 use std::fs::File;
@@ -15,26 +15,6 @@ use std::time::Instant;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
-
-/// Declare the LAPACK dsbevd function via FFI
-extern "C" {
-    fn dsbevd_(
-        jobz: *const c_char,
-        uplo: *const c_char,
-        n: *const c_int,
-        kd: *const c_int,
-        ab: *mut f64,
-        ldab: *const c_int,
-        w: *mut f64,
-        z: *mut f64,
-        ldz: *const c_int,
-        work: *mut f64,
-        lwork: *const c_int,
-        iwork: *mut c_int,
-        liwork: *const c_int,
-        info: *mut c_int,
-    );
-}
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -133,7 +113,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     println!("Eigenvectors:");
     let eigenvecs_subset = eigvecs.slice(s![.., 0..min(5000, eigvecs.ncols())]); // Display at max first 5000
-    print_heatmap_ndarray(&eigvecs_subset.to_owned());
+    print_heatmap_ndarray(&eigenvecs_subset.to_owned());
 
     println!("Eigenvalues:");
     print_eigenvalues_heatmap(&eigvals);
@@ -168,7 +148,7 @@ fn compute_eigenvalues_and_vectors(
     let kd = 1; // Number of subdiagonals/superdiagonals
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec();
+    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec_and_offset().0;
 
     // Prepare arrays for eigenvalues and eigenvectors
     let mut eigvals = vec![0.0_f64; n as usize];
