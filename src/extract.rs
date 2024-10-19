@@ -14,6 +14,9 @@ use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
 
+extern crate lapack;
+use lapack::dsbevd;
+
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
 pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
