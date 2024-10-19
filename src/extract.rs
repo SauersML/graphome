@@ -4,6 +4,7 @@
 
 use lapack_sys::dsbevd_;
 use ndarray::prelude::*;
+use ndarray_linalg::UPLO;
 use std::ffi::c_char;
 use std::os::raw::c_int;
 use std::fs::File;
@@ -39,9 +40,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     println!("✅ Loaded adjacency matrix.");
 
-    // Initialize progress tracking
-    let total_nodes = end_node - start_node + 1;
-
     // Compute Laplacian and eigendecomposition
     println!("🔬 Computing Laplacian matrix and eigendecomposition...");
 
@@ -55,19 +53,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     // Compute Laplacian matrix: L = D - A
     let laplacian = &degree_matrix - &adj_matrix;
 
-    // Progress print for Laplacian matrix processing
-    for i in 0..total_nodes {
-        if i % (total_nodes / 10).max(1) == 0 {
-            let elapsed = start_time.elapsed();
-            let progress = (i as f64 / total_nodes as f64) * 100.0;
-            let estimated_remaining = elapsed / (i as u32 + 1) * (total_nodes as u32 - i as u32);
-            println!(
-                "Laplacian Matrix: Processed {} out of {} nodes ({:.2}%) | Estimated remaining: {:.2?}",
-                i, total_nodes, progress, estimated_remaining
-            );
-        }
-    }
-
     // Save Laplacian matrix to CSV
     let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
     save_array_to_csv(&laplacian, &laplacian_csv_path)?;
@@ -79,21 +64,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     // Compute eigenvalues and eigenvectors using LAPACK's dsbevd
     println!("🔬 Performing eigendecomposition using LAPACK's dsbevd...");
     let (eigvals, eigvecs) = compute_eigenvalues_and_vectors(&laplacian)?;
-
-    // Progress print for eigenvector matrix computation
-    let total_eigenvectors = eigvecs.ncols();
-    for i in 0..total_eigenvectors {
-        if i % (total_eigenvectors / 10).max(1) == 0 {
-            let elapsed = start_time.elapsed();
-            let progress = (i as f64 / total_eigenvectors as f64) * 100.0;
-            let estimated_remaining =
-                elapsed / (i as u32 + 1) * (total_eigenvectors as u32 - i as u32);
-            println!(
-                "Eigenvector Matrix: Processed {} out of {} vectors ({:.2}%) | Estimated remaining: {:.2?}",
-                i, total_eigenvectors, progress, estimated_remaining
-            );
-        }
-    }
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
@@ -130,8 +100,9 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 
     for j in 0..n {
         for i in j..min(n, j + kd + 1) {
-            let row = i - j;
-            banded[[row, j]] = matrix[[i, j]];
+            let row = (i - j) as usize;
+            let col = j as usize;
+            banded[[row, col]] = matrix[[i, j]];
         }
     }
 
@@ -150,7 +121,9 @@ fn compute_eigenvalues_and_vectors(
         .unwrap_or(1) as c_int;
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec();
+    let mut banded_matrix = to_banded_format(laplacian, kd as usize)
+        .reversed_axes() // Convert to column-major order
+        .into_raw_vec();
 
     // Initialize workspace query parameters
     let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
@@ -269,13 +242,15 @@ pub fn adjacency_matrix_to_ndarray(
     start_node: usize,
     end_node: usize,
 ) -> Array2<f64> {
-    let mut adj_array =
-        Array2::<f64>::zeros((end_node - start_node + 1, end_node - start_node + 1));
+    let size = end_node - start_node + 1;
+    let mut adj_array = Array2::<f64>::zeros((size, size));
     for &(a, b) in edges {
         let local_a = a as usize - start_node;
         let local_b = b as usize - start_node;
-        adj_array[(local_a, local_b)] = 1.0;
-        adj_array[(local_b, local_a)] = 1.0;
+        if local_a < size && local_b < size {
+            adj_array[(local_a, local_b)] = 1.0;
+            adj_array[(local_b, local_a)] = 1.0;
+        }
     }
     adj_array
 }
@@ -420,8 +395,14 @@ fn print_heatmap_ndarray(matrix: &Array2<f64>) {
 fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
     let num_eigvals = vector.len();
 
-    let max_value = vector.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let min_value = vector.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_value = vector
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let min_value = vector
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
 
     let stdout = StandardStream::stdout(ColorChoice::Always);
     let mut stdout = stdout.lock();
