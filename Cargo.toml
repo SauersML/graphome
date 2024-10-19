@@ -17,6 +17,16 @@ ndarray = { version = "0.16.1", features = ["rayon"] }
 ndarray-linalg = "0.16.0"
 lapack = "0.19.0"
 
+[build-dependencies]
+cmake = "0.1"
+curl = "0.5"
+
 [lib]
 name = "graphome"
 path = "src/lib.rs"
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
