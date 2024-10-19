@@ -77,9 +77,24 @@ fn main() {
     // Link Fortran runtime libraries
     println!("cargo:rustc-link-lib=dylib=gfortran");
 
-    // Optionally, clean up tarballs to save space
     fs::remove_file(&openblas_tarball).ok();
     fs::remove_file(&lapack_tarball).ok();
+
+    // Debugging: List contents of LAPACK lib directory
+    println!("cargo:warning=Lapack build directory: {}", lapack_dst.display());
+
+    let lapack_lib_dir = lapack_dst.join("lib");
+    if lapack_lib_dir.exists() {
+        for entry in fs::read_dir(&lapack_lib_dir).unwrap() {
+            let entry = entry.unwrap();
+            println!("cargo:warning=Found in lapack lib: {:?}", entry.path());
+        }
+    } else {
+        println!(
+            "cargo:warning=LAPACK lib directory does not exist: {:?}",
+            lapack_lib_dir
+        );
+    }
 }
 
 // Function to download and extract source archives
@@ -120,7 +135,11 @@ fn extract_tarball(tarball: &str) -> io::Result<()> {
     if !output.status.success() {
         Err(io::Error::new(
             io::ErrorKind::Other,
-            "Failed to extract tarball",
+            format!(
+                "Failed to extract tarball {}: {}",
+                tarball,
+                String::from_utf8_lossy(&output.stderr)
+            ),
         ))
     } else {
         Ok(())
