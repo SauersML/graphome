@@ -18,7 +18,7 @@ palette = "0.6"
 nalgebra = "0.33.0"
 tempfile = "3.3"
 ndarray = { version = "0.16.1", features = ["rayon"] }
-ndarray-linalg = { version = "0.16.0", features = ["openblas-src"] }
+ndarray-linalg = "0.16.0"
 openblas-src = "0.10.9"
 
 [target.'cfg(unix)'.dependencies]
