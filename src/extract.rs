@@ -13,8 +13,30 @@ use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
 
-extern crate lapack;
-use lapack::dsbevd;
+use lapack_sys::{dsbevd_, UPLO};
+use std::ffi::c_char;
+use std::os::raw::c_int;
+
+extern "C" {
+    fn dsbevd_(
+        jobz: *const c_char,
+        uplo: *const c_char,
+        n: *const c_int,
+        kd: *const c_int,
+        ab: *mut f64,
+        ldab: *const c_int,
+        w: *mut f64,
+        z: *mut f64,
+        ldz: *const c_int,
+        work: *mut f64,
+        lwork: *const c_int,
+        iwork: *mut c_int,
+        liwork: *const c_int,
+        info: *mut c_int,
+    );
+}
+
+
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -144,48 +166,54 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
-    let n = laplacian.nrows();
-    let kd = 1; // Assuming 1 superdiagonal/subdiagonal. Later we will dynamically choose this
+    let n = laplacian.nrows() as c_int;
+    let kd = 1; // Number of subdiagonals/superdiagonals
 
     // Convert to the banded format expected by dsbevd
-    let (mut banded_matrix, _) = to_banded_format(laplacian, kd).into_raw_vec_and_offset();
+    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec();
 
     // Prepare arrays for eigenvalues and eigenvectors
-    let mut eigvals = vec![0.0; n];
-    let mut eigvecs = vec![0.0; n * n]; // Flat array for eigenvectors
-    let mut work = vec![0.0; 8 * n];    // Workspace
-    let work_len = work.len() as i32;   // Store work length before the borrow
-    let mut iwork = vec![0; 5 * n];     // Integer workspace
-    let iwork_len = iwork.len() as i32; // Store iwork length before the borrow
-    let mut info = 0;
+    let mut eigvals = vec![0.0_f64; n as usize];
+    let mut eigvecs = vec![0.0_f64; (n * n) as usize]; // Flat array for eigenvectors
+    let mut work = vec![0.0_f64; (8 * n) as usize];  // Workspace
+    let work_len = (work.len()) as c_int;
+    let mut iwork = vec![0_i32; (5 * n) as usize];   // Integer workspace
+    let iwork_len = (iwork.len()) as c_int;
+    let mut info: c_int = 0;
 
-    // Call LAPACK's dsbevd
+    let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
+    let uplo = b'L' as c_char; // Lower triangle
+
     unsafe {
-        dsbevd(
-            b'V',                       // Compute eigenvalues and eigenvectors
-            b'L',                       // Lower triangle
-            n as i32,                   // Size of matrix
-            kd as i32,                  // Number of subdiagonals/superdiagonals
-            &mut banded_matrix,         // Banded matrix in required format
-            (kd + 1) as i32,            // Leading dimension of banded matrix
-            &mut eigvals,               // Output: eigenvalues
-            &mut eigvecs,               // Output: eigenvectors (flat array)
-            n as i32,                   // Leading dimension of eigenvector matrix
-            &mut work,                  // Workspace
-            work_len,                   // Workspace size
-            &mut iwork,                 // Integer workspace
-            iwork_len,                  // Integer workspace size
-            &mut info,                  // Output: info (0 if successful)
+        dsbevd_(
+            &jobz,
+            &uplo,
+            &n,
+            &kd,
+            banded_matrix.as_mut_ptr(),
+            &(kd + 1) as *const c_int,
+            eigvals.as_mut_ptr(),
+            eigvecs.as_mut_ptr(),
+            &n,
+            work.as_mut_ptr(),
+            &work_len,
+            iwork.as_mut_ptr(),
+            &iwork_len,
+            &mut info,
         );
     }
 
     if info != 0 {
-        return Err(io::Error::new(io::ErrorKind::Other, format!("LAPACK dsbevd failed with error code {}", info)));
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("LAPACK dsbevd failed with error code {}", info),
+        ));
     }
 
     // Convert outputs to ndarray types
     let eigvals_nd = Array1::from(eigvals);
-    let eigvecs_nd = Array2::from_shape_vec((n, n), eigvecs).unwrap();
+    let eigvecs_nd = Array2::from_shape_vec((n as usize, n as usize), eigvecs)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
 
     Ok((eigvals_nd, eigvecs_nd))
 }
