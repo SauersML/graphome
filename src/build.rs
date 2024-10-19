@@ -70,6 +70,9 @@ fn main() {
     println!("cargo:rustc-link-lib=static=lapacke");
     println!("cargo:rustc-link-lib=static=lapack");
 
+    // Link Fortran runtime libraries
+    println!("cargo:rustc-link-lib=dylib=gfortran");
+
     // Optionally, clean up tarballs to save space
     fs::remove_file(&openblas_tarball).ok();
     fs::remove_file(&lapack_tarball).ok();
