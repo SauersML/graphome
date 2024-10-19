@@ -8,7 +8,9 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 
+/// Entry point for the build script.
 fn main() {
+    println!("cargo:rerun-if-changed=build.rs");
     println!("Build started");
 
     // Define versions
@@ -25,43 +27,44 @@ fn main() {
         openblas_version
     );
 
-    // Directories and tarballs
-    let lapack_dir = "lapack";
-    let lapack_tarball = format!("{}.tar.gz", lapack_dir);
+    // Extracted directory names based on version
+    let lapack_dir = format!("lapack-{}", lapack_version.trim_start_matches('v'));
+    let openblas_dir = format!("OpenBLAS-{}", openblas_version.trim_start_matches('v'));
 
-    let openblas_dir = "openblas";
+    // Tarballs
+    let lapack_tarball = format!("{}.tar.gz", lapack_dir);
     let openblas_tarball = format!("{}.tar.gz", openblas_dir);
 
     // Download and extract OpenBLAS
-    if !Path::new(openblas_dir).exists() {
-        download_and_extract(&openblas_url, &openblas_tarball, openblas_dir)
+    if !Path::new(&openblas_dir).exists() {
+        download_and_extract(&openblas_url, &openblas_tarball, &openblas_dir)
             .expect("Failed to download and extract OpenBLAS");
+    } else {
+        println!("cargo:warning=OpenBLAS already exists: {}", openblas_dir);
     }
 
     // Build OpenBLAS
-    let openblas_dst = Config::new(openblas_dir)
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // -fPIC for static linking
+    let openblas_dst = Config::new(&openblas_dir)
+        .define("BUILD_SHARED_LIBS", "OFF") // Build static libraries
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // Enable -fPIC
         .define("NO_SHARED", "ON")
         .define("NO_STATIC", "OFF")
         .build();
 
-    // Link OpenBLAS
-    println!("cargo:rustc-link-search=native={}/lib", openblas_dst.display());
-    println!("cargo:rustc-link-lib=static=openblas");
-
     // Download and extract LAPACK
-    if !Path::new(lapack_dir).exists() {
-        download_and_extract(&lapack_url, &lapack_tarball, lapack_dir)
+    if !Path::new(&lapack_dir).exists() {
+        download_and_extract(&lapack_url, &lapack_tarball, &lapack_dir)
             .expect("Failed to download and extract LAPACK");
+    } else {
+        println!("cargo:warning=LAPACK already exists: {}", lapack_dir);
     }
 
     // Build LAPACK with OpenBLAS
-    let lapack_dst = Config::new(lapack_dir)
-        .define("CMAKE_Fortran_COMPILER", "gfortran") // Explicitly set Fortran compiler
-        .define("BUILD_SHARED_LIBS", "OFF")
-        .define("LAPACKE", "ON")
-        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // -fPIC for static linking
+    let lapack_dst = Config::new(&lapack_dir)
+        .define("CMAKE_Fortran_COMPILER", "gfortran") // Ensure using gfortran
+        .define("BUILD_SHARED_LIBS", "OFF") // Build static libraries
+        .define("LAPACKE", "ON") // Build LAPACKE (C interface)
+        .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // Enable -fPIC
         .define(
             "BLAS_LIBRARIES",
             format!("{}/lib/libopenblas.a", openblas_dst.display()).as_str(),
@@ -69,14 +72,16 @@ fn main() {
         .define("BLAS", "OpenBLAS")
         .build();
 
-    // Link LAPACK
+    // Link LAPACK libraries after OpenBLAS
     println!("cargo:rustc-link-search=native={}/lib", lapack_dst.display());
     println!("cargo:rustc-link-lib=static=lapacke");
     println!("cargo:rustc-link-lib=static=lapack");
+    println!("cargo:rustc-link-lib=static=openblas");
 
     // Link Fortran runtime libraries
     println!("cargo:rustc-link-lib=dylib=gfortran");
 
+    // Optional: Clean up tarballs to save space
     fs::remove_file(&openblas_tarball).ok();
     fs::remove_file(&lapack_tarball).ok();
 
@@ -85,9 +90,9 @@ fn main() {
 
     let lapack_lib_dir = lapack_dst.join("lib");
     if lapack_lib_dir.exists() {
-        for entry in fs::read_dir(&lapack_lib_dir).unwrap() {
-            let entry = entry.unwrap();
-            println!("cargo:warning=Found in lapack lib: {:?}", entry.path());
+        for entry in fs::read_dir(&lapack_lib_dir).expect("Failed to read LAPACK lib directory") {
+            let entry = entry.expect("Failed to get directory entry");
+            println!("cargo:warning=Found in LAPACK lib: {:?}", entry.path());
         }
     } else {
         println!(
@@ -97,15 +102,16 @@ fn main() {
     }
 }
 
-// Function to download and extract source archives
+/// Downloads and extracts a tarball.
 fn download_and_extract(url: &str, tarball: &str, output_dir: &str) -> io::Result<()> {
     download_file(url, tarball)?;
     extract_tarball(tarball)?;
     Ok(())
 }
 
-// Function to download a file using curl
+/// Downloads a file from the specified URL using `curl`.
 fn download_file(url: &str, file_path: &str) -> io::Result<()> {
+    println!("Downloading {} to {}", url, file_path);
     let mut easy = Easy::new();
     easy.url(url).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
@@ -123,25 +129,25 @@ fn download_file(url: &str, file_path: &str) -> io::Result<()> {
 
     let mut file = File::create(file_path)?;
     file.write_all(&response)?;
+    println!("Downloaded {}", file_path);
     Ok(())
 }
 
-// Function to extract a tar.gz file using `tar`
+/// Extracts a tar.gz file using the `tar` command.
 fn extract_tarball(tarball: &str) -> io::Result<()> {
+    println!("Extracting {}", tarball);
     let output = Command::new("tar")
         .args(&["-xzf", tarball])
         .output()?;
 
     if !output.status.success() {
-        Err(io::Error::new(
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!(
-                "Failed to extract tarball {}: {}",
-                tarball,
-                String::from_utf8_lossy(&output.stderr)
-            ),
-        ))
-    } else {
-        Ok(())
+            format!("Failed to extract tarball {}: {}", tarball, stderr),
+        ));
     }
+
+    println!("Extracted {}", tarball);
+    Ok(())
 }
