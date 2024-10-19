@@ -1,11 +1,11 @@
-[lib]
-name = "graphome"
-path = "src/lib.rs"
-
 [package]
 name = "graphome"
 version = "0.1.0"
 edition = "2021"
+
+[lib]
+name = "graphome"
+path = "src/lib.rs"
 
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
@@ -29,10 +29,10 @@ curl = "0.4.47"
 libc = "0.2"
 
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
 
 [target.x86_64-apple-darwin]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
 
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build -Wl,-rpath,./openblas/build"]
