@@ -148,13 +148,15 @@ fn compute_eigenvalues_and_vectors(
     let kd = 1; // Assuming 1 superdiagonal/subdiagonal. Later we will dynamically choose this
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd).into_raw_vec();
+    let (mut banded_matrix, _) = to_banded_format(laplacian, kd).into_raw_vec_and_offset();
 
     // Prepare arrays for eigenvalues and eigenvectors
     let mut eigvals = vec![0.0; n];
     let mut eigvecs = vec![0.0; n * n]; // Flat array for eigenvectors
     let mut work = vec![0.0; 8 * n];    // Workspace
+    let work_len = work.len() as i32;   // Store work length before the borrow
     let mut iwork = vec![0; 5 * n];     // Integer workspace
+    let iwork_len = iwork.len() as i32; // Store iwork length before the borrow
     let mut info = 0;
 
     // Call LAPACK's dsbevd
@@ -170,9 +172,9 @@ fn compute_eigenvalues_and_vectors(
             &mut eigvecs,               // Output: eigenvectors (flat array)
             n as i32,                   // Leading dimension of eigenvector matrix
             &mut work,                  // Workspace
-            work.len() as i32,          // Workspace size
+            work_len,                   // Workspace size
             &mut iwork,                 // Integer workspace
-            iwork.len() as i32,         // Integer workspace size
+            iwork_len,                  // Integer workspace size
             &mut info,                  // Output: info (0 if successful)
         );
     }
