@@ -30,3 +30,6 @@ rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
 
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-args=-Wl,-rpath,./lapack/build"]
