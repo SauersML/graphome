@@ -4,13 +4,12 @@
 
 use nalgebra::{DMatrix, DVector};
 use ndarray::prelude::*;
-use ndarray_linalg::{UPLO, EigVals};
+use ndarray_linalg::{UPLO};
 use std::fs::File;
 use std::io::{self, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use std::error::Error;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use std::cmp::min;
