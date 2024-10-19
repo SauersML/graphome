@@ -72,13 +72,13 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save Laplacian matrix to CSV
     let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
-    save_matrix_to_csv(&laplacian, &laplacian_csv_path)?;
+    save_array_to_csv(&laplacian, &laplacian_csv_path)?;
     println!(
         "✅ Laplacian matrix saved to {}",
         laplacian_csv_path.display()
     );
 
-    // Compute eigenvalues and eigenvectors in a separate function
+    // Compute eigenvalues and eigenvectors
     let (eigvals, eigvecs) = compute_eigenvalues_and_vectors(&laplacian)?;
 
     // Progress print for eigenvector matrix computation
@@ -146,28 +146,47 @@ fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows();
-    let kd = 1; // Assuming 1 superdiagonal/subdiagonal for simplicity
+    let kd = 1; // Assuming 1 superdiagonal/subdiagonal. Later we will dynamically choose this
 
     // Convert to the banded format expected by dsbevd
-    let banded_matrix = to_banded_format(laplacian, kd);
+    let mut banded_matrix = to_banded_format(laplacian, kd).into_raw_vec();
 
     // Prepare arrays for eigenvalues and eigenvectors
-    let mut eigvals = Array1::<f64>::zeros(n);
-    let mut eigvecs = Array2::<f64>::zeros((n, n));
+    let mut eigvals = vec![0.0; n];
+    let mut eigvecs = vec![0.0; n * n]; // Flat array for eigenvectors
+    let mut work = vec![0.0; 8 * n];    // Workspace
+    let mut iwork = vec![0; 5 * n];     // Integer workspace
+    let mut info = 0;
 
-    // LAPACK call to compute eigenvalues and eigenvectors
-    let layout = ndarray_linalg::layout::MatrixLayout::C { row: n as i32, lda: kd as i32 + 1 };
-    let result = ndarray_linalg::Lapack::eigh(
-        true, 
-        layout, 
-        UPLO::Lower, 
-        banded_matrix.as_slice_mut().unwrap()
-    ).unwrap();
+    // Call LAPACK's dsbevd
+    unsafe {
+        dsbevd(
+            b'V',                       // Compute eigenvalues and eigenvectors
+            b'L',                       // Lower triangle
+            n as i32,                   // Size of matrix
+            kd as i32,                  // Number of subdiagonals/superdiagonals
+            &mut banded_matrix,         // Banded matrix in required format
+            (kd + 1) as i32,            // Leading dimension of banded matrix
+            &mut eigvals,               // Output: eigenvalues
+            &mut eigvecs,               // Output: eigenvectors (flat array)
+            n as i32,                   // Leading dimension of eigenvector matrix
+            &mut work,                  // Workspace
+            work.len() as i32,          // Workspace size
+            &mut iwork,                 // Integer workspace
+            iwork.len() as i32,         // Integer workspace size
+            &mut info,                  // Output: info (0 if successful)
+        );
+    }
 
-    eigvals.assign(&Array1::from_vec(result.0));
-    eigvecs.assign(&Array2::from_shape_vec((n, n), result.1).unwrap());
+    if info != 0 {
+        return Err(io::Error::new(io::ErrorKind::Other, format!("LAPACK dsbevd failed with error code {}", info)));
+    }
 
-    Ok((eigvals, eigvecs))
+    // Convert outputs to ndarray types
+    let eigvals_nd = Array1::from(eigvals);
+    let eigvecs_nd = Array2::from_shape_vec((n, n), eigvecs).unwrap();
+
+    Ok((eigvals_nd, eigvecs_nd))
 }
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
