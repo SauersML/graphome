@@ -143,23 +143,66 @@ fn compute_eigenvalues_and_vectors(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
-    let kd = 1; // Number of subdiagonals/superdiagonals
+    let kd = laplacian
+        .axis_iter(Axis(0))
+        .map(|row| row.iter().filter(|&&x| x != 0.0).count())
+        .max()
+        .unwrap_or(1) as c_int;
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec_and_offset().0;
+    let mut banded_matrix = to_banded_format(laplacian, kd as usize).into_raw_vec();
 
-    // Prepare arrays for eigenvalues and eigenvectors
-    let mut eigvals = vec![0.0_f64; n as usize];
-    let mut eigvecs = vec![0.0_f64; (n * n) as usize]; // Flat array for eigenvectors
-    let mut work = vec![0.0_f64; (8 * n) as usize];  // Workspace
-    let work_len = (work.len()) as c_int;
-    let mut iwork = vec![0_i32; (5 * n) as usize];   // Integer workspace
-    let iwork_len = (iwork.len()) as c_int;
-    let mut info: c_int = 0;
-
+    // Initialize workspace query parameters
     let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
     let uplo = b'L' as c_char; // Lower triangle
 
+    // Workspace query: set LWORK = -1 and LIWORK = -1
+    let mut work_query = vec![0.0_f64];
+    let mut iwork_query = vec![0_i32];
+    let lwork_query = -1;
+    let liwork_query = -1;
+    let mut info: c_int = 0;
+
+    let mut eigvals_dummy = vec![0.0_f64; 1];
+    let mut eigvecs_dummy = vec![0.0_f64; 1];
+
+    unsafe {
+        dsbevd_(
+            &jobz,
+            &uplo,
+            &n,
+            &kd,
+            banded_matrix.as_mut_ptr(),
+            &(kd + 1) as *const c_int,
+            eigvals_dummy.as_mut_ptr(),
+            eigvecs_dummy.as_mut_ptr(),
+            &n,
+            work_query.as_mut_ptr(),
+            &lwork_query,
+            iwork_query.as_mut_ptr(),
+            &liwork_query,
+            &mut info,
+        );
+    }
+
+    if info != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("LAPACK dsbevd (workspace query) failed with error code {}", info),
+        ));
+    }
+
+    // Extract optimal LWORK and LIWORK from the workspace query
+    let optimal_lwork = work_query[0] as usize;
+    let optimal_liwork = iwork_query[0] as usize;
+
+    // Allocate WORK and IWORK with optimal sizes
+    let mut work = vec![0.0_f64; optimal_lwork];
+    let mut iwork = vec![0_i32; optimal_liwork];
+    let mut eigvals = vec![0.0_f64; n as usize];
+    let mut eigvecs = vec![0.0_f64; (n * n) as usize]; // Flat array for eigenvectors
+
+    // Perform the actual eigendecomposition with optimal WORK and IWORK
     unsafe {
         dsbevd_(
             &jobz,
@@ -172,9 +215,9 @@ fn compute_eigenvalues_and_vectors(
             eigvecs.as_mut_ptr(),
             &n,
             work.as_mut_ptr(),
-            &work_len,
+            &(optimal_lwork as c_int),
             iwork.as_mut_ptr(),
-            &iwork_len,
+            &(optimal_liwork as c_int),
             &mut info,
         );
     }
