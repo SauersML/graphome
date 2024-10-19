@@ -58,10 +58,14 @@ fn main() {
 
     // Build LAPACK with OpenBLAS
     let lapack_dst = Config::new(lapack_dir)
+        .define("CMAKE_Fortran_COMPILER", "gfortran") // Explicitly set Fortran compiler
         .define("BUILD_SHARED_LIBS", "OFF")
         .define("LAPACKE", "ON")
         .define("CMAKE_POSITION_INDEPENDENT_CODE", "ON") // -fPIC for static linking
-        .define("BLAS_LIBRARIES", format!("{}/lib/libopenblas.a", openblas_dst.display()).as_str())
+        .define(
+            "BLAS_LIBRARIES",
+            format!("{}/lib/libopenblas.a", openblas_dst.display()).as_str(),
+        )
         .define("BLAS", "OpenBLAS")
         .build();
 
