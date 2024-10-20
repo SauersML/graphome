@@ -3,7 +3,7 @@ Graphome is a graph analysis program. It is designed with graph genomes in mind,
 
 ## Overview
 
-Graphome is a high-performance Rust tool that converts Graphical Fragment Assembly (GFA) files into binary adjacency matrices, creating `.gam` (Genome Adjacency Matrix) format files. This conversion allows for efficient graph analysis and manipulation while drastically reducing memory footprint.
+Graphome is a high-performance Rust tool that converts Graphical Fragment Assembly (GFA) files into binary adjacency matrices, creating `.gam` ({Genome||Graph} Adjacency Matrix) format files. This conversion allows for efficient graph analysis and manipulation while drastically reducing memory footprint.
 
 ### Key Features
 
