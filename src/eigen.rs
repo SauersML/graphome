@@ -309,11 +309,22 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
         ));
     }
 
-    // Just in case
+    // Check for negative eigenvalues
     if eigenvalues.iter().any(|&x| x < 0.0) {
+        let negative_eigenvalues: Vec<f64> = eigenvalues
+            .iter()
+            .filter(|&&x| x < 0.0)
+            .cloned()
+            .take(5)
+            .collect();
+    
+        println!("❗ Negative eigenvalues found: {:?}", negative_eigenvalues);
+    
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Eigenvalues contain negative values.",
+            format!(
+                "Eigenvalues contain negative values."
+            ),
         ));
     }
 
