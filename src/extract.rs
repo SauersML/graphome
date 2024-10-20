@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+use nalgebra::{DVector, DMatrix, SymmetricEigen};
 use std::cmp::min;
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
@@ -127,7 +128,7 @@ fn compute_eigenvalues_and_vectors_sym_band(
     // Convert to the banded format expected by dsbevd
     let mut banded_matrix = to_banded_format(laplacian, kd as usize)
         .reversed_axes() // Convert to column-major order
-        .into_raw_vec();
+        .into_raw_vec_and_offset();
 
     // Initialize workspace query parameters
     let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
