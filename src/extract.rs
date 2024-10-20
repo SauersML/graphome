@@ -84,7 +84,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     print_heatmap(&laplacian.view());
 
     println!("Eigenvectors:");
-    let eigenvecs_subset = eigvecs.slice(s![.., 0..min(5000, eigvecs.ncols())]); // Display at max first 5000
+    let eigenvecs_subset = eigvecs.slice(s![.., 0..min(500, eigvecs.ncols())]); // Display at max first 500
     print_heatmap_ndarray(&eigenvecs_subset.to_owned());
 
     println!("Eigenvalues:");
