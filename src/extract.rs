@@ -2,18 +2,12 @@
 
 //! Module for extracting adjacency submatrix from edge list and performing analysis.
 
-use lapack_sys::dsbevd_;
 use ndarray::prelude::*;
-use std::ffi::c_char;
-use std::os::raw::c_int;
 use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, Read};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use csv::WriterBuilder;
-use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use nalgebra::{DVector, DMatrix, SymmetricEigen};
 use std::cmp::min;
 
 use crate::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, adjacency_matrix_to_ndarray, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
