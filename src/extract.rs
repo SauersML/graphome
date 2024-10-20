@@ -101,10 +101,10 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
     // Compute the maximum bandedness (kd) of the matrix
     let kd = max_band(laplacian);
-    let n = laplacian.nrows();
+    let n = laplacian.nrows() as i32;
 
     // Decide which eigendecomposition method to use based on kd
-    if kd < (0.5 * n as f64).ceil() as usize {
+    if kd < (0.5 * n as f64).ceil() as i32 {
         // Use LAPACK's dsbevd for banded matrices
         compute_eigenvalues_and_vectors_sym_band(laplacian, kd)
     } else {
@@ -125,14 +125,14 @@ fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<
 /// Computes the maximum bandedness (`kd`) of a symmetric matrix.
 /// The bandedness is determined by finding the farthest diagonal from the main diagonal
 /// that contains a non-zero element. `kd` is set to the distance of this diagonal plus one.
-fn max_band(laplacian: &Array2<f64>) -> usize {
-    let n = laplacian.nrows();
+fn max_band(laplacian: &Array2<f64>) -> i32 {
+    let n = laplacian.nrows() as i32;
 
     // Iterate from the outermost upper diagonal towards the main diagonal
     for k in (1..n).rev() {
         let mut has_non_zero = false;
         for i in 0..(n - k) {
-            if laplacian[[i, i + k]] != 0.0 {
+            if laplacian[[i as usize, (i + k) as usize]] != 0.0 {
                 has_non_zero = true;
                 break;
             }
@@ -149,12 +149,12 @@ fn max_band(laplacian: &Array2<f64>) -> usize {
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
-fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
+fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     let (n, _) = matrix.dim();
-    let mut banded = Array2::<f64>::zeros((kd + 1, n));
+    let mut banded = Array2::<f64>::zeros(((kd + 1) as usize, n));
 
     for j in 0..n {
-        for i in j..min(n, j + kd + 1) {
+        for i in j..min(n, (j as i32 + kd + 1) as usize) {
             let row = (i - j) as usize;
             let col = j as usize;
             banded[[row, col]] = matrix[[i, j]];
@@ -167,13 +167,13 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
 fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
-    kd: usize,
+    kd: i32,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
     let kd_c = kd as c_int;
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd as usize)
+    let mut banded_matrix = to_banded_format(laplacian, kd)
         .reversed_axes() // Convert to column-major order
         .into_raw_vec_and_offset();
 
@@ -198,7 +198,7 @@ fn compute_eigenvalues_and_vectors_sym_band(
             &n,
             &kd,
             banded_matrix.0.as_mut_ptr(),
-            &(kd + 1) as *const c_int,
+            &(kd + 1),
             eigvals_dummy.as_mut_ptr(),
             eigvecs_dummy.as_mut_ptr(),
             &n,
@@ -235,7 +235,7 @@ fn compute_eigenvalues_and_vectors_sym_band(
             &n,
             &kd,
             banded_matrix.0.as_mut_ptr(),
-            &(kd + 1) as *const c_int,
+            &(kd + 1),
             eigvals.as_mut_ptr(),
             eigvecs.as_mut_ptr(),
             &n,
