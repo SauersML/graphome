@@ -167,7 +167,6 @@ fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     banded
 }
 
-// TODO: Since this can cause a segfault, the program should catch this and fallback to the safe method
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
 fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
@@ -194,6 +193,7 @@ fn compute_eigenvalues_and_vectors_sym_band(
     let mut eigvals_dummy = vec![0.0_f64; 1];
     let mut eigvecs_dummy = vec![0.0_f64; 1];
 
+    // TODO: Since this can cause a segfault, the program should catch this and fallback to the safe method
     unsafe {
         dsbevd_(
             &jobz,
