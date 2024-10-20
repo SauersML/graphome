@@ -104,7 +104,7 @@ fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<
     let n = laplacian.nrows() as i32;
 
     // Decide which eigendecomposition method to use based on kd
-    if kd < (0.5 * n as f64).ceil() as i32 {
+    if kd < (n as f64 / 3.0).ceil() as i32 {
         // Use LAPACK's dsbevd for banded matrices
         println!("Using LAPACK's dsbevd for banded matrices (kd = {}, n = {})", kd, n);
         compute_eigenvalues_and_vectors_sym_band(laplacian, kd)
