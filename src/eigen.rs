@@ -288,6 +288,71 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
 }
 
 
+// Compute Normalized Global Eigen-Complexity (NGEC) =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
+/// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
+///
+/// # Arguments
+///
+/// * `eigenvalues` - A reference to an Array1<f64> containing the eigenvalues.
+///
+/// # Returns
+///
+/// * `Ok(f64)` - The computed NGEC value.
+/// * `Err(io::Error)` - If the computation fails due to invalid input.
+pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
+    let m = eigenvalues.len();
+    if m == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Eigenvalues array is empty.",
+        ));
+    }
+
+    // Just in case
+    if eigenvalues.iter().any(|&x| x < 0.0) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Eigenvalues contain negative values.",
+        ));
+    }
+
+    // Calculate the sum of eigenvalues
+    let sum_eigen = eigenvalues.sum();
+    if sum_eigen <= 0.0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Sum of eigenvalues must be positive.",
+        ));
+    }
+
+    // Normalize the eigenvalues
+    let normalized_eigen = eigenvalues.mapv(|x| x / sum_eigen);
+
+    // Compute the entropy
+    // Handle cases where normalized eigenvalues are zero
+    let entropy: f64 = normalized_eigen
+        .iter()
+        .filter(|&&x| x > 0.0)
+        .map(|&x| x * x.ln())
+        .sum::<f64>()
+        .abs(); // Take absolute value since entropy is positive
+
+    // Calculate log(m)
+    let log_m = (m as f64).ln();
+    if log_m == 0.0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Logarithm of the number of eigenvalues resulted in zero.",
+        ));
+    }
+
+    // Compute NGEC
+    let ngec = entropy / log_m;
+
+    Ok(ngec)
+}
+
 // Load and output section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 /// Prints a heatmap of a 2D ndarray::ArrayView2<f64> to the terminal
