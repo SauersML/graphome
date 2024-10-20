@@ -97,16 +97,47 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 }
 
 // determine which matrix algorithm to use =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-fn call_eigendecomp(){
-    // First, check the maximum possible kd.
-    // Function: max_band(){
-    // Algorithm for computing maximum kd of a matrix.
-    // First, check the top right element. Then, check the diagonal (top-left to bottom-right direction, parallel to the main diagonal) consisting of two elements for nonzeros, adjacent to the top-right corner element.
-    // After, check the third diagonal (now with three elements) for zeros, and so on, until the first nonzero value is found. Once found, stop searching: this non-zero element corresponds to the highest bandedness of any row.
-    // Take the distance value (distance from first element found to the main diagonal), add one for good measure, and set it as kd for the call to dsbevd.
-    // }
-    // Only call dsbevd if the kd value found is less than 0.5. If anything happens such that it is not ess than 0.5, use SymmetricEigen instead.
-    // If kd is less than 0.5n, use dsbevd. Else, use SymmetricEigen. These both assume symmetry (reasonable assumption for undirected graphs).
+/// Computes the eigendecomposition of the Laplacian matrix, choosing between LAPACK's dsbevd and SymmetricEigen based on the matrix's bandedness.
+fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
+    // Compute the maximum bandedness (kd) of the matrix
+    let kd = max_band(laplacian);
+    let n = laplacian.nrows();
+
+    // Decide which eigendecomposition method to use based on kd
+    if kd < (0.5 * n as f64).ceil() as usize {
+        // Use LAPACK's dsbevd for banded matrices
+        compute_eigenvalues_and_vectors_sym_band(laplacian, kd)
+    } else {
+        // Use nalgebra's SymmetricEigen for non-banded or less banded matrices
+        let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym(laplacian)?;
+
+        // Convert nalgebra's DVector and DMatrix to ndarray's Array1 and Array2
+        let eigvals_nd = Array1::from(eigvals.iter().cloned().collect::<Vec<f64>>());
+        let eigvecs_nd = Array2::from_shape_vec(
+            (eigvecs.nrows(), eigvecs.ncols()),
+            eigvecs.iter().cloned().collect(),
+        ).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+        Ok((eigvals_nd, eigvecs_nd))
+    }
+}
+
+/// Computes the maximum bandedness (`kd`) of a symmetric matrix.
+/// The bandedness is determined by finding the farthest diagonal from the main diagonal
+/// that contains a non-zero element. `kd` is set to the distance of this diagonal plus one.
+fn max_band(laplacian: &Array2<f64>) -> usize {
+    let n = laplacian.nrows();
+
+    // Iterate from the outermost upper diagonal towards the main diagonal
+    for k in (1..n).rev() {
+        let diagonal = laplacian.diag_offset(k);
+        if diagonal.iter().any(|&x| x != 0.0) {
+            return k + 1; // Add one for good measure
+        }
+    }
+
+    // If all upper diagonals are zero, set kd to 1 (only main diagonal is non-zero)
+    1
 }
 
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
