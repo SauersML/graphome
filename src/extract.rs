@@ -16,7 +16,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use nalgebra::{DVector, DMatrix, SymmetricEigen};
 use std::cmp::min;
 
-use crate::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
+use crate::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, adjacency_matrix_to_ndarray, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
