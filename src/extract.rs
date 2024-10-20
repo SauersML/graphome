@@ -94,11 +94,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     Ok(())
 }
-    }
-    let _ = stdout.reset();
-    let _ = writeln!(stdout);
-}
-
 
 /// Loads the adjacency matrix from a binary edge list file (.gam)
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
