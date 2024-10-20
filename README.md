@@ -1,6 +1,5 @@
-# Graphome 🧬
-
-Convert genome graph assembly files (GFA) to efficient binary adjacency matrices (GAM), and work with GAM files.
+# Graphome 💠 🧬
+Graphome is a graph analysis program. It is designed with graph genomes in mind, but can work with other graph structures. It can convert genome graph assembly files (GFA) to efficient binary adjacency matrices (GAM), and work with GAM files. It also performs eigendecomposition on Laplacian matrices.
 
 ## Overview
 
