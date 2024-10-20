@@ -19,7 +19,7 @@ use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use nalgebra::{DVector, DMatrix, SymmetricEigen};
 use std::cmp::min;
 
-use crate::eigen::{call_eigendecomp, load_adjacency_matrix, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
+use crate::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -100,4 +100,31 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     }
     let _ = stdout.reset();
     let _ = writeln!(stdout);
+}
+
+
+/// Loads the adjacency matrix from a binary edge list file (.gam)
+pub fn load_adjacency_matrix<P: AsRef<Path>>(
+    path: P,
+    start_node: usize,
+    end_node: usize,
+) -> io::Result<Vec<(u32, u32)>> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut buffer = [0u8; 8];
+    let mut edges = Vec::new();
+
+    while let Ok(_) = reader.read_exact(&mut buffer) {
+        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+
+        // Only store edges between start_node and end_node
+        if (start_node..=end_node).contains(&(from as usize))
+            && (start_node..=end_node).contains(&(to as usize))
+        {
+            edges.push((from, to));
+        }
+    }
+
+    Ok(edges)
 }
