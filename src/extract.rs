@@ -60,17 +60,22 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     // Compute eigenvalues and eigenvectors
     println!("🔬 Performing eigendecomposition...");
     let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
-
+    
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
     save_array_to_csv_dsbevd(&eigvecs, &eigen_csv_path)?;
     println!("✅ Eigenvectors saved to {}", eigen_csv_path.display());
-
+    
     // Save eigenvalues to CSV
     let eigenvalues_csv_path = output_path.as_ref().with_extension("eigenvalues.csv");
     save_vector_to_csv_dsbevd(&eigvals, &eigenvalues_csv_path)?;
     println!("✅ Eigenvalues saved to {}", eigenvalues_csv_path.display());
-
+    
+    // Compute and Print NGEC
+    println!("📊 Computing Normalized Global Eigen-Complexity (NGEC)...");
+    let ngec = compute_ngec(&eigvals)?;
+    println!("✅ NGEC: {:.4}", ngec);
+    
     // Print heatmaps
     println!("🎨 Printing heatmaps:");
     println!("Laplacian Matrix:");
