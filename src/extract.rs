@@ -130,8 +130,14 @@ fn max_band(laplacian: &Array2<f64>) -> usize {
 
     // Iterate from the outermost upper diagonal towards the main diagonal
     for k in (1..n).rev() {
-        let diagonal = laplacian.diag(k as isize);
-        if diagonal.iter().any(|&x| x != 0.0) {
+        let mut has_non_zero = false;
+        for i in 0..(n - k) {
+            if laplacian[[i, i + k]] != 0.0 {
+                has_non_zero = true;
+                break;
+            }
+        }
+        if has_non_zero {
             return k + 1; // Add one for good measure
         }
     }
@@ -164,6 +170,7 @@ fn compute_eigenvalues_and_vectors_sym_band(
     kd: usize,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
+    let kd_c = kd as c_int;
 
     // Convert to the banded format expected by dsbevd
     let mut banded_matrix = to_banded_format(laplacian, kd as usize)
