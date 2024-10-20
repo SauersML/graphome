@@ -106,9 +106,11 @@ fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<
     // Decide which eigendecomposition method to use based on kd
     if kd < (0.5 * n as f64).ceil() as i32 {
         // Use LAPACK's dsbevd for banded matrices
+        println!("Using LAPACK's dsbevd for banded matrices (kd = {}, n = {})", kd, n);
         compute_eigenvalues_and_vectors_sym_band(laplacian, kd)
     } else {
         // Use nalgebra's SymmetricEigen for non-banded or less banded matrices
+        println!("Using nalgebra's SymmetricEigen for non-banded matrices (kd = {}), n = {}", kd, n);
         let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym(laplacian)?;
 
         // Convert nalgebra's DVector and DMatrix to ndarray's Array1 and Array2
@@ -121,6 +123,7 @@ fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<
         Ok((eigvals_nd, eigvecs_nd))
     }
 }
+
 
 /// Computes the maximum bandedness (`kd`) of a symmetric matrix.
 /// The bandedness is determined by finding the farthest diagonal from the main diagonal
