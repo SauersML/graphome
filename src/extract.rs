@@ -170,7 +170,6 @@ fn compute_eigenvalues_and_vectors_sym_band(
     kd: i32,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
-    let kd_c = kd as c_int;
 
     // Convert to the banded format expected by dsbevd
     let mut banded_matrix = to_banded_format(laplacian, kd)
