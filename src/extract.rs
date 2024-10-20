@@ -64,9 +64,9 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
         laplacian_csv_path.display()
     );
 
-    // Compute eigenvalues and eigenvectors using LAPACK's dsbevd
-    println!("🔬 Performing eigendecomposition using LAPACK's dsbevd...");
-    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym_band(&laplacian)?;
+    // Compute eigenvalues and eigenvectors
+    println!("🔬 Performing eigendecomposition...");
+    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
@@ -96,6 +96,19 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     Ok(())
 }
 
+// determine which matrix algorithm to use =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+fn call_eigendecomp(){
+    // First, check the maximum possible kd.
+    // Function: max_band(){
+    // Algorithm for computing maximum kd of a matrix.
+    // First, check the top right element. Then, check the diagonal (top-left to bottom-right direction, parallel to the main diagonal) consisting of two elements for nonzeros, adjacent to the top-right corner element.
+    // After, check the third diagonal (now with three elements) for zeros, and so on, until the first nonzero value is found. Once found, stop searching: this non-zero element corresponds to the highest bandedness of any row.
+    // Take the distance value (distance from first element found to the main diagonal), add one for good measure, and set it as kd for the call to dsbevd.
+    // }
+    // Only call dsbevd if the kd value found is less than 0.5. If anything happens such that it is not ess than 0.5, use SymmetricEigen instead.
+    // If kd is less than 0.5n, use dsbevd. Else, use SymmetricEigen. These both assume symmetry (reasonable assumption for undirected graphs).
+}
+
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
@@ -117,13 +130,9 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
 fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
+    kd: usize,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
-    let kd = laplacian
-        .axis_iter(Axis(0))
-        .map(|row| row.iter().filter(|&&x| x != 0.0).count())
-        .max()
-        .unwrap_or(1) as c_int;
 
     // Convert to the banded format expected by dsbevd
     let mut banded_matrix = to_banded_format(laplacian, kd as usize)
