@@ -1,6 +1,6 @@
 // src/extract.rs
 
-//! Module for extracting adjacency submatrix from edge list, eigendecomposition, and performing analysis.
+//! Module for extracting adjacency submatrix from edge list and performing analysis.
 
 // Try: export RUSTFLAGS="-llapack -lopenblas"
 // export RUSTFLAGS="-L/usr/lib/x86_64-linux-gnu -llapack -lopenblas"
