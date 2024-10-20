@@ -21,7 +21,7 @@ use std::cmp::min;
 
 // determine which matrix algorithm to use =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 /// Computes the eigendecomposition of the Laplacian matrix, choosing between LAPACK's dsbevd and SymmetricEigen based on the matrix's bandedness.
-fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
+pub fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
     // Compute the maximum bandedness (kd) of the matrix
     let kd = max_band(laplacian);
     let n = laplacian.nrows() as i32;
@@ -51,7 +51,7 @@ fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<
 /// Computes the maximum bandedness (`kd`) of a symmetric matrix.
 /// The bandedness is determined by finding the farthest diagonal from the main diagonal
 /// that contains a non-zero element. `kd` is set to the distance of this diagonal plus one.
-fn max_band(laplacian: &Array2<f64>) -> i32 {
+pub fn max_band(laplacian: &Array2<f64>) -> i32 {
     let n = laplacian.nrows() as i32;
 
     // Iterate from the outermost upper diagonal towards the main diagonal
@@ -75,7 +75,7 @@ fn max_band(laplacian: &Array2<f64>) -> i32 {
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
-fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
+pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     let (n, _) = matrix.dim();
     let mut banded = Array2::<f64>::zeros(((kd + 1) as usize, n));
 
@@ -91,7 +91,7 @@ fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
 }
 
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
-fn compute_eigenvalues_and_vectors_sym_band(
+pub fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
     kd: i32,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
@@ -233,7 +233,7 @@ pub fn save_vector_to_csv_dsbevd<P: AsRef<Path>>(vector: &Array1<f64>, csv_path:
 // SymmetricEigen eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Computes eigenvalues and eigenvectors for a given Laplacian matrix with SymmetricEigen
-fn compute_eigenvalues_and_vectors_sym(
+pub fn compute_eigenvalues_and_vectors_sym(
     laplacian: &Array2<f64>,
 ) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
     // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
@@ -294,7 +294,7 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
 // Load and output section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 /// Prints a heatmap of a 2D ndarray::ArrayView2<f64> to the terminal
-fn print_heatmap(matrix: &ArrayView2<f64>) {
+pub fn print_heatmap(matrix: &ArrayView2<f64>) {
     let num_rows = matrix.nrows();
     let num_cols = matrix.ncols();
 
@@ -342,7 +342,7 @@ fn print_heatmap(matrix: &ArrayView2<f64>) {
 }
 
 /// Prints a heatmap of a nalgebra::Array2<f64> to the terminal with Z-normalization
-fn print_heatmap_ndarray(matrix: &Array2<f64>) {
+pub fn print_heatmap_ndarray(matrix: &Array2<f64>) {
     let num_rows = matrix.nrows();
     let num_cols = matrix.ncols();
 
@@ -407,7 +407,7 @@ fn print_heatmap_ndarray(matrix: &Array2<f64>) {
 }
 
 /// Prints a heatmap of eigenvalues
-fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
+pub fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
     let num_eigvals = vector.len();
 
     let max_value = vector
