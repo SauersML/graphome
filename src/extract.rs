@@ -130,7 +130,7 @@ fn max_band(laplacian: &Array2<f64>) -> usize {
 
     // Iterate from the outermost upper diagonal towards the main diagonal
     for k in (1..n).rev() {
-        let diagonal = laplacian.diag_offset(k);
+        let diagonal = laplacian.diag(k as isize);
         if diagonal.iter().any(|&x| x != 0.0) {
             return k + 1; // Add one for good measure
         }
