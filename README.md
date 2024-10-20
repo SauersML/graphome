@@ -68,7 +68,7 @@ graphome extract --region chr20:1000000-2000000 input.gam output.gam
 The `.gam` format is a binary format representing genome graph connectivity:
 
 - **Header** (16 bytes):
-  - Magic number (4 bytes): "GAM\0"
+  - Magic number (4 bytes): "GAM\0" (tbd)
   - Version (4 bytes): u32 (tbd)
   - Node count (4 bytes): u32
   - Flags (4 bytes): u32 (tbd)
