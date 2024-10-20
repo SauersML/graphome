@@ -65,7 +65,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Compute eigenvalues and eigenvectors using LAPACK's dsbevd
     println!("🔬 Performing eigendecomposition using LAPACK's dsbevd...");
-    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors(&laplacian)?;
+    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym_band(&laplacian)?;
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
@@ -112,7 +112,7 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 }
 
 /// Computes eigenvalues and eigenvectors using LAPACK's dsbevd
-fn compute_eigenvalues_and_vectors(
+fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
