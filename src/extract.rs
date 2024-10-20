@@ -57,7 +57,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save Laplacian matrix to CSV
     let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
-    save_array_to_csv(&laplacian, &laplacian_csv_path)?;
+    save_array_to_csv_dsbevd(&laplacian, &laplacian_csv_path)?;
     println!(
         "✅ Laplacian matrix saved to {}",
         laplacian_csv_path.display()
@@ -69,12 +69,12 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save eigenvectors to CSV
     let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
-    save_array_to_csv(&eigvecs, &eigen_csv_path)?;
+    save_array_to_csv_dsbevd(&eigvecs, &eigen_csv_path)?;
     println!("✅ Eigenvectors saved to {}", eigen_csv_path.display());
 
     // Save eigenvalues to CSV
     let eigenvalues_csv_path = output_path.as_ref().with_extension("eigenvalues.csv");
-    save_vector_to_csv(&eigvals, &eigenvalues_csv_path)?;
+    save_vector_to_csv_dsbevd(&eigvals, &eigenvalues_csv_path)?;
     println!("✅ Eigenvalues saved to {}", eigenvalues_csv_path.display());
 
     // Print heatmaps
@@ -95,6 +95,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     Ok(())
 }
 
+// dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
 fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     let (n, _) = matrix.dim();
@@ -111,7 +113,7 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     banded
 }
 
-/// Computes eigenvalues and eigenvectors using LAPACK's dsbevd
+/// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
 fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
@@ -212,6 +214,111 @@ fn compute_eigenvalues_and_vectors_sym_band(
     Ok((eigvals_nd, eigvecs_nd))
 }
 
+/// Converts the adjacency matrix edge list to ndarray::Array2<f64>
+pub fn adjacency_matrix_to_ndarray(
+    edges: &[(u32, u32)],
+    start_node: usize,
+    end_node: usize,
+) -> Array2<f64> {
+    let size = end_node - start_node + 1;
+    let mut adj_array = Array2::<f64>::zeros((size, size));
+    for &(a, b) in edges {
+        let local_a = a as usize - start_node;
+        let local_b = b as usize - start_node;
+        if local_a < size && local_b < size {
+            adj_array[(local_a, local_b)] = 1.0;
+            adj_array[(local_b, local_a)] = 1.0;
+        }
+    }
+    adj_array
+}
+
+/// Saves a 2D ndarray::Array2<f64> to a CSV file
+pub fn save_array_to_csv_dsbevd<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    for row in matrix.rows() {
+        wtr.serialize(row.to_vec())?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Saves a 1D ndarray::Array1<f64> to a CSV file
+pub fn save_vector_to_csv_dsbevd<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    let row = vector.iter().cloned().collect::<Vec<f64>>();
+    wtr.serialize(row)?;
+    wtr.flush()?;
+    Ok(())
+}
+
+// SymmetricEigen eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+/// Computes eigenvalues and eigenvectors for a given Laplacian matrix with SymmetricEigen
+fn compute_eigenvalues_and_vectors_sym(
+    laplacian: &Array2<f64>,
+) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
+    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
+    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(laplacian)?;
+
+    // Compute eigendecomposition using nalgebra's SymmetricEigen
+    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+
+    let eigvals = symmetric_eigen.eigenvalues;
+    let eigvecs = symmetric_eigen.eigenvectors;
+
+    Ok((eigvals, eigvecs))
+}
+
+/// Converts an ndarray::Array2<f64> to nalgebra::DMatrix<f64>
+pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
+    let (rows, cols) = matrix.dim();
+    let mut nalgebra_matrix = DMatrix::<f64>::zeros(rows, cols);
+
+    for ((i, j), value) in matrix.indexed_iter() {
+        nalgebra_matrix[(i, j)] = *value;
+    }
+
+    Ok(nalgebra_matrix)
+}
+
+/// Saves a nalgebra::DMatrix<f64> to a CSV file
+pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
+    matrix: &DMatrix<f64>,
+    csv_path: P,
+) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    for i in 0..matrix.nrows() {
+        let row = matrix.row(i).iter().cloned().collect::<Vec<f64>>();
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Saves a nalgebra::DVector<f64> to a CSV file
+pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
+    vector: &DVector<f64>,
+    csv_path: P,
+) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    let row = vector.iter().cloned().collect::<Vec<f64>>();
+    wtr.serialize(row)?;
+    wtr.flush()?;
+    Ok(())
+}
+
+
+// Load and output section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
+
 /// Loads the adjacency matrix from a binary edge list file (.gam)
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
     path: P,
@@ -236,48 +343,6 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
     }
 
     Ok(edges)
-}
-
-/// Converts the adjacency matrix edge list to ndarray::Array2<f64>
-pub fn adjacency_matrix_to_ndarray(
-    edges: &[(u32, u32)],
-    start_node: usize,
-    end_node: usize,
-) -> Array2<f64> {
-    let size = end_node - start_node + 1;
-    let mut adj_array = Array2::<f64>::zeros((size, size));
-    for &(a, b) in edges {
-        let local_a = a as usize - start_node;
-        let local_b = b as usize - start_node;
-        if local_a < size && local_b < size {
-            adj_array[(local_a, local_b)] = 1.0;
-            adj_array[(local_b, local_a)] = 1.0;
-        }
-    }
-    adj_array
-}
-
-/// Saves a 2D ndarray::Array2<f64> to a CSV file
-pub fn save_array_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    for row in matrix.rows() {
-        wtr.serialize(row.to_vec())?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Saves a 1D ndarray::Array1<f64> to a CSV file
-pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    let row = vector.iter().cloned().collect::<Vec<f64>>();
-    wtr.serialize(row)?;
-    wtr.flush()?;
-    Ok(())
 }
 
 /// Prints a heatmap of a 2D ndarray::ArrayView2<f64> to the terminal
