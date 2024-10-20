@@ -335,8 +335,7 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
         .iter()
         .filter(|&&x| x > 0.0)
         .map(|&x| x * x.ln())
-        .sum::<f64>()
-        .abs(); // Take absolute value since entropy is positive
+        .sum::<f64>();
 
     // Calculate log(m)
     let log_m = (m as f64).ln();
@@ -348,10 +347,11 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
     }
 
     // Compute NGEC
-    let ngec = entropy / log_m;
+    let ngec = -entropy / log_m;
 
     Ok(ngec)
 }
+
 
 // Load and output section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
