@@ -23,7 +23,7 @@ cd graphome
 cargo build --release
 ```
 
-Graphome has a LAPACK dependency because it uses dsbevd which is faster than alternatives for eigendecomposition of banded matrices. IF there is a build error, try running the following commands and try again:
+Graphome has a LAPACK dependency because it uses dsbevd which is faster than alternatives for eigendecomposition of banded matrices. If there is a build error, try running the following commands and try again:
 
 ```
 export RUSTFLAGS="-llapack -lopenblas"
