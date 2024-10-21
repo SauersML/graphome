@@ -72,7 +72,7 @@ pub fn max_band(laplacian: &Array2<f64>) -> i32 {
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
-pub fn to_banded_format(matrix: &Array2<f64>, kd: i32 -> Array2<f64> {
+pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     let (n, _) = matrix.dim();
     let mut banded = Array2::<f64>::zeros(((kd + 1) as usize, n));
 
