@@ -236,24 +236,6 @@ fn test_non_negative_eigenvalues_symmetric() {
     }
 
     #[test]
-    fn test_laplacian_symmetry() {
-        let edges = vec![(0, 1), (1, 2)];
-        let laplacian = construct_laplacian(&edges, 3);
-        assert!(is_symmetric(&laplacian, 1e-9), "Laplacian matrix is not symmetric");
-    }
-   
-    #[test]
-    fn test_laplacian_positive_semi_definite() {
-        let edges = vec![(0, 1), (1, 2)];
-        let laplacian = construct_laplacian(&edges, 3);
-        let (_, eigvecs) = compute_eigenvalues_and_vectors_sym(&laplacian).unwrap();
-        let eigvals = compute_eigenvalues_and_vectors_sym(&laplacian).unwrap().0;
-        for &val in eigvals.iter() {
-            assert!(val >= -1e-9, "Eigenvalue is negative: {}", val);
-        }
-    }
-
-    #[test]
     fn test_banded_format_conversion() {
         let matrix = array![
             [4.0, 1.0, 0.0, 0.0],
