@@ -177,7 +177,7 @@ fn test_compare_eigenvectors_direct_lapack_vs_symmetric() {
 }
 
 #[test]
-fn test_non_negative_eigenvalues() {
+fn test_non_negative_eigenvalues_lapack() {
     // Define a small Laplacian matrix
     let laplacian = array![
         [2.0, -1.0, 0.0],
@@ -189,9 +189,6 @@ fn test_non_negative_eigenvalues() {
     let kd = max_band(&laplacian);
     let (eigvals_lapack, _) = compute_eigenvalues_and_vectors_sym_band(&laplacian, kd).expect("LAPACK eigendecomposition failed");
 
-    // Call SymmetricEigen directly
-    let (eigvals_symmetric, _) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvalue calculation failed");
-
     // Check that all eigenvalues are non-negative for LAPACK
     for v in eigvals_lapack.iter() {
         assert!(
@@ -200,6 +197,19 @@ fn test_non_negative_eigenvalues() {
             v
         );
     }
+}
+
+#[test]
+fn test_non_negative_eigenvalues_symmetric() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Call SymmetricEigen directly
+    let (eigvals_symmetric, _) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvalue calculation failed");
 
     // Check that all eigenvalues are non-negative for SymmetricEigen
     for v in eigvals_symmetric.iter() {
