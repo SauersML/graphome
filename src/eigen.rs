@@ -88,7 +88,8 @@ pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     banded // Return the banded matrix
 }
 
-/// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
+/// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd.
+/// Assumes that the upper triangle is stored in the banded matrix.
 pub fn compute_eigenvalues_and_vectors_sym_band(
     laplacian: &Array2<f64>,
     kd: i32,
@@ -96,13 +97,24 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
     let n = laplacian.nrows() as c_int;
 
     // Convert to the banded format expected by dsbevd
-    let mut banded_matrix = to_banded_format(laplacian, kd)
+    let banded_matrix = to_banded_format(laplacian, kd)
         .reversed_axes() // Convert to column-major order
-        .into_raw_vec_and_offset();
+        .to_owned(); // It's contiguous
+
+    // Obtain a contiguous slice of the banded matrix
+    let banded_ptr = banded_matrix
+        .as_slice()
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::Other,
+                "Failed to get a contiguous slice for the banded matrix.",
+            )
+        })?
+        .as_ptr();
 
     // Initialize workspace query parameters
     let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
-    let uplo = b'L' as c_char; // Lower triangle
+    let uplo = b'U' as c_char; // Upper triangle
 
     // Workspace query: set LWORK = -1 and LIWORK = -1
     let mut work_query = vec![0.0_f64];
@@ -114,14 +126,14 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
     let mut eigvals_dummy = vec![0.0_f64; 1];
     let mut eigvecs_dummy = vec![0.0_f64; 1];
 
-    // TODO: Since this can cause a segfault, the program should catch this and fallback to the safe method
+    // Perform workspace query
     unsafe {
         dsbevd_(
             &jobz,
             &uplo,
             &n,
             &kd,
-            banded_matrix.0.as_mut_ptr(),
+            banded_ptr as *mut f64,
             &(kd + 1),
             eigvals_dummy.as_mut_ptr(),
             eigvecs_dummy.as_mut_ptr(),
@@ -137,7 +149,10 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
     if info != 0 {
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("LAPACK dsbevd (workspace query) failed with error code {}", info),
+            format!(
+                "LAPACK dsbevd (workspace query) failed with error code {}",
+                info
+            ),
         ));
     }
 
@@ -158,7 +173,7 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
             &uplo,
             &n,
             &kd,
-            banded_matrix.0.as_mut_ptr(),
+            banded_ptr as *mut f64,
             &(kd + 1),
             eigvals.as_mut_ptr(),
             eigvecs.as_mut_ptr(),
