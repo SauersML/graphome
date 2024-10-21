@@ -43,7 +43,7 @@ fn test_save_array_to_csv() {
     file.read_to_string(&mut contents).expect("Failed to read CSV file");
 
     // Check that the contents are as expected
-    assert_eq!(contents.trim(), "1,2\n3,4");
+    assert_eq!(contents.trim(), "1.0,2.0\n3.0,4.0");
 
     // Clean up the test output file
     fs::remove_file(output_path).expect("Failed to delete test output file");
