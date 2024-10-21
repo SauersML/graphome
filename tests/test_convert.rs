@@ -7,10 +7,11 @@ use graphome::eigen::{
     save_nalgebra_vector_to_csv,
     save_array_to_csv_dsbevd,
 };
+
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
 use graphome::convert::convert_gfa_to_edge_list;
