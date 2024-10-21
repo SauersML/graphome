@@ -96,21 +96,16 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
 ) -> io::Result<(Array1<f64>, Array2<f64>)> {
     let n = laplacian.nrows() as c_int;
 
-    // Convert to the banded format expected by dsbevd
-    let banded_matrix = to_banded_format(laplacian, kd)
-        .reversed_axes() // Convert to column-major order
-        .to_owned(); // It's contiguous
+    // Convert to the banded format expected by dsbevd (upper triangle)
+    let banded_matrix = to_banded_format(laplacian, kd); // Has to be column-major order
 
-    // Obtain a contiguous slice of the banded matrix
-    let banded_ptr = banded_matrix
-        .as_slice()
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                "Failed to get a contiguous slice for the banded matrix.",
-            )
-        })?
-        .as_ptr();
+    // Force the banded matrix to be contiguous in memory by copying it
+    let banded_matrix_contiguous = banded_matrix.to_owned();
+
+    // Now safely get the slice (since it's contiguous)
+    let banded_ptr = banded_matrix_contiguous.as_slice().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::Other, "Failed to get a contiguous slice for the banded matrix.")
+    })?.as_ptr();
 
     // Initialize workspace query parameters
     let jobz = b'V' as c_char; // Compute eigenvalues and eigenvectors
