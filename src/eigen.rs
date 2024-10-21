@@ -14,7 +14,6 @@ use std::path::Path;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use nalgebra::{DVector, DMatrix, SymmetricEigen};
-use std::cmp::min;
 
 // determine which matrix algorithm to use =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 /// Computes the eigendecomposition of the Laplacian matrix, choosing between LAPACK's dsbevd and SymmetricEigen based on the matrix's bandedness.
