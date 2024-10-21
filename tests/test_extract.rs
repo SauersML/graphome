@@ -245,7 +245,7 @@ mod tests {
         Ok(vector)
     }
 
-    /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
+    /// Test extracting a submatrix for a subset of nodes
     #[test]
     fn test_partial_range_extraction() -> io::Result<()> {
         // Create a temporary GFA file with sample data
