@@ -183,7 +183,6 @@ fn test_compute_eigenvalues_and_vectors_sym_known_matrix() {
     }
 
     // Compare eigenvectors within the specified tolerance
-    // Handle potential sign differences
     for col in 0..eigvecs_sym.ncols() {
         for row in 0..eigvecs_sym.nrows() {
             let v1 = eigvecs_sym[(row, col)];
