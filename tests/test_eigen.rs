@@ -116,3 +116,92 @@ fn test_compare_eigenvectors_lapack_vs_symmetric() {
         }
     }
 }
+
+#[test]
+fn test_compare_eigenvalues_direct_lapack_vs_symmetric() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Compute the bandedness (kd) and call LAPACK's dsbevd directly
+    let kd = max_band(&laplacian);
+    let (eigvals_lapack, _) = compute_eigenvalues_and_vectors_sym_band(&laplacian, kd).expect("LAPACK eigendecomposition failed");
+
+    // Call SymmetricEigen directly
+    let (eigvals_symmetric, _) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvalue calculation failed");
+
+    // Manually check that the eigenvalues are approximately equal within tolerance
+    for (v1, v2) in eigvals_lapack.iter().zip(eigvals_symmetric.iter()) {
+        assert!(
+            (v1 - v2).abs() <= TOLERANCE,
+            "Eigenvalues mismatch: v1 = {}, v2 = {}, diff = {}",
+            v1, v2, (v1 - v2).abs()
+        );
+    }
+}
+
+#[test]
+fn test_compare_eigenvectors_direct_lapack_vs_symmetric() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Compute the bandedness (kd) and call LAPACK's dsbevd directly
+    let kd = max_band(&laplacian);
+    let (_, eigvecs_lapack) = compute_eigenvalues_and_vectors_sym_band(&laplacian, kd).expect("LAPACK eigendecomposition failed");
+
+    // Call SymmetricEigen directly
+    let (_, eigvecs_symmetric) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvector calculation failed");
+
+    // Manually check that each element of the eigenvectors is approximately equal within tolerance
+    for (row_lapack, row_symmetric) in eigvecs_lapack.outer_iter().zip(eigvecs_symmetric.outer_iter()) {
+        for (v1, v2) in row_lapack.iter().zip(row_symmetric.iter()) {
+            assert!(
+                (v1 - v2).abs() <= TOLERANCE,
+                "Eigenvector elements mismatch: v1 = {}, v2 = {}, diff = {}",
+                v1, v2, (v1 - v2).abs()
+            );
+        }
+    }
+}
+
+#[test]
+fn test_non_negative_eigenvalues() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Compute the bandedness (kd) and call LAPACK's dsbevd directly
+    let kd = max_band(&laplacian);
+    let (eigvals_lapack, _) = compute_eigenvalues_and_vectors_sym_band(&laplacian, kd).expect("LAPACK eigendecomposition failed");
+
+    // Call SymmetricEigen directly
+    let (eigvals_symmetric, _) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvalue calculation failed");
+
+    // Check that all eigenvalues are non-negative for LAPACK
+    for v in eigvals_lapack.iter() {
+        assert!(
+            *v >= 0.0,
+            "LAPACK eigenvalue is negative: {}",
+            v
+        );
+    }
+
+    // Check that all eigenvalues are non-negative for SymmetricEigen
+    for v in eigvals_symmetric.iter() {
+        assert!(
+            *v >= 0.0,
+            "SymmetricEigen eigenvalue is negative: {}",
+            v
+        );
+    }
+}
