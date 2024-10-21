@@ -3,7 +3,7 @@
 //! Unit tests for the eigen module.
 
 use ndarray::array;
-use graphome::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, compute_ngec};
+use graphome::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, compute_ngec, compute_eigenvalues_and_vectors_sym, compute_eigenvalues_and_vectors_sym_band, max_band};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
