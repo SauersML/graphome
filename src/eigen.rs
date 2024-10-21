@@ -61,7 +61,7 @@ pub fn max_band(laplacian: &Array2<f64>) -> i32 {
             }
         }
         if has_non_zero {
-            return k + 1; // Add one for good measure
+            return k;
         }
     }
 
