@@ -11,7 +11,7 @@ use graphome::eigen::{
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
-use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::collections::HashSet;
 
