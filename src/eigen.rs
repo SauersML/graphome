@@ -291,6 +291,7 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
 // Compute Normalized Global Eigen-Complexity (NGEC) =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
+/// Ignores eigenvalues that are negative within a small epsilon due to floating-point precision.
 ///
 /// # Arguments
 ///
@@ -301,6 +302,7 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
 /// * `Ok(f64)` - The computed NGEC value.
 /// * `Err(io::Error)` - If the computation fails due to invalid input.
 pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
+    let epsilon = 1e-9; // Small epsilon to account for floating-point precision
     let m = eigenvalues.len();
     if m == 0 {
         return Err(io::Error::new(
@@ -309,27 +311,31 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
         ));
     }
 
-    // Check for negative eigenvalues
-    if eigenvalues.iter().any(|&x| x < 0.0) {
+    // Check for eigenvalues significantly below zero (beyond precision tolerance)
+    if eigenvalues.iter().any(|&x| x < -epsilon) {
         let negative_eigenvalues: Vec<f64> = eigenvalues
             .iter()
-            .filter(|&&x| x < 0.0)
+            .filter(|&&x| x < -epsilon)
             .cloned()
             .take(5)
             .collect();
     
-        println!("❗ Negative eigenvalues found: {:?}", negative_eigenvalues);
+        println!("❗ Significant negative eigenvalues found: {:?}", negative_eigenvalues);
     
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
-                "Eigenvalues contain negative values."
+                "Eigenvalues contain significant negative values."
             ),
         ));
     }
 
-    // Calculate the sum of eigenvalues
-    let sum_eigen = eigenvalues.sum();
+    // Calculate the sum of eigenvalues, ignoring small negative values due to precision
+    let sum_eigen = eigenvalues
+        .iter()
+        .filter(|&&x| x >= -epsilon)  // Only include eigenvalues >= -epsilon
+        .sum::<f64>();
+    
     if sum_eigen <= 0.0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -337,8 +343,8 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
         ));
     }
 
-    // Normalize the eigenvalues
-    let normalized_eigen = eigenvalues.mapv(|x| x / sum_eigen);
+    // Normalize the eigenvalues, ignoring small negative values
+    let normalized_eigen = eigenvalues.mapv(|x| if x >= -epsilon { x / sum_eigen } else { 0.0 });
 
     // Compute the entropy
     // Handle cases where normalized eigenvalues are zero
