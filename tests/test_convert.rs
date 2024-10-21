@@ -5,6 +5,7 @@ use graphome::eigen::{
     adjacency_matrix_to_ndarray,
     save_nalgebra_matrix_to_csv,
     save_nalgebra_vector_to_csv,
+    save_array_to_csv_dsbevd,
 };
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
