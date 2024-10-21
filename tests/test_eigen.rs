@@ -219,4 +219,54 @@ fn test_non_negative_eigenvalues_symmetric() {
             v
         );
     }
+    #[test]
+    fn test_to_banded_format() {
+        let matrix = array![
+            [1.0, 2.0, 0.0],
+            [2.0, 3.0, 4.0],
+            [0.0, 4.0, 5.0]
+        ];
+        let kd = 1;
+        let banded = to_banded_format(&matrix, kd);
+        let expected = array![
+            [2.0, 4.0, 0.0], // kd = 1 (first row above main)
+            [1.0, 3.0, 5.0]  // main diagonal
+        ];
+        assert_eq!(banded, expected);
+    }
+
+    #[test]
+    fn test_laplacian_symmetry() {
+        let edges = vec![(0, 1), (1, 2)];
+        let laplacian = construct_laplacian(&edges, 3);
+        assert!(is_symmetric(&laplacian, 1e-9), "Laplacian matrix is not symmetric");
+    }
+   
+    #[test]
+    fn test_laplacian_positive_semi_definite() {
+        let edges = vec![(0, 1), (1, 2)];
+        let laplacian = construct_laplacian(&edges, 3);
+        let (_, eigvecs) = compute_eigenvalues_and_vectors_sym(&laplacian).unwrap();
+        let eigvals = compute_eigenvalues_and_vectors_sym(&laplacian).unwrap().0;
+        for &val in eigvals.iter() {
+            assert!(val >= -1e-9, "Eigenvalue is negative: {}", val);
+        }
+    }
+
+    #[test]
+    fn test_banded_format_conversion() {
+        let matrix = array![
+            [4.0, 1.0, 0.0, 0.0],
+            [1.0, 3.0, 1.0, 0.0],
+            [0.0, 1.0, 2.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0]
+        ];
+        let kd = 1;
+        let banded = to_banded_format(&matrix, kd);
+        let expected = array![
+            [1.0, 1.0, 1.0, 0.0], // kd = 1
+            [4.0, 3.0, 2.0, 1.0]  // main diagonal
+        ];
+        assert_eq!(banded, expected, "Banded matrix format is incorrect");
+    }
 }
