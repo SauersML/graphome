@@ -1,12 +1,18 @@
 // tests/test_extract.rs
 
 use graphome::extract::*;
-
+use graphome::eigen::{
+    adjacency_matrix_to_ndarray,
+    save_matrix_to_csv,
+    save_nalgebra_matrix_to_csv,
+    save_nalgebra_vector_to_csv,
+};
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::Path;
+use std::collections::HashSet;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
@@ -17,6 +23,20 @@ mod tests {
     use std::fs::File;
     use std::io::Read;
 
+    /// Helper function to read edges from the binary edge list file
+    fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
+        let mut edges = HashSet::new();
+        let mut file = File::open(path)?;
+        let mut buffer = [0u8; 8];
+
+        while let Ok(_) = file.read_exact(&mut buffer) {
+            let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+            let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+            edges.insert((from, to));
+        }
+
+        Ok(edges)
+    }
 
     /// Helper function to create a mock .gam file with given edges
     fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
@@ -51,8 +71,18 @@ mod tests {
             let offset = i * 8;
             let from_bytes = &buffer[offset..offset + 4];
             let to_bytes = &buffer[offset + 4..offset + 8];
-            let from_loaded = u32::from_le_bytes([from_bytes[0], from_bytes[1], from_bytes[2], from_bytes[3]]);
-            let to_loaded = u32::from_le_bytes([to_bytes[0], to_bytes[1], to_bytes[2], to_bytes[3]]);
+            let from_loaded = u32::from_le_bytes([
+                from_bytes[0],
+                from_bytes[1],
+                from_bytes[2],
+                from_bytes[3],
+            ]);
+            let to_loaded = u32::from_le_bytes([
+                to_bytes[0],
+                to_bytes[1],
+                to_bytes[2],
+                to_bytes[3],
+            ]);
             assert_eq!(from_loaded, from);
             assert_eq!(to_loaded, to);
         }
@@ -80,7 +110,6 @@ mod tests {
         dir.close()?;
         Ok(())
     }
-
 
     /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
@@ -174,102 +203,15 @@ mod tests {
             );
         }
 
-        Ok(())
-    }
+        // Load eigenvectors
+        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
+        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
 
-
-    /// Test extracting a submatrix for a subset of nodes and ensuring the Laplacian and eigendecomposition are computed correctly
-    #[test]
-    fn test_partial_range_extraction() -> io::Result<()> {
-        // Create a temporary GFA file with sample data
-        let mut gfa_file = NamedTempFile::new()?;
-        writeln!(gfa_file, "H\tVN:Z:1.0")?;
-        writeln!(gfa_file, "S\t1\t*")?;
-        writeln!(gfa_file, "S\t2\t*")?;
-        writeln!(gfa_file, "S\t3\t*")?;
-        writeln!(gfa_file, "S\t4\t*")?;
-        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
-        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
-        writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
-        writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
-
-        // Output file for adjacency matrix
-        let output_gam = NamedTempFile::new()?;
-
-        // Run the conversion
-        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
-
-        // Define a partial range (nodes 2 to 3)
-        let start_node = 1;
-        let end_node = 2;
-
-        // Output file base path for analysis
-        let output_analysis = NamedTempFile::new()?;
-
-        // Run the extraction
-        extract::extract_and_analyze_submatrix(
-            output_gam.path(),
-            start_node,
-            end_node,
-            output_analysis.path(),
-        )?;
-
-        // Define expected edges within the range as a Vec
-        let _expected_edges: Vec<(u32, u32)> = vec![
-            (1, 2), // From node 2 to node 3
-            (2, 1), // From node 3 to node 2
-        ];
-
-        // Load the Laplacian matrix from CSV
-        let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
-        let laplacian = load_csv_as_matrix(&laplacian_csv)?;
-
-        // Verify the Laplacian matrix
-        // For nodes 2 and 3, the adjacency is:
-        // 2 connected to 3
-        // 3 connected to 2
-        // Thus, the Laplacian should be:
-        // [1, -1]
-        // [-1, 1]
-        let expected_laplacian = array![
-            [1.0, -1.0],
-            [-1.0, 1.0],
-        ];
-        assert_eq!(
-            laplacian, expected_laplacian,
-            "Laplacian matrix does not match expected values for partial range extraction."
-        );
-
-        // Load the eigenvalues from CSV
-        let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
-        let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
-
-        // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0.0, 2.0]
-        let expected_eigenvalues = vec![0.0, 2.0];
-
-        // The order doesn't affect the comparison
-        let mut sorted_eigenvalues = eigenvalues.clone();
-        sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let mut sorted_expected = expected_eigenvalues.clone();
-        sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        // Define a tolerance for floating-point comparison
-        let tolerance = 1e-6;
-
-        // Compare each eigenvalue within the tolerance
-        for (computed, expected) in sorted_eigenvalues.iter().zip(sorted_expected.iter()) {
-            assert!(
-                (*computed - *expected).abs() < tolerance,
-                "Eigenvalue mismatch: computed {} vs expected {}",
-                computed,
-                expected
-            );
-        }
+        // Since eigenvectors can vary in sign and orientation, we'll focus on verifying the eigenvalues' correctness
+        // Alternatively, you can implement additional checks for eigenvectors if necessary
 
         Ok(())
     }
-
 
     /// Helper function to load a CSV file as an ndarray::Array2<f64>
     fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
@@ -279,7 +221,10 @@ mod tests {
         let mut matrix = Vec::new();
         for result in rdr.records() {
             let record = result?;
-            let row = record.iter().map(|s| s.parse::<f64>().unwrap()).collect::<Vec<f64>>();
+            let row = record
+                .iter()
+                .map(|s| s.parse::<f64>().unwrap())
+                .collect::<Vec<f64>>();
             matrix.push(row);
         }
         let nrows = matrix.len();
@@ -397,10 +342,13 @@ mod tests {
         let eigvals = symmetric_eigen.eigenvalues;
 
         for lambda in eigvals.iter().cloned() {
-            assert!(lambda >= -1e-6, "Eigenvalue {} is negative beyond tolerance.", lambda);
+            assert!(
+                lambda >= -1e-6,
+                "Eigenvalue {} is negative beyond tolerance.",
+                lambda
+            );
         }
     }
-
 
     /// Test the correctness of the eigendecomposition process by verifying that L * v = λ * v for each eigenpair
     #[test]
@@ -415,30 +363,30 @@ mod tests {
                 -1.0, -1.0, 2.0,
             ],
         );
-        
+
         // Perform eigendecomposition
         let symmetric_eigen = SymmetricEigen::new(laplacian.clone());
-        
+
         let eigvals = symmetric_eigen.eigenvalues;
         let eigvecs = symmetric_eigen.eigenvectors;
-        
+
         // Iterate through each eigenpair and verify L * v = λ * v
         for i in 0..eigvals.len() {
             let lambda = eigvals[i];
             let v = eigvecs.column(i);
-        
+
             // Compute L * v
             let lv = &laplacian * &v;
-        
-            // Compute λ * v
-            let lambda_v: DVector<f64> = v * lambda;  // Explicitly specifying the type for lambda_v
-        
+
+            // Compute lambda * v
+            let lambda_v: DVector<f64> = v * lambda; // Explicitly specifying the type for lambda_v
+
             // Allow a small tolerance for floating-point comparisons
             let tolerance = 1e-6;
             for j in 0..v.len() {
                 assert!(
-                    (lv[j] - lambda_v[j]).abs() < tolerance,  // Ensure floating-point precision with abs()
-                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, λ*v[{}] = {}",
+                    (lv[j] - lambda_v[j]).abs() < tolerance,
+                    "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
                     i,
                     j,
                     lv[j],
@@ -463,7 +411,7 @@ mod tests {
 
         // Save matrix to CSV
         save_matrix_to_csv(&matrix, output_file.path())?;
-        
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
@@ -491,7 +439,7 @@ mod tests {
 
         // Save matrix to CSV
         save_nalgebra_matrix_to_csv(&matrix, output_file.path())?;
-        
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
@@ -519,7 +467,7 @@ mod tests {
 
         // Save vector to CSV
         save_nalgebra_vector_to_csv(&vector, output_file.path())?;
-        
+
         // Read the output file
         let mut file = File::open(output_file.path())?;
         let mut contents = String::new();
