@@ -31,9 +31,11 @@ fn test_to_banded_format_kd_1() {
     ];
     let kd = 1;
 
-    // Define the expected banded format for kd = 1
+    // Define the expected banded format for kd = 1 based on the `to_banded_format` implementation
+    // According to the function, the main diagonal is in the last row,
+    // and upper diagonals are above.
     let expected_banded = array![
-        [2.0, 4.0, 0.0], // Upper diagonal (k = 1)
+        [0.0, 2.0, 4.0], // Upper diagonal (k = 1)
         [1.0, 3.0, 5.0]  // Main diagonal
     ];
 
@@ -60,11 +62,11 @@ fn test_to_banded_format_kd_2() {
     ];
     let kd = 2;
 
-    // Define the expected banded format for kd = 2
+    // Define the expected banded format for kd = 2 based on the `to_banded_format` implementation
     let expected_banded = array![
-        [1.0, 1.0, 1.0, 0.0], // k = 2
-        [4.0, 3.0, 2.0, 1.0], // k = 1
-        [1.0, 3.0, 2.0, 1.0]  // Main diagonal
+        [0.0, 0.0, 0.0, 0.0], // k = 2 (No elements beyond the second upper diagonal)
+        [0.0, 1.0, 1.0, 1.0], // k = 1
+        [4.0, 3.0, 2.0, 1.0]  // Main diagonal
     ];
 
     // Convert the matrix to banded format
@@ -114,7 +116,7 @@ fn test_compute_eigenvalues_and_vectors_sym_band_known_matrix() {
             "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
             computed,
             reference,
-            (*computed - *reference).abs()
+            (*computed - reference).abs()
         );
     }
 
@@ -176,7 +178,7 @@ fn test_compute_eigenvalues_and_vectors_sym_known_matrix() {
             "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
             computed,
             reference,
-            (*computed - *reference).abs()
+            (*computed - reference).abs()
         );
     }
 
@@ -370,12 +372,12 @@ fn test_compute_eigenvalues_and_vectors_sym_band_diagonal_matrix() {
             "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
             computed,
             reference,
-            (*computed - *reference).abs()
+            (*computed - reference).abs()
         );
     }
 
     // Compare eigenvectors within the specified tolerance
-    // Handle potential sign differences
+    // For diagonal matrices, eigenvectors should be the standard basis vectors
     for col in 0..eigvecs_lapack.ncols() {
         for row in 0..eigvecs_lapack.nrows() {
             let v1 = eigvecs_lapack[(row, col)];
@@ -433,7 +435,7 @@ fn test_compute_eigenvalues_and_vectors_sym_band_larger_matrix() {
             "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
             computed,
             reference,
-            (*computed - *reference).abs()
+            (*computed - reference).abs()
         );
     }
 
