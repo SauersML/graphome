@@ -1,6 +1,6 @@
 // src/eigen.rs
 
-//! Module for eigendecomposition.
+//! Module for eigendecomposition and analyses that depend on eigenvectors or eigenvalues.
 
 // Try: export RUSTFLAGS="-llapack -lopenblas"
 // export RUSTFLAGS="-L/usr/lib/x86_64-linux-gnu -llapack -lopenblas"
