@@ -83,7 +83,7 @@ pub fn to_banded_format(matrix: &Array2<f64>, kd: i32 -> Array2<f64> {
             let col = j as usize;
             banded[[row, col]] = matrix[[j - i as usize, j]];
         }
-        }
+    }
 }
 
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
