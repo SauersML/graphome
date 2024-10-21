@@ -82,13 +82,14 @@ pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
             let row = (kd - i) as usize;
             let col = j as usize;
             // Transpose the access to store in column-major order
-            banded[[col, row]] = matrix[[j - i as usize, j]];
+            if j >= i as usize {
+                banded[[col, row]] = matrix[[j - i as usize, j]];
+            }
         }
     }
 
     banded // Return the transposed banded matrix
 }
-
 
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd.
 /// Assumes that the upper triangle is stored in the banded matrix.
