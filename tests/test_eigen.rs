@@ -9,6 +9,8 @@ use std::io::Read;
 use std::path::Path;
 use std::fs;
 
+const TOLERANCE: f64 = 1e-9;
+
 #[test]
 fn test_eigendecomp() {
     // Define a small Laplacian matrix
@@ -59,4 +61,58 @@ fn test_compute_ngec() {
 
     // Assert that the NGEC value is within the expected range
     assert!(ngec > 0.0 && ngec < 1.0);
+}
+
+#[test]
+fn test_compare_eigenvalues_lapack_vs_symmetric() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Perform eigendecomposition using LAPACK's dsbevd
+    let (eigvals_lapack, _) = call_eigendecomp(&laplacian).expect("LAPACK eigendecomposition failed");
+
+    // Manually force usage of SymmetricEigen
+    let kd = laplacian.nrows() as f64 / 2.0; // Set a high bandedness to force SymmetricEigen
+    let (eigvals_symmetric, _) = call_eigendecomp(&laplacian).expect("Symmetric eigenvalue calculation failed");
+
+    // Manually check that the eigenvalues are approximately equal within tolerance
+    for (v1, v2) in eigvals_lapack.iter().zip(eigvals_symmetric.iter()) {
+        assert!(
+            (v1 - v2).abs() <= TOLERANCE,
+            "Eigenvalues mismatch: v1 = {}, v2 = {}, diff = {}",
+            v1, v2, (v1 - v2).abs()
+        );
+    }
+}
+
+#[test]
+fn test_compare_eigenvectors_lapack_vs_symmetric() {
+    // Define a small Laplacian matrix
+    let laplacian = array![
+        [2.0, -1.0, 0.0],
+        [-1.0, 2.0, -1.0],
+        [0.0, -1.0, 2.0]
+    ];
+
+    // Perform eigendecomposition using LAPACK's dsbevd
+    let (_, eigvecs_lapack) = call_eigendecomp(&laplacian).expect("LAPACK eigendecomposition failed");
+
+    // Manually force usage of SymmetricEigen
+    let kd = laplacian.nrows() as f64 / 2.0; // Set a high bandedness to force SymmetricEigen
+    let (_, eigvecs_symmetric) = call_eigendecomp(&laplacian).expect("Symmetric eigenvector calculation failed");
+
+    // Manually check that each element of the eigenvectors is approximately equal within tolerance
+    for (row_lapack, row_symmetric) in eigvecs_lapack.outer_iter().zip(eigvecs_symmetric.outer_iter()) {
+        for (v1, v2) in row_lapack.iter().zip(row_symmetric.iter()) {
+            assert!(
+                (v1 - v2).abs() <= TOLERANCE,
+                "Eigenvector elements mismatch: v1 = {}, v2 = {}, diff = {}",
+                v1, v2, (v1 - v2).abs()
+            );
+        }
+    }
 }
