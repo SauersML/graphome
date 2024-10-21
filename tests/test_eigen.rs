@@ -8,6 +8,8 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::fs;
+use nalgebra::Matrix;
+use nalgebra::DMatrix;
 
 const TOLERANCE: f64 = 1e-9;
 
@@ -117,6 +119,7 @@ fn test_compare_eigenvectors_lapack_vs_symmetric() {
     }
 }
 
+
 #[test]
 fn test_compare_eigenvalues_direct_lapack_vs_symmetric() {
     // Define a small Laplacian matrix
@@ -160,12 +163,14 @@ fn test_compare_eigenvectors_direct_lapack_vs_symmetric() {
     let (_, eigvecs_symmetric) = compute_eigenvalues_and_vectors_sym(&laplacian).expect("Symmetric eigenvector calculation failed");
 
     // Manually check that each element of the eigenvectors is approximately equal within tolerance
-    for (row_lapack, row_symmetric) in eigvecs_lapack.outer_iter().zip(eigvecs_symmetric.outer_iter()) {
-        for (v1, v2) in row_lapack.iter().zip(row_symmetric.iter()) {
+    for i in 0..eigvecs_lapack.nrows() {
+        for j in 0..eigvecs_lapack.ncols() {
+            let v1 = eigvecs_lapack[(i, j)];
+            let v2 = eigvecs_symmetric[(i, j)];
             assert!(
                 (v1 - v2).abs() <= TOLERANCE,
-                "Eigenvector elements mismatch: v1 = {}, v2 = {}, diff = {}",
-                v1, v2, (v1 - v2).abs()
+                "Eigenvector elements mismatch at ({}, {}): v1 = {}, v2 = {}, diff = {}",
+                i, j, v1, v2, (v1 - v2).abs()
             );
         }
     }
