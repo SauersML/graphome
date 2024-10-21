@@ -72,31 +72,18 @@ pub fn max_band(laplacian: &Array2<f64>) -> i32 {
 // dsbevd eigendecomposition section =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
 /// Converts a 2D matrix to a banded matrix representation required for dsbevd
-pub fn to_banded_format(matrix: &Array2<f64>, kd: i32, uplo: char) -> Array2<f64> {
+pub fn to_banded_format(matrix: &Array2<f64>, kd: i32 -> Array2<f64> {
     let (n, _) = matrix.dim();
     let mut banded = Array2::<f64>::zeros(((kd + 1) as usize, n));
 
-    if uplo == 'L' || uplo == 'l' {
-        // Store the lower triangle
-        for j in 0..n {
-            for i in j..min(n, (j as i32 + kd + 1) as usize) {
-                let row = (i as i32 - j as i32) as usize;
-                let col = j as usize;
-                banded[[row, col]] = matrix[[i, j]];
-            }
+    // Store the upper triangle
+    for j in 0..n {
+        for i in 0..=min(kd, j as i32) {
+            let row = (kd - i) as usize;
+            let col = j as usize;
+            banded[[row, col]] = matrix[[j - i as usize, j]];
         }
-    } else if uplo == 'U' || uplo == 'u' {
-        // Store the upper triangle
-        for j in 0..n {
-            for i in 0..=min(kd, j as i32) {
-                let row = (kd - i) as usize;
-                let col = j as usize;
-                banded[[row, col]] = matrix[[j - i as usize, j]];
-            }
         }
-    }
-
-    banded
 }
 
 /// Computes eigenvalues and eigenvectors for a symmetric band matrix using LAPACK's dsbevd
