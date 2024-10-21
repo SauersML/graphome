@@ -79,7 +79,7 @@ pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
     // Store the upper triangle
     for j in 0..n {
         for i in 0..=min(kd as usize, j) {
-            let row = kd as usize - i; 
+            let row = kd as usize - (j - i);
             let col = j;
             banded[[row, col]] = matrix[[j - i, j]];
         }
