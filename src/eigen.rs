@@ -172,6 +172,8 @@ pub fn compute_eigenvalues_and_vectors_sym_band(
     let mut eigvals = vec![0.0_f64; n as usize];
     let mut eigvecs = vec![0.0_f64; (n * n) as usize]; // Flat array for eigenvectors
 
+    // TODO: LAPACK is NOT currently working and all output produced is wrong. Will fix
+    
     // Perform the actual eigendecomposition with optimal WORK and IWORK
     unsafe {
         dsbevd_(
