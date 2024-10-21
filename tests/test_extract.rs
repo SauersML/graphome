@@ -485,7 +485,7 @@ mod tests {
         let output_file = NamedTempFile::new()?;
 
         // Save matrix to CSV
-        save_matrix_to_csv(&matrix, output_file.path())?;
+        save_array_to_csv_dsbevd(&matrix, output_file.path())?;
 
         // Read the output file
         let mut file = File::open(output_file.path())?;
