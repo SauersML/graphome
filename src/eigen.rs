@@ -78,10 +78,21 @@ pub fn to_banded_format(matrix: &Array2<f64>, kd: i32) -> Array2<f64> {
 
     // Store the upper triangle
     for j in 0..n {
-        for i in 0..=min(kd as usize, j) {
-            let row = kd as usize - (j - i);
+        let i_min = if j >= kd as usize { j - kd as usize } else { 0 };
+        let i_max = j;
+
+        for i in i_min..=i_max {
+            let row = kd as usize + i - j;
             let col = j;
-            banded[[row, col]] = matrix[[j - i, j]];
+
+            if row >= banded.nrows() || col >= banded.ncols() {
+                panic!(
+                    "Attempting to access banded[{}, {}], which is out of bounds.",
+                    row, col
+                );
+            }
+
+            banded[[row, col]] = matrix[[i, j]];
         }
     }
 
