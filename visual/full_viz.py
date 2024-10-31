@@ -11,12 +11,38 @@ from time import time
 import argparse
 
 def load_matrix(filepath):
-    """Load matrix from CSV, ignoring first row and column."""
+    """Load matrix from CSV, coercing to square by cleaning and dropping as needed."""
     print(f"\nLoading matrix from {filepath}...")
     try:
+        # Read the CSV
         df = pd.read_csv(filepath)
-        matrix = df.iloc[1:, 1:].astype(float).values
-        print(f"Successfully loaded matrix with shape {matrix.shape}")
+        
+        # Remove any completely empty rows and columns
+        df = df.dropna(how='all', axis=0).dropna(how='all', axis=1)
+        
+        # Get numeric data only, starting from row 1, col 1
+        matrix = df.iloc[1:, 1:].apply(pd.to_numeric, errors='coerce')
+        
+        # Drop any rows/cols with non-numeric data
+        matrix = matrix.dropna(how='any', axis=0).dropna(how='any', axis=1)
+        
+        print(f"Initial matrix shape: {matrix.shape}")
+        
+        # Make square by taking the minimum dimension
+        min_dim = min(matrix.shape[0], matrix.shape[1])
+        if matrix.shape[0] > min_dim:
+            dropped_rows = matrix.shape[0] - min_dim
+            print(f"Dropping {dropped_rows} rows to make matrix square")
+            matrix = matrix.iloc[:min_dim, :]
+        if matrix.shape[1] > min_dim:
+            dropped_cols = matrix.shape[1] - min_dim
+            print(f"Dropping {dropped_cols} columns to make matrix square")
+            matrix = matrix.iloc[:, :min_dim]
+            
+        # Convert to numpy array
+        matrix = matrix.astype(float).values
+        print(f"Final square matrix shape: {matrix.shape}")
+        
         return matrix
     except Exception as e:
         print(f"Error loading matrix: {e}")
