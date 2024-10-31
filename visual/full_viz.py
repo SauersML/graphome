@@ -162,7 +162,9 @@ def plot_3d(eigenvalues, eigenvectors, output_dir, suffix=''):
         # Style the plot
         ax.set_facecolor('black')
         ax.grid(True, color='gray', linestyle='--', linewidth=0.5)
-        ax.tick_params(axis='all', colors='white')
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        ax.tick_params(axis='z', colors='white')
         
         for axis in [ax.xaxis, ax.yaxis, ax.zaxis]:
             axis.pane.set_facecolor((0, 0, 0, 1.0))
