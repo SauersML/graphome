@@ -56,12 +56,19 @@ def compute_laplacian(matrix):
     print(f"Laplacian matrix computed with shape {L.shape}")
     return L
 
-def eigendecompose(matrix):
-    """Perform eigendecomposition on matrix."""
+def eigendecompose_and_sort(matrix):
+    """Perform eigendecomposition and sort by the first eigenvector's component values."""
     print("\nPerforming eigendecomposition...")
     try:
         eigenvalues, eigenvectors = np.linalg.eigh(matrix)
         print(f"Eigendecomposition complete: {len(eigenvalues)} eigenvalues found")
+
+        # Sort indices based on the first eigenvector's component values
+        sorted_indices = np.argsort(eigenvectors[:, 0])
+        
+        # Apply the sorted indices to both eigenvectors and eigenvalues
+        eigenvectors = eigenvectors[sorted_indices]
+        
         return eigenvalues, eigenvectors
     except Exception as e:
         print(f"Error during eigendecomposition: {e}")
@@ -221,8 +228,8 @@ def process_matrix(matrix, base_name, is_laplacian=False):
     # Create output directories
     output_dirs = create_output_dirs(f"{base_name}{suffix}")
     
-    # Perform eigendecomposition
-    eigenvalues, eigenvectors = eigendecompose(matrix)
+    # Perform eigendecomposition and sort by first eigenvector
+    eigenvalues, eigenvectors = eigendecompose_and_sort(matrix)
     
     # Create visualizations
     plot_2d(eigenvalues, eigenvectors, output_dirs['2d'], suffix)
