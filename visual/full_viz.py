@@ -56,20 +56,38 @@ def compute_laplacian(matrix):
     print(f"Laplacian matrix computed with shape {L.shape}")
     return L
 
+def compute_weighted_importance(eigenvectors, eigenvalues):
+    """
+    Compute weighted importance scores for each component.
+    Each component's score is the sum of its eigenvector elements weighted by eigenvalues.
+    """
+    # Normalize eigenvalues to [0, 1] range for weighting
+    normalized_eigenvalues = (eigenvalues - eigenvalues.min()) / (eigenvalues.max() - eigenvalues.min())
+    
+    # Compute weighted sum for each component
+    weighted_sums = np.zeros(eigenvectors.shape[0])
+    for i in range(len(eigenvalues)):
+        weighted_sums += np.abs(eigenvectors[:, i]) * normalized_eigenvalues[i]
+    
+    return weighted_sums
+
 def eigendecompose_and_sort(matrix):
-    """Perform eigendecomposition and sort by the first eigenvector's component values."""
+    """Perform eigendecomposition and sort by weighted importance."""
     print("\nPerforming eigendecomposition...")
     try:
         eigenvalues, eigenvectors = np.linalg.eigh(matrix)
         print(f"Eigendecomposition complete: {len(eigenvalues)} eigenvalues found")
 
-        # Sort indices based on the first eigenvector's component values
-        sorted_indices = np.argsort(eigenvectors[:, 0])
+        # Compute weighted importance scores
+        weighted_scores = compute_weighted_importance(eigenvectors, eigenvalues)
         
-        # Apply the sorted indices to both eigenvectors and eigenvalues
+        # Get sorting indices based on weighted importance
+        sorted_indices = np.argsort(weighted_scores)[::-1]  # Sort in descending order
+        
+        # Apply the sorted indices to the eigenvectors
         eigenvectors = eigenvectors[sorted_indices]
         
-        return eigenvalues, eigenvectors
+        return eigenvalues, eigenvectors, sorted_indices
     except Exception as e:
         print(f"Error during eigendecomposition: {e}")
         sys.exit(1)
@@ -114,9 +132,9 @@ def plot_2d(eigenvalues, eigenvectors, output_dir, suffix=''):
     
     # Configure axes and labels
     ax.invert_yaxis()
-    plt.title(f'Eigenvector Visualization{suffix}', color='white', fontsize=16)
+    plt.title(f'Eigenvector Visualization (Weighted Sort){suffix}', color='white', fontsize=16)
     plt.xlabel('Eigenvector Index', color='white', fontsize=14)
-    plt.ylabel('Component Index', color='white', fontsize=14)
+    plt.ylabel('Component Index (Sorted by Weighted Importance)', color='white', fontsize=14)
     
     # Configure colorbar
     cbar = plt.colorbar(img, ax=ax, fraction=0.046, pad=0.04)
@@ -164,7 +182,7 @@ def plot_3d(eigenvalues, eigenvectors, output_dir, suffix=''):
                            s=20)
         
         ax.view_init(elev=elev, azim=azim)
-        ax.set_title(f'3D Eigenvector Visualization{suffix}', color='white', fontsize=20)
+        ax.set_title(f'3D Eigenvector Visualization (Weighted Sort){suffix}', color='white', fontsize=20)
         
         # Style the plot
         ax.set_facecolor('black')
@@ -204,7 +222,7 @@ def create_animation_frames(eigenvalues, eigenvectors, output_dir, suffix=''):
         current_data = intensity[:, :i+1] if i > 0 else intensity[:, :1]
         img = ax.imshow(current_data, cmap='bwr', aspect='auto')
         
-        plt.title(f'Eigenvector Animation Frame {i+1}{suffix}', color='white')
+        plt.title(f'Eigenvector Animation Frame {i+1} (Weighted Sort){suffix}', color='white')
         plt.savefig(os.path.join(frames_dir, f'frame_{i:04d}{suffix}.png'),
                    dpi=200, facecolor='black')
         plt.close()
@@ -228,8 +246,8 @@ def process_matrix(matrix, base_name, is_laplacian=False):
     # Create output directories
     output_dirs = create_output_dirs(f"{base_name}{suffix}")
     
-    # Perform eigendecomposition and sort by first eigenvector
-    eigenvalues, eigenvectors = eigendecompose_and_sort(matrix)
+    # Perform eigendecomposition and sort by weighted importance
+    eigenvalues, eigenvectors, sorted_indices = eigendecompose_and_sort(matrix)
     
     # Create visualizations
     plot_2d(eigenvalues, eigenvectors, output_dirs['2d'], suffix)
