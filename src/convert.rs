@@ -107,10 +107,12 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     
     // Reset reader for actual parsing
     reader.rewind()?;
-    let mut segment_names = Vec::with_capacity(estimated_segments as usize);
+    
+    // Create thread-safe vector with estimated capacity
+    let segment_names = Arc::new(Mutex::new(Vec::with_capacity(estimated_segments as usize)));
 
     // Create progress bar with accurate estimate
-    let pb = ProgressBar::new(estimated_segments);
+    let pb = Arc::new(ProgressBar::new(estimated_segments));
     let style = ProgressStyle::default_bar()
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({pos}/{len} segments)")
         .unwrap()
@@ -128,12 +130,19 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 3 {
                 let segment_name = parts[1].to_string();
-                segment_names.push(segment_name);
+                let mut names = segment_names.lock().unwrap();
+                names.push(segment_name);
                 pb.inc(1);
             }
         });
 
     pb.finish_with_message("✨ Segment parsing complete!");
+
+    // Extract the Vec from Arc<Mutex>
+    let segment_names = Arc::try_unwrap(segment_names)
+        .unwrap()
+        .into_inner()
+        .unwrap();
 
     let unique_segments: HashSet<String> = segment_names.into_iter().collect();
     let mut sorted_segments: Vec<String> = unique_segments.into_iter().collect();
@@ -149,6 +158,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     Ok((segment_indices, segment_counter))
 }
+
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
 /// Writes both (from, to) and (to, from) for bidirectional edges.
