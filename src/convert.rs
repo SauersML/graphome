@@ -70,12 +70,9 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 /// # Panics
 ///
 /// This function does not explicitly panic.
-
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
     let file = File::open(&gfa_path)?;
     let file_size = file.metadata()?.len();
-    
-    // Use memory mapping for fast random access
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
     
     println!("📊 Quick sampling for accurate estimation...");
@@ -85,19 +82,15 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let seed: u64 = rand::thread_rng().gen();
     
     let counters = (0..samples).into_par_iter().map(|i| {
-        // Create a unique RNG for each thread using a different seed
         let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(i as u64));
-        
         let pos = rng.gen_range(0..file_size - 1000);
         let mut end = pos;
         
-        // Find end of line
         while end < file_size && mmap[end as usize] != b'\n' {
             end += 1;
         }
         end += 1;
         
-        // Read one full line
         let mut start = end;
         while start < file_size && mmap[start as usize] != b'\n' {
             start += 1;
@@ -113,7 +106,6 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let segment_density = counters.0 as f64 / counters.1 as f64;
     let estimated_segments = (file_size as f64 / 100.0 * segment_density) as u64;
 
-    // Parallel segment collection using chunks
     println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
     let pb = Arc::new(ProgressBar::new(estimated_segments));
     pb.set_style(ProgressStyle::default_bar()
@@ -125,30 +117,79 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let num_chunks = (file_size as usize + CHUNK_SIZE - 1) / CHUNK_SIZE;
     
     let segment_names: HashSet<String> = (0..num_chunks).into_par_iter().flat_map(|chunk| {
-        let start = chunk * CHUNK_SIZE;
-        let end = (start + CHUNK_SIZE).min(file_size as usize);
-        let mut segments = HashSet::new();
+        let chunk_start = chunk * CHUNK_SIZE;
+        let chunk_end = (chunk_start + CHUNK_SIZE).min(file_size as usize);
         
-        let chunk_data = &mmap[start..end];
+        // Find beginning of first complete line
+        let real_start = if chunk == 0 {
+            0
+        } else {
+            // Backtrack to find previous newline or file start
+            let mut start = chunk_start;
+            while start > 0 && mmap[start - 1] != b'\n' {
+                start -= 1;
+            }
+            start
+        };
+        
+        // Find end of last complete line
+        let real_end = if chunk == num_chunks - 1 {
+            chunk_end
+        } else {
+            // Look ahead to find next newline
+            let mut end = chunk_end;
+            while end < file_size as usize && mmap[end] != b'\n' {
+                end += 1;
+            }
+            if end < file_size as usize {
+                end + 1 // Include the newline
+            } else {
+                end
+            }
+        };
+        
+        let mut segments = HashSet::new();
+        let chunk_data = &mmap[real_start..real_end];
         let mut pos = 0;
         
         while pos < chunk_data.len() {
-            if pos + 2 < chunk_data.len() && chunk_data[pos] == b'S' && chunk_data[pos + 1] == b'\t' {
-                let line_end = chunk_data[pos..].iter()
-                    .position(|&b| b == b'\n')
-                    .unwrap_or(chunk_data.len() - pos) + pos;
-                    
-                if let Ok(line) = std::str::from_utf8(&chunk_data[pos..line_end]) {
-                    if let Some(name) = line.split('\t').nth(1) {
-                        segments.insert(name.to_string());
-                        pb.inc(1);
+            // Check for complete "S\t" prefix
+            if pos + 2 <= chunk_data.len() && chunk_data[pos] == b'S' && chunk_data[pos + 1] == b'\t' {
+                // Find complete line
+                let remaining_data = &chunk_data[pos..];
+                if let Some(line_length) = remaining_data.iter().position(|&b| b == b'\n') {
+                    // Only process if we have a complete line
+                    if let Ok(line) = std::str::from_utf8(&remaining_data[..line_length]) {
+                        if let Some(name) = line.split('\t').nth(1) {
+                            // Only count if this chunk owns the line
+                            // (first chunk or line starts after chunk_start)
+                            if chunk == 0 || pos + real_start >= chunk_start {
+                                segments.insert(name.to_string());
+                                pb.inc(1);
+                            }
+                        }
                     }
+                    pos += line_length + 1;
+                } else {
+                    // Incomplete line at end of file
+                    if chunk == num_chunks - 1 {
+                        if let Ok(line) = std::str::from_utf8(remaining_data) {
+                            if let Some(name) = line.split('\t').nth(1) {
+                                segments.insert(name.to_string());
+                                pb.inc(1);
+                            }
+                        }
+                    }
+                    break;
+                }
+            } else {
+                // Find next line start
+                if let Some(next_line) = chunk_data[pos..].iter().position(|&b| b == b'\n') {
+                    pos += next_line + 1;
+                } else {
+                    break;
                 }
             }
-            
-            pos += chunk_data[pos..].iter()
-                .position(|&b| b == b'\n')
-                .map_or(chunk_data.len() - pos, |p| p + 1);
         }
         
         segments
@@ -156,7 +197,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Create sorted index mapping
+    // Create deterministic index mapping
     let mut sorted_segments: Vec<String> = segment_names.into_iter().collect();
     sorted_segments.sort();
     
