@@ -204,7 +204,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     println!("Parsing links and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
-    let total_links_estimate = 49_255_042; // Adjust based on actual data if known
+    let total_links_estimate = 309_511_744; // Adjust based on actual data if known
     println!(
         "Note: Progress bar is based on an estimated total of {} links.",
         total_links_estimate
