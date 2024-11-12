@@ -5,7 +5,7 @@
 use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, BufWriter, Write, Seek, SeekFrom};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
