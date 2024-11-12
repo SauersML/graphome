@@ -84,7 +84,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     // Create a seed for the random number generator
     let seed: u64 = rand::thread_rng().gen();
     
-    let mut counters = (0..samples).into_par_iter().map(|i| {
+    let counters = (0..samples).into_par_iter().map(|i| {
         // Create a unique RNG for each thread using a different seed
         let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(i as u64));
         
