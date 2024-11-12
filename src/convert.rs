@@ -9,6 +9,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use rand_chacha::ChaCha8Rng;
 use rand::Rng;
 
 use indicatif::{ProgressBar, ProgressStyle};
