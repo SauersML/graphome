@@ -77,8 +77,6 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     
     println!("📊 Quick sampling for accurate estimation...");
     let samples = 1000;
-    
-    // Create a seed for the random number generator
     let seed: u64 = rand::thread_rng().gen();
     
     let counters = (0..samples).into_par_iter().map(|i| {
@@ -124,9 +122,13 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         let real_start = if chunk == 0 {
             0
         } else {
-            // Backtrack to find previous newline or file start
+            // Backtrack to find previous newline
             let mut start = chunk_start;
             while start > 0 && mmap[start - 1] != b'\n' {
+                start -= 1;
+            }
+            // Now backtrack to valid UTF-8 boundary if needed
+            while start > 0 && (mmap[start] & 0xC0) == 0x80 {
                 start -= 1;
             }
             start
@@ -141,8 +143,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             while end < file_size as usize && mmap[end] != b'\n' {
                 end += 1;
             }
+            // Include the newline if we found one
             if end < file_size as usize {
-                end + 1 // Include the newline
+                end + 1
             } else {
                 end
             }
@@ -153,26 +156,34 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         let mut pos = 0;
         
         while pos < chunk_data.len() {
+            // Handle empty lines explicitly
+            if pos < chunk_data.len() && chunk_data[pos] == b'\n' {
+                pos += 1;
+                continue;
+            }
+
             // Check for complete "S\t" prefix
             if pos + 2 <= chunk_data.len() && chunk_data[pos] == b'S' && chunk_data[pos + 1] == b'\t' {
                 // Find complete line
                 let remaining_data = &chunk_data[pos..];
                 if let Some(line_length) = remaining_data.iter().position(|&b| b == b'\n') {
-                    // Only process if we have a complete line
-                    if let Ok(line) = std::str::from_utf8(&remaining_data[..line_length]) {
-                        if let Some(name) = line.split('\t').nth(1) {
-                            // Only count if this chunk owns the line
-                            // (first chunk or line starts after chunk_start)
-                            if chunk == 0 || pos + real_start >= chunk_start {
+                    // Check if this line belongs to this chunk
+                    let absolute_pos = pos + real_start;
+                    if absolute_pos >= chunk_start && absolute_pos < chunk_end {
+                        // Only process if we have a complete line
+                        if let Ok(line) = std::str::from_utf8(&remaining_data[..line_length]) {
+                            if let Some(name) = line.split('\t').nth(1) {
+                                // Use Arc to track progress separately from segment collection
                                 segments.insert(name.to_string());
                                 pb.inc(1);
                             }
                         }
                     }
                     pos += line_length + 1;
-                } else {
-                    // Incomplete line at end of file
-                    if chunk == num_chunks - 1 {
+                } else if chunk == num_chunks - 1 {
+                    // Special handling for last line of file if it has no newline
+                    let absolute_pos = pos + real_start;
+                    if absolute_pos >= chunk_start {
                         if let Ok(line) = std::str::from_utf8(remaining_data) {
                             if let Some(name) = line.split('\t').nth(1) {
                                 segments.insert(name.to_string());
@@ -181,13 +192,15 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
                         }
                     }
                     break;
+                } else {
+                    // Incomplete line and not last chunk - skip to next chunk
+                    break;
                 }
             } else {
                 // Find next line start
-                if let Some(next_line) = chunk_data[pos..].iter().position(|&b| b == b'\n') {
-                    pos += next_line + 1;
-                } else {
-                    break;
+                match chunk_data[pos..].iter().position(|&b| b == b'\n') {
+                    Some(next_line) => pos += next_line + 1,
+                    None => break, // No more newlines in this chunk
                 }
             }
         }
@@ -211,7 +224,6 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     
     Ok((segment_indices, segment_counter))
 }
-
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
