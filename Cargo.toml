@@ -20,6 +20,7 @@ tempfile = "3.3"
 ndarray = { version = "0.16.1", features = ["rayon"] }
 ndarray-linalg = "0.16.0"
 lapack-sys = "0.14.0"
+rand = "0.8.5"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
