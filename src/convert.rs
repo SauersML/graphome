@@ -71,11 +71,24 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let file = File::open(&gfa_path)?;
     let reader = BufReader::new(file);
 
+    // First, count total lines to set up progress bar
+    println!("Counting segments in GFA file...");
+    let total_lines = BufReader::new(File::open(&gfa_path)?).lines().count();
+    
     let mut segment_names = Vec::new();
 
+    // Create a new progress bar
+    let pb = ProgressBar::new(total_lines as u64);
+    let style = ProgressStyle::default_bar()
+        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({pos}/{len} lines)")
+        .unwrap()
+        .progress_chars("▰▰░");
+    
+    pb.set_style(style);
+    
     println!("Parsing segments from GFA file...");
 
-    // Collect all segment names
+    // Collect all segment names with progress
     for line_result in reader.lines() {
         let line = line_result?;
         if line.starts_with("S\t") {
@@ -85,7 +98,10 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
                 segment_names.push(segment_name);
             }
         }
+        pb.inc(1);
     }
+
+    pb.finish_with_message("✨ Segment parsing complete!");
 
     // Remove duplicates by converting to a HashSet
     let unique_segments: HashSet<String> = segment_names.into_iter().collect();
@@ -102,7 +118,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     let segment_counter = sorted_segments.len() as u32;
 
-    println!("Total segments (nodes) identified: {}", segment_counter);
+    println!("🎯 Total segments (nodes) identified: {}", segment_counter);
 
     Ok((segment_indices, segment_counter))
 }
