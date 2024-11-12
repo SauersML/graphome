@@ -72,92 +72,97 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let file = File::open(&gfa_path)?;
     let file_size = file.metadata()?.len();
     
-    // Sample ~1000 random positions to estimate segment density
+    // Use memory mapping for fast random access
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+    
+    // Quick random sampling using memory mapping
+    println!("📊 Quick sampling for accurate estimation...");
     let mut rng = rand::thread_rng();
     let samples = 1000;
-    let mut segment_count = 0;
-    let mut total_lines = 0;
-    let mut reader = BufReader::new(file);
-
-    println!("📊 Quick sampling for accurate estimation...");
-    
-    // Sample random positions in the file
-    for _ in 0..samples {
-        let pos = rng.gen_range(0..file_size - 1000); // Avoid end of file
-        reader.seek(SeekFrom::Start(pos))?;
+    let mut counters = (0..samples).into_par_iter().map(|_| {
+        let pos = rng.gen_range(0..file_size - 1000);
+        let mut end = pos;
         
-        // Read and discard partial line
-        let mut partial = String::new();
-        reader.read_line(&mut partial)?;
-        
-        // Read one full line and check if it's a segment
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        
-        if line.starts_with("S\t") {
-            segment_count += 1;
+        // Find end of line
+        while end < file_size && mmap[end as usize] != b'\n' {
+            end += 1;
         }
-        total_lines += 1;
-    }
+        end += 1;
+        
+        // Read one full line
+        let mut start = end;
+        while start < file_size && mmap[start as usize] != b'\n' {
+            start += 1;
+        }
+        
+        if let Ok(line) = std::str::from_utf8(&mmap[end as usize..start as usize]) {
+            (line.starts_with("S\t") as u32, 1u32)
+        } else {
+            (0, 1)
+        }
+    }).reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
 
-    // Calculate segment density and estimate total segments
-    let segment_density = segment_count as f64 / total_lines as f64;
-    let estimated_total_lines = file_size / 100; // Assume average line length
-    let estimated_segments = (estimated_total_lines as f64 * segment_density) as u64;
-    
-    // Reset reader for actual parsing
-    reader.rewind()?;
-    
-    // Create thread-safe vector with estimated capacity
-    let segment_names = Arc::new(Mutex::new(Vec::with_capacity(estimated_segments as usize)));
+    let segment_density = counters.0 as f64 / counters.1 as f64;
+    let estimated_segments = (file_size as f64 / 100.0 * segment_density) as u64;
 
-    // Create progress bar with accurate estimate
+    // Parallel segment collection using chunks
+    println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
     let pb = Arc::new(ProgressBar::new(estimated_segments));
-    let style = ProgressStyle::default_bar()
+    pb.set_style(ProgressStyle::default_bar()
         .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({pos}/{len} segments)")
         .unwrap()
-        .progress_chars("▰▰░");
-    
-    pb.set_style(style);
-    println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
+        .progress_chars("▰▰░"));
 
-    // Parallel processing of actual segments
-    reader.lines()
-        .par_bridge()
-        .filter_map(Result::ok)
-        .filter(|line| line.starts_with("S\t"))
-        .for_each(|line| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 3 {
-                let segment_name = parts[1].to_string();
-                let mut names = segment_names.lock().unwrap();
-                names.push(segment_name);
-                pb.inc(1);
+    const CHUNK_SIZE: usize = 10_000_000; // 10MB chunks
+    let num_chunks = (file_size as usize + CHUNK_SIZE - 1) / CHUNK_SIZE;
+    
+    let segment_names: HashSet<String> = (0..num_chunks).into_par_iter().flat_map(|chunk| {
+        let start = chunk * CHUNK_SIZE;
+        let end = (start + CHUNK_SIZE).min(file_size as usize);
+        let mut segments = HashSet::new();
+        
+        let chunk_data = &mmap[start..end];
+        let mut pos = 0;
+        
+        while pos < chunk_data.len() {
+            if pos + 2 < chunk_data.len() && chunk_data[pos] == b'S' && chunk_data[pos + 1] == b'\t' {
+                let line_end = chunk_data[pos..].iter()
+                    .position(|&b| b == b'\n')
+                    .unwrap_or(chunk_data.len() - pos) + pos;
+                    
+                if let Ok(line) = std::str::from_utf8(&chunk_data[pos..line_end]) {
+                    if let Some(name) = line.split('\t').nth(1) {
+                        segments.insert(name.to_string());
+                        pb.inc(1);
+                    }
+                }
             }
-        });
+            
+            pos += chunk_data[pos..].iter()
+                .position(|&b| b == b'\n')
+                .map_or(chunk_data.len() - pos, |p| p + 1);
+        }
+        
+        segments
+    }).collect();
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Extract the Vec from Arc<Mutex>
-    let segment_names = Arc::try_unwrap(segment_names)
-        .unwrap()
-        .into_inner()
-        .unwrap();
-
-    let unique_segments: HashSet<String> = segment_names.into_iter().collect();
-    let mut sorted_segments: Vec<String> = unique_segments.into_iter().collect();
+    // Create sorted index mapping
+    let mut sorted_segments: Vec<String> = segment_names.into_iter().collect();
     sorted_segments.sort();
-
-    let mut segment_indices = HashMap::new();
-    for (index, segment_name) in sorted_segments.iter().enumerate() {
-        segment_indices.insert(segment_name.clone(), index as u32);
-    }
+    
+    let segment_indices: HashMap<String, u32> = sorted_segments.iter()
+        .enumerate()
+        .map(|(idx, name)| (name.clone(), idx as u32))
+        .collect();
 
     let segment_counter = sorted_segments.len() as u32;
     println!("🎯 Total segments (nodes) identified: {}", segment_counter);
-
+    
     Ok((segment_indices, segment_counter))
 }
+
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
