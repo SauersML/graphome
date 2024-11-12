@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use rand_chacha::ChaCha8Rng;
 use rand::Rng;
+use rand::SeedableRng;
 
 use indicatif::{ProgressBar, ProgressStyle};
 
