@@ -623,6 +623,7 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             let dm1 = d[m-1];
             let diff = (dm1 - dm) / 2.0;
             let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
+            let eps = f64::EPSILON;
             let shift = if em1.abs() < eps * (dm.abs() + dm1.abs()) {
                 dm
             } else {
