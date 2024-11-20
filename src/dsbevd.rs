@@ -548,7 +548,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     }
 
     // Parameters
-    let smlsiz = 25; // Minimum size to use divide and conquer
+    // Note: no minimum size smlsiz, ALWAYS use divide and conquer
     let eps = f64::EPSILON;
 
     // We always compute eigenvectors
