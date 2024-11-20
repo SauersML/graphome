@@ -8,7 +8,7 @@ mod tests {
     
     // Helper function to convert banded storage to dense matrix
     fn banded_to_dense(n: usize, kd: usize, ab: &Vec<Vec<f64>>) -> DMatrix<f64> {
-        let mut dense = DMatrix::zeros(n, n);
+        let mut dense = DMatrix::<f64>::zeros(n, n);
         for i in 0..n {
             for j in (i.saturating_sub(kd))..=std::cmp::min(i + kd, n - 1) {
                 if i <= j {
@@ -207,7 +207,7 @@ mod tests {
         let original = banded_to_dense(n, kd, &ab);
         
         // Reconstruct A = QΛQ^T
-        let mut reconstructed = DMatrix::zeros(n, n);
+        let mut reconstructed = DMatrix::<f64>::zeros(n, n);
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {
