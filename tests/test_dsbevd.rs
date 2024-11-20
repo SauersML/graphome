@@ -44,10 +44,10 @@ mod tests {
         
         // Make diagonally dominant for stability
         for j in 0..n {
-            let diag_abs: f64 = ab[0][j].abs();
+            let diag_abs = f64::abs(ab[0][j]);
             let sum: f64 = (1..=kd)
                 .filter(|&i| j + i < n)
-                .map(|i| ab[i][j].abs())
+                .map(|i| f64::abs(ab[i][j]))
                 .sum();
             ab[0][j] = diag_abs + sum + 1.0;
         }
@@ -92,14 +92,14 @@ mod tests {
         
         // For diagonal matrix, eigenvalues should exactly equal diagonal elements in ascending order
         for i in 0..n {
-            let diff = (results.eigenvalues[i] - (i + 1) as f64).abs();
+            let diff = f64::abs(results.eigenvalues[i] - (i + 1) as f64);
             assert!(diff < 1e-10,
                 "Diagonal eigenvalue incorrect at position {}", i);
             
             // Check eigenvector is unit vector
             for j in 0..n {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                let diff = (results.eigenvectors[i][j] - expected).abs();
+                let diff = f64::abs(results.eigenvectors[i][j] - expected);
                 assert!(diff < 1e-10,
                     "Diagonal eigenvector incorrect at position ({},{})", i, j);
             }
@@ -131,7 +131,7 @@ mod tests {
         
         for (i, (&computed, &expected)) in results.eigenvalues.iter()
             .zip(expected.iter()).enumerate() {
-            let diff = (computed - expected).abs();
+            let diff = f64::abs(computed - expected);
             assert!(diff < 1e-10,
                 "Eigenvalue mismatch at position {}: computed={}, expected={}", 
                 i, computed, expected);
@@ -161,7 +161,7 @@ mod tests {
                 
                 // Compare eigenvalues (they should be in ascending order)
                 for i in 0..n {
-                    let diff = (our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]).abs();
+                    let diff = f64::abs(our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]);
                     assert!(diff < 1e-8,
                         "Eigenvalue mismatch at position {}", i);
                 }
@@ -188,7 +188,7 @@ mod tests {
                     .sum();
                 
                 let expected = if i == j { 1.0 } else { 0.0 };
-                let diff = (dot_product - expected).abs();
+                let diff = f64::abs(dot_product - expected);
                 assert!(diff < 1e-8,
                     "Eigenvectors {} and {} not orthonormal", i, j);
             }
@@ -221,7 +221,7 @@ mod tests {
         // Compare original and reconstructed matrices
         for i in 0..n {
             for j in 0..n {
-                let diff = (original[(i, j)] - reconstructed[(i, j)]).abs();
+                let diff = f64::abs(original[(i, j)] - reconstructed[(i, j)]);
                 assert!(diff < 1e-8,
                     "Matrix reconstruction failed at position ({},{})", i, j);
             }
@@ -235,7 +235,7 @@ mod tests {
         let matrix = SymmetricBandedMatrix::new(1, 0, ab);
         let results = matrix.dsbevd();
         assert_eq!(results.eigenvalues.len(), 1);
-        assert!((results.eigenvalues[0] - 2.0).abs() < 1e-10);
+        assert!(f64::abs(results.eigenvalues[0] - 2.0) < 1e-10);
         
         // Zero matrix
         let n = 3;
@@ -244,7 +244,7 @@ mod tests {
         let matrix = SymmetricBandedMatrix::new(n, kd, ab);
         let results = matrix.dsbevd();
         for &x in &results.eigenvalues {
-            assert!(x.abs() < 1e-10);
+            assert!(f64::abs(x) < 1e-10);
         }
         
         // Matrix with maximum bandwidth
