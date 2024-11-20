@@ -58,6 +58,13 @@ impl SymmetricBandedMatrix {
         // Step 3: Transform eigenvectors back to those of the original matrix
         let eigenvectors = multiply_q(&q, &eigenvectors_tridiag);
 
+        // Rescale eigenvalues
+        if scale != 1.0 {
+            for eigenval in eigenvalues.iter_mut() {
+                *eigenval /= scale;
+            }
+        }
+
         EigenResults {
             eigenvalues,
             eigenvectors,
@@ -147,6 +154,25 @@ impl SymmetricBandedMatrix {
 
         (d, e, q)
     }
+    fn matrix_norm(&self) -> f64 {
+        let mut max = 0.0;
+        for row in &self.ab {
+            for &val in row {
+                max = max.max(val.abs());
+            }
+        }
+        max
+    }
+    
+    fn scaled_copy(&self, scale: f64) -> Self {
+        let mut scaled = self.clone();
+        for row in &mut scaled.ab {
+            for val in row {
+                *val *= scale;
+            }
+        }
+        scaled
+    }    
 }
 
 /// Computes the Householder reflector for a vector x.
