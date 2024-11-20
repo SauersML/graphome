@@ -726,66 +726,64 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
 fn solve_secular_equation(
-    d: &mut [f64],
-    z: &mut [f64],
-    left_size: usize,
+    d1: &[f64],
+    d2: &[f64],
+    z: &[f64],
     rho: f64,
-    work: &mut [f64],
-    iwork: &mut [usize],
+    d: &mut [f64],
+    z_out: &mut [Vec<f64>>,
 ) -> i32 {
     let safmin: f64 = f64::MIN_POSITIVE;
     let n = d1.len() + d2.len();
     let eps = f64::EPSILON;
-    
-    // Sort d values and permute z 
+
+    // Combine d1 and d2 into dlamda
+    let mut dlamda = Vec::with_capacity(n);
+    dlamda.extend_from_slice(d1);
+    dlamda.extend_from_slice(d2);
+
+    // Sort dlamda and permute z accordingly
     let mut perm: Vec<usize> = (0..n).collect();
-    let mut dlamda = vec![0.0; n];
-    for i in 0..d1.len() {
-        dlamda[i] = d1[i];
-    }
-    for i in 0..d2.len() {
-        dlamda[d1.len() + i] = d2[i];
-    }
     perm.sort_by(|&i, &j| dlamda[i].partial_cmp(&dlamda[j]).unwrap());
 
     // Apply permutation and compute gaps
     let mut z_perm = vec![0.0; n];
     let mut dlamda_sorted = vec![0.0; n];
     let mut delta = vec![0.0; n];
-    
+
     for i in 0..n {
         z_perm[i] = z[perm[i]];
         dlamda_sorted[i] = dlamda[perm[i]];
         if i > 0 {
-            delta[i-1] = dlamda_sorted[i] - dlamda_sorted[i-1];
+            delta[i - 1] = dlamda_sorted[i] - dlamda_sorted[i - 1];
         }
     }
-    
+
     // Normalize z vector to avoid overflow
     let zmax = z_perm.iter().map(|&x| x.abs()).fold(0.0, f64::max);
     let z_scale = if zmax > safmin { zmax } else { 1.0 };
-    
+
     for j in 0..n {
         let mut lambda = dlamda_sorted[j];
-        
+
         // Initial bounds based on gaps
         let mut left = if j == 0 {
-            lambda - delta[0].abs()
+            lambda - delta.get(0).unwrap_or(&0.0).abs()
         } else {
-            lambda - delta[j-1].abs() * 0.5
+            lambda - delta[j - 1].abs() * 0.5
         };
-        
-        let mut right = if j == n-1 {
-            lambda + delta[n-2].abs()
+
+        let mut right = if j == n - 1 {
+            lambda + delta.get(n - 2).unwrap_or(&0.0).abs()
         } else {
             lambda + delta[j].abs() * 0.5
         };
 
         // Fast Newton iterations with bisection fallback
-        for iter in 0..8 {  // DLAED4 uses max 8 iterations for most cases
+        for _iter in 0..8 {
             let mut f = rho * (z_perm[j] / z_scale).powi(2);
             let mut df = 0.0;
-            
+
             for i in 0..n {
                 if i != j {
                     let del = lambda - dlamda_sorted[i];
@@ -793,18 +791,18 @@ fn solve_secular_equation(
                         continue;
                     }
                     let temp = z_perm[i] / (z_scale * del);
-                    f += z_perm[i] * temp;
+                    f += (z_perm[i] / z_scale) * temp;
                     df += temp * temp;
                 }
             }
-            
+
             // Newton update with bounds
             if df == 0.0 {
                 break;
             }
-            let delta = f / df;
-            let new_lambda = lambda - delta;
-            
+            let delta_lambda = f / df;
+            let new_lambda = lambda - delta_lambda;
+
             if new_lambda <= left || new_lambda >= right {
                 // Bisect if Newton step outside bounds
                 lambda = (left + right) * 0.5;
@@ -820,33 +818,39 @@ fn solve_secular_equation(
                 } else {
                     left = lambda;
                 }
-                if delta.abs() <= eps * lambda.abs() {
+                if delta_lambda.abs() <= eps * lambda.abs() {
                     break;
                 }
             }
         }
-        
+
         d[j] = lambda;
-        
+
         // Compute eigenvector with scaled computation
         let mut norm = 0.0;
         for i in 0..n {
             if i != j {
-                let temp = z_perm[i] / (dlamda_sorted[i] - lambda);
-                z_out[i][j] = temp;
-                norm += temp * temp;
+                let denom = dlamda_sorted[i] - lambda;
+                if denom.abs() < eps {
+                    z_out[i][j] = 0.0;
+                } else {
+                    let temp = z_perm[i] / denom;
+                    z_out[i][j] = temp;
+                    norm += temp * temp;
+                }
             } else {
                 z_out[i][j] = 1.0;
                 norm += 1.0;
             }
         }
-        
+
         // Normalize
         norm = norm.sqrt();
         for i in 0..n {
             z_out[i][j] /= norm;
         }
     }
+    0 // Return 0 to indicate success
 }
 
 /// Tridiagonal QR algorithm for small matrices.
