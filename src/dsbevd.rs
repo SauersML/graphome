@@ -97,7 +97,6 @@ impl SymmetricBandedMatrix {
             return (d, e, q);
         }
         
-        let mut work = vec![0.0; n];
         let mut d_vals = Vec::new();
         let mut work_vals = Vec::new();
         
@@ -519,8 +518,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let smlsiz = 25; // Minimum size to use divide and conquer
     let eps = f64::EPSILON;
 
-    // Determine if we need to compute eigenvectors
-    let compute_vectors = true;
+    // We always compute eigenvectors
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
