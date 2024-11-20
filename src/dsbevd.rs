@@ -432,15 +432,22 @@ fn solve_secular_equation(
 
     // Main secular equation solving loop
     for i in 0..n {
-        let mut left = dlamda[i];
-        let mut right = if i < n-1 { 
-            dlamda[i] + delta[i]
-        } else {
-            dlamda[i] * (1.0 + 4.0 * eps)
+        let mut left = if i == 0 { 
+            dlamda[0] - (dlamda[1] - dlamda[0]).abs() 
+        } else { 
+            dlamda[i-1] 
+        };
+        let mut right = if i == n-1 { 
+            dlamda[n-1] + (dlamda[n-1] - dlamda[n-2]).abs()
+        } else { 
+            dlamda[i+1] 
         };
         
-        // Binary search refinement 
-        for _ in 0..50 {  // Max iterations
+        let mut mid = dlamda[i];
+        let mut converged = false;
+        
+        // Newton iterations
+        for iter in 0..50 {
             let mut mid = (left + right) / 2.0;
             let mut sum = 0.0;
             let mut deriv = 0.0;
