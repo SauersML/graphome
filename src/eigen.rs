@@ -88,16 +88,6 @@ pub fn build_laplacian_csmat(edges: &[(usize, usize)], num_nodes: usize) -> CsMa
     triplet.to_csr()
 }
 
-/// Converts the adjacency matrix edge list to ndarray::Array2<f64>.
-pub fn adjacency_matrix_to_ndarray(edges: &[(usize, usize)], num_nodes: usize) -> Array2<f64> {
-    let mut adj_array = Array2::<f64>::zeros((num_nodes, num_nodes));
-    for &(a, b) in edges {
-        adj_array[(a, b)] = 1.0;
-        adj_array[(b, a)] = 1.0;
-    }
-    adj_array
-}
-
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
 pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
     let epsilon = 1e-9; // Small epsilon to account for floating-point precision
