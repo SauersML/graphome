@@ -5,6 +5,7 @@ use rand_distr::{Normal, Distribution};
 use std::cmp::min;
 
 /// Represents a real symmetric banded matrix.
+#[derive(Clone)]
 pub struct SymmetricBandedMatrix {
     n: usize,           // Order of the matrix
     kd: usize,          // Number of subdiagonals (assuming 'L' storage)
