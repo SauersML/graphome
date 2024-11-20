@@ -195,7 +195,13 @@ impl SymmetricBandedMatrix {
 /// The reflector is of the form H = I - tau * v * v^T
 fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     let n = x.len();
+    if n == 0 {
+        return (vec![], 0.0);
+    }
     let mut v = x.to_vec();
+    if n == 1 {
+        return (v, 0.0);
+    }
     
     // Handle empty or single element case
     if n <= 1 {
@@ -303,7 +309,8 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let eps = f64::EPSILON;
     let mut deflated = false;
     for i in 0..n-1 {
-        if e[i].abs() <= eps * (d[i].abs() + d[i+1].abs()) {
+        let tiny = eps * (d[i].abs().sqrt() * d[i+1].abs().sqrt());
+        if e[i].abs() <= tiny {
             e[i] = 0.0;
             deflated = true;
         }
@@ -488,8 +495,13 @@ fn solve_secular_equation(
                 }
             }
             
-            if sum.abs() <= eps {
+            let tol = eps * mid.abs();
+            if sum.abs() <= tol {
                 d[i] = mid;
+                break;
+            } else if iter >= 50 {
+                // Force convergence with bisection if Newton fails
+                d[i] = (left + right) / 2.0;
                 break;
             }
             
