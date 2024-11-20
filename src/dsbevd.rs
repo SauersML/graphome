@@ -500,68 +500,6 @@ fn dlar2v(
     }
 }
 
-
-
-/// Computes the Householder reflector for a vector x.
-/// Returns the Householder vector v and the scalar tau.
-/// The reflector is of the form H = I - tau * v * v^T
-fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
-    let n = x.len();
-    if n == 0 { return (vec![], 0.0); }
-    
-    let safmin = f64::MIN_POSITIVE;
-    let eps = f64::EPSILON;
-    let safemin = safmin.max(eps * x[0].abs());
-    
-    let mut v = x.to_vec();
-    if n == 1 { return (v, 0.0); }
-
-    let mut scale: f64 = 0.0;
-    let mut ssq = 0.0;
-    
-    // Two-pass scale computation for numerical stability
-    for &xi in x.iter().skip(1) {
-        scale = scale.max(xi.abs());
-    }
-    
-    if scale == 0.0 {
-        v[0] = x[0];
-        for i in 1..n {
-            v[i] = 0.0;
-        }
-        return (v, 0.0);
-    }
-
-    for &xi in x.iter().skip(1) {
-        let temp = xi / scale;
-        ssq += temp * temp;
-    }
-    
-    let xnorm = scale * ssq.sqrt();
-    let alpha = x[0];
-    
-    if xnorm == 0.0 {
-        return (v, 0.0);
-    }
-
-    let mut beta = -alpha.signum() * (alpha.abs().hypot(xnorm));
-    
-    if beta.abs() < safemin {
-        beta = -safemin.copysign(alpha);
-    }
-
-    let tau = (beta - alpha) / beta;
-    let scale = 1.0 / (alpha - beta);
-    
-    for i in 1..n {
-        v[i] *= scale;
-    }
-    v[0] = beta;
-    
-    (v, tau)
-}
-
-
 /// Computes the eigenvalues and eigenvectors of a symmetric tridiagonal matrix using the divide and conquer algorithm.
 /// `d`: diagonal elements
 /// `e`: off-diagonal elements
