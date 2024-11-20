@@ -253,102 +253,88 @@ fn tridiagonal_eigen_dc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
 /// Modifies `d`, `e`, and `z` in place.
 fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
-
-    if n == 1 {
+    
+    // Base cases
+    const SMLSIZ: usize = 25;
+    
+    if n == 0 {
         return;
     }
-
-    // Threshold for small subproblems
-    let smlsiz = 25;
-
-    // If the problem size is small, use QR algorithm
-    if n <= smlsiz {
+    
+    if n == 1 {
+        z[0][0] = 1.0;
+        return; 
+    }
+    
+    if n <= SMLSIZ {
         tridiagonal_qr(d, e, z);
         return;
     }
 
     // Divide step
     let m = n / 2;
-
-    let mut e_m_minus_1 = e[m - 1];
+    
+    // Save and zero out off-diagonal element
+    let e_m_minus_1 = e[m - 1];
     e[m - 1] = 0.0;
-
-    // Recurse on left and right subproblems
+    
+    // Recursively solve subproblems
     let (d_left, d_right) = d.split_at_mut(m);
     let (e_left, e_right) = e.split_at_mut(m - 1);
     let (z_left, z_right) = z.split_at_mut(m);
-
+    
     divide_and_conquer(d_left, e_left, z_left);
     divide_and_conquer(d_right, e_right, z_right);
-
-    // Conquer step
+    
     // Form rank-one modification
-    let rho = e_m_minus_1;
-
-    let k = m;
-
-    // Build the secular equation components
-    let n1 = m;
-    let n2 = n - m;
-
-    let d1 = d_left;
-    let d2 = d_right;
-
-    let z1 = z_left;
-    let z2 = z_right;
-
     let mut z_vec = vec![0.0; n];
-    let mut d_vec = vec![0.0; n];
-
-    // Build z vector
-    for i in 0..n1 {
-        z_vec[i] = z1[i][n1 - 1];
+    for i in 0..m {
+        z_vec[i] = z_left[i][m-1];
     }
-    for i in 0..n2 {
-        z_vec[n1 + i] = z2[i][0];
+    for i in 0..n-m {
+        z_vec[m + i] = z_right[i][0];
     }
-
-    // Compute updated eigenvalues and eigenvectors
+    
+    // Solve secular equation
     let mut new_d = vec![0.0; n];
     let mut new_z = vec![vec![0.0; n]; n];
-
-    // Solve secular equation
+    
     solve_secular_equation(
-        &d1,
-        &d2,
+        d_left,
+        d_right, 
         &z_vec,
-        rho,
+        e_m_minus_1,
         &mut new_d,
-        &mut new_z,
+        &mut new_z
     );
-
-    // Copy new_d to d
+    
+    // Copy results back
     d.copy_from_slice(&new_d);
-
-    // Create temporary matrix for results
+    
+    // Update eigenvectors
     let mut temp_z = vec![vec![0.0; n]; n];
-
-    // Left eigenvectors
-    for i in 0..n1 {
+    
+    // Left portion
+    for i in 0..m {
         for j in 0..n {
             temp_z[i][j] = 0.0;
-            for l in 0..n1 {
-                temp_z[i][j] += z1[i][l] * new_z[l][j];
+            for l in 0..m {
+                temp_z[i][j] += z_left[i][l] * new_z[l][j];
             }
         }
     }
-
-    // Right eigenvectors
-    for i in 0..n2 {
+    
+    // Right portion  
+    for i in 0..n-m {
         for j in 0..n {
-            temp_z[n1 + i][j] = 0.0;
-            for l in 0..n2 {
-                temp_z[n1 + i][j] += z2[i][l] * new_z[n1 + l][j];
+            temp_z[m+i][j] = 0.0;
+            for l in 0..n-m {
+                temp_z[m+i][j] += z_right[i][l] * new_z[m+l][j];
             }
         }
     }
-
-    // Copy results back to z
+    
+    // Copy results back
     for i in 0..n {
         for j in 0..n {
             z[i][j] = temp_z[i][j];
