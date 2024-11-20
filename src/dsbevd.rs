@@ -103,64 +103,70 @@ impl SymmetricBandedMatrix {
     
         let kd1 = kd + 1;
         let kdm1 = kd - 1;
+        let incx = kd1 * ab.len();
     
         let mut nr = 0;
         let mut j1 = kd1;
         let mut j2 = 1;
-    
-        // Declare d_vals and work_vals outside the loops
-        let mut d_vals = Vec::new();
-        let mut work_vals = Vec::new();
+        let mut iqend = 1;
     
         // Reduce to tridiagonal form, working with lower triangle
         if kd > 1 {
             for i in 0..(n - 2) {
-                for k in ((2..=kd1).rev()) {
+                for k in (2..=kd1).rev() {
                     j1 += kd;
                     j2 += kd;
     
                     if nr > 0 {
                         // Generate plane rotations to annihilate nonzero elements
-                        d_vals.clear();
-                        work_vals.clear();
-                        for j in (j1 - kd1..j1 - kd1 + nr * kd).step_by(kd) {
+                        let mut d_vals = Vec::with_capacity(nr);
+                        let mut work_vals = Vec::with_capacity(nr);
+                        for idx in 0..nr {
+                            let j = j1 - kd1 + idx * kd;
                             d_vals.push(ab[kd][j]);
                             work_vals.push(ab[kd - 1][j]);
                         }
     
                         let (d_rot, work_rot) = dlargv(&mut d_vals, &mut work_vals);
+    
                         for idx in 0..nr {
-                            let index = j1 - kd1 + idx * kd;
-                            ab[kd][index] = d_rot[idx];
-                            ab[kd - 1][index] = work_rot[idx];
+                            let j = j1 - kd1 + idx * kd;
+                            ab[kd][j] = d_rot[idx];
+                            ab[kd - 1][j] = work_rot[idx];
                         }
     
-                        // Apply rotations from one side
-                        if nr > 2 * kd - 1 {
+                        // Apply rotations from the right
+                        if nr >= 2 * kd - 1 {
                             for l in 1..kd {
-                                let mut x = Vec::with_capacity(nr);
-                                let mut y = Vec::with_capacity(nr);
-                                for j in (j1 - kd1 + l..j1 - kd1 + l + nr * kd).step_by(kd) {
+                                let nrt = nr;
+                                let mut x = Vec::with_capacity(nrt);
+                                let mut y = Vec::with_capacity(nrt);
+                                for idx in 0..nrt {
+                                    let j = j1 - kd1 + l + idx * kd;
                                     x.push(ab[kd1 - l][j]);
                                     y.push(ab[kd1 - l + 1][j]);
                                 }
                                 let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
-                                for idx in 0..nr {
-                                    let index = j1 - kd1 + l + idx * kd;
-                                    ab[kd1 - l][index] = x_rot[idx];
-                                    ab[kd1 - l + 1][index] = y_rot[idx];
+                                for idx in 0..nrt {
+                                    let j = j1 - kd1 + l + idx * kd;
+                                    ab[kd1 - l][j] = x_rot[idx];
+                                    ab[kd1 - l + 1][j] = y_rot[idx];
                                 }
                             }
                         } else {
-                            for idx in 0..(nr - 1) {
-                                let j = j1 + idx * kd;
-                                let ab_row_kd_minus1 = &mut ab[kd - 1];
-                                let ab_row_kd = &mut ab[kd];
+                            for idx in 0..(nr) {
+                                let j = j1 - kd1 + idx * kd;
                                 let start = j;
-                                let end = j + kdm1;
+                                let end = start + kdm1;
+    
+                                // Split the ab[kd - 1] slice to avoid overlapping mutable borrows
+                                let (left, right) = ab[kd - 1].split_at_mut(end);
+                                let ab_row_kd_minus1 = &mut left[start..end];
+                                let ab_row_kd = &mut ab[kd][start..end];
+    
                                 drot(
-                                    &mut ab_row_kd_minus1[start..end],
-                                    &mut ab_row_kd[start..end],
+                                    ab_row_kd_minus1,
+                                    ab_row_kd,
                                     d_vals[idx],
                                     work_vals[idx],
                                 );
@@ -176,14 +182,15 @@ impl SymmetricBandedMatrix {
                         work[i + k - 1] = work_val;
     
                         // Apply rotation from the left
-                        let ab_row_k_minus2 = &mut ab[k - 2];
-                        let ab_row_k_minus1 = &mut ab[k - 1];
-                        drot(
-                            &mut ab_row_k_minus2[(i + 1)..(i + k - 1)],
-                            &mut ab_row_k_minus1[(i + 1)..(i + k - 1)],
-                            d_val,
-                            work_val,
-                        );
+                        let start = i + 1;
+                        let end = i + k - 1;
+    
+                        // Split the ab[k - 2] slice to avoid overlapping mutable borrows
+                        let (left, right) = ab[k - 2].split_at_mut(end);
+                        let ab_row_k_minus2 = &mut left[start..end];
+                        let ab_row_k_minus1 = &mut ab[k - 1][start..end];
+    
+                        drot(ab_row_k_minus2, ab_row_k_minus1, d_val, work_val);
                     }
     
                     if k > 2 {
@@ -193,12 +200,19 @@ impl SymmetricBandedMatrix {
     
                     // Apply plane rotations from both sides to diagonal blocks
                     if nr > 0 {
-                        let ab_row_0 = &mut ab[0];
-                        let ab_row_1 = &mut ab[1];
+                        let start = j1 - 1;
+                        let end = start + nr;
+    
+                        // Split ab[0] to avoid overlapping mutable borrows
+                        let (left, right) = ab[0].split_at_mut(end);
+                        let ab_row_0_first = &mut left[start..end];
+                        let ab_row_0_second = &mut right[0..nr];
+                        let ab_row_1 = &mut ab[1][start..end];
+    
                         dlar2v(
-                            &mut ab_row_0[(j1 - 1)..(j1 - 1 + nr)],
-                            &mut ab_row_0[j1..(j1 + nr)],
-                            &mut ab_row_1[(j1 - 1)..(j1 - 1 + nr)],
+                            ab_row_0_first,
+                            ab_row_0_second,
+                            ab_row_1,
                             &d_vals,
                             &work_vals,
                         );
@@ -206,39 +220,39 @@ impl SymmetricBandedMatrix {
     
                     // Apply plane rotations from the right
                     if nr > 0 {
-                        if nr > 2 * kd - 1 {
+                        if nr >= 2 * kd - 1 {
                             for l in 1..kd {
                                 let nrt = if j2 + l > n { nr - 1 } else { nr };
                                 if nrt > 0 {
                                     let mut x = Vec::with_capacity(nrt);
                                     let mut y = Vec::with_capacity(nrt);
-                                    for j in (j1 - 1..j1 - 1 + nrt * kd).step_by(kd) {
+                                    for idx in 0..nrt {
+                                        let j = j1 - 1 + idx * kd;
                                         x.push(ab[l + 1][j]);
                                         y.push(ab[l][j + 1]);
                                     }
                                     let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
                                     for idx in 0..nrt {
-                                        let index = j1 - 1 + idx * kd;
-                                        ab[l + 1][index] = x_rot[idx];
-                                        ab[l][index + 1] = y_rot[idx];
+                                        let j = j1 - 1 + idx * kd;
+                                        ab[l + 1][j] = x_rot[idx];
+                                        ab[l][j + 1] = y_rot[idx];
                                     }
                                 }
                             }
                         } else {
-                            for idx in 0..(nr - 2) {
-                                let j = j1 + idx * kd;
-                                let ab_row_2 = &mut ab[2];
-                                let ab_row_1 = &mut ab[1];
+                            for idx in 0..(nr) {
+                                let j = j1 - kd1 + idx * kd;
                                 let start1 = j - 1;
-                                let end1 = j - 1 + kdm1;
+                                let end1 = start1 + kdm1;
                                 let start2 = j;
-                                let end2 = j + kdm1;
-                                drot(
-                                    &mut ab_row_2[start1..end1],
-                                    &mut ab_row_1[start2..end2],
-                                    d_vals[idx],
-                                    work_vals[idx],
-                                );
+                                let end2 = start2 + kdm1;
+    
+                                // Split ab[2] and ab[1] to avoid overlapping mutable borrows
+                                let (left_ab2, _) = ab[2].split_at_mut(end1);
+                                let ab_row_2 = &mut left_ab2[start1..end1];
+                                let ab_row_1 = &mut ab[1][start2..end2];
+    
+                                drot(ab_row_2, ab_row_1, d_vals[idx], work_vals[idx]);
                             }
                         }
                     }
@@ -246,10 +260,12 @@ impl SymmetricBandedMatrix {
                     // Accumulate transformations in q
                     if nr > 0 {
                         for idx in 0..nr {
-                            let j = j1 + idx * kd;
+                            let j = j1 - kd1 + idx * kd;
+                            let i_q = i;
+                            let i_q_plus_1 = i + 1;
                             drot(
-                                &mut q[i],
-                                &mut q[i + 1],
+                                &mut q[i_q],
+                                &mut q[i_q_plus_1],
                                 d_vals[idx],
                                 work_vals[idx],
                             );
@@ -262,7 +278,7 @@ impl SymmetricBandedMatrix {
                     }
     
                     for idx in 0..nr {
-                        let j = j1 + idx * kd;
+                        let j = j1 - kd1 + idx * kd;
                         work[j + kd] = work_vals[idx] * ab[kd][j];
                         ab[kd][j] = d_vals[idx] * ab[kd][j];
                     }
@@ -549,10 +565,6 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let smlsiz = 25; // Minimum size to use divide and conquer
     let eps = f64::EPSILON;
 
-    // Workspace arrays
-    let mut work = vec![0.0; 4 * n + n * n];
-    let mut iwork = vec![0; 3 + 5 * n];
-
     // Determine if we need to compute eigenvectors
     let compute_vectors = true;
 
@@ -650,63 +662,49 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 z_vector[left_size + i] = z_right[i][0];
             }
 
+            // Initialize z_out for solve_secular_equation
+            let mut z_out = vec![vec![0.0; m]; m];
+
             // Solve the secular equation
-            let d_copy = d_merged.clone();
-            let z_copy = z_vector.clone();
             let info = solve_secular_equation(
-                &mut d_merged,
-                &mut z_vector,
-                left_size,
+                &d_left,
+                &d_right,
+                &z_vector,
                 rho,
-                &mut work,
-                &mut iwork,
+                &mut d_merged,
+                &mut z_out,
             );
             if info != 0 {
                 panic!("Error in solve_secular_equation: info = {}", info);
             }
 
-            // Sort the eigenvalues and eigenvectors
-            let mut idx: Vec<usize> = (0..m).collect();
-            idx.sort_by(|&i, &j| d_merged[i].partial_cmp(&d_merged[j]).unwrap());
+            // Copy eigenvalues back
+            for i in 0..m {
+                d[submat_start + i] = d_merged[i];
+            }
 
-            let sorted_d = idx.iter().map(|&i| d_merged[i]).collect::<Vec<f64>>();
-            let sorted_z = idx.iter().map(|&i| z_vector[i]).collect::<Vec<f64>>();
-
-            // Update the eigenvectors
-            let mut z_temp = vec![vec![0.0; m]; m];
+            // Compute the updated eigenvectors
+            // Multiply the eigenvectors of the left and right subproblems with z_out
             for i in 0..m {
                 for j in 0..m {
-                    z_temp[i][j] = 0.0;
+                    let mut sum = 0.0;
+                    if i < left_size {
+                        for k in 0..left_size {
+                            sum += z_left[i][k] * z_out[k][j];
+                        }
+                    } else {
+                        for k in 0..right_size {
+                            sum += z_right[i - left_size][k] * z_out[left_size + k][j];
+                        }
+                    }
+                    z_merged[i][j] = sum;
                 }
             }
 
-            // Left block multiplication
-            for i in 0..left_size {
-                for j in 0..m {
-                    z_temp[i][j] += z_left[i][..left_size]
-                        .iter()
-                        .zip(&work[j * m..j * m + left_size])
-                        .map(|(&a, &b)| a * b)
-                        .sum::<f64>();
-                }
-            }
-
-            // Right block multiplication
-            for i in 0..right_size {
-                for j in 0..m {
-                    z_temp[left_size + i][j] += z_right[i][..right_size]
-                        .iter()
-                        .zip(&work[j * m + left_size..j * m + m])
-                        .map(|(&a, &b)| a * b)
-                        .sum::<f64>();
-                }
-            }
-
-            // Copy back results
+            // Copy back eigenvectors
             for i in 0..m {
-                d[submat_start + i] = sorted_d[i];
                 for j in 0..m {
-                    z[submat_start + i][submat_start + j] = z_temp[i][j];
+                    z[submat_start + i][submat_start + j] = z_merged[i][j];
                 }
             }
         }
@@ -756,27 +754,31 @@ fn solve_secular_equation(
     dlamda.extend_from_slice(d1);
     dlamda.extend_from_slice(d2);
 
+    // Combine z1 and z2 (assumed to be stored in z) into z_perm
+    let mut z_perm = z.to_vec();
+
     // Sort dlamda and permute z accordingly
-    let mut perm: Vec<usize> = (0..n).collect();
-    perm.sort_by(|&i, &j| dlamda[i].partial_cmp(&dlamda[j]).unwrap());
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&i, &j| dlamda[i].partial_cmp(&dlamda[j]).unwrap());
 
-    // Apply permutation and compute gaps
-    let mut z_perm = vec![0.0; n];
     let mut dlamda_sorted = vec![0.0; n];
-    let mut delta = vec![0.0; n];
+    let mut z_sorted = vec![0.0; n];
+    for (new_i, &old_i) in idx.iter().enumerate() {
+        dlamda_sorted[new_i] = dlamda[old_i];
+        z_sorted[new_i] = z_perm[old_i];
+    }
 
-    for i in 0..n {
-        z_perm[i] = z[perm[i]];
-        dlamda_sorted[i] = dlamda[perm[i]];
-        if i > 0 {
-            delta[i - 1] = dlamda_sorted[i] - dlamda_sorted[i - 1];
-        }
+    // Compute gaps
+    let mut delta = vec![0.0; n - 1];
+    for i in 0..(n - 1) {
+        delta[i] = dlamda_sorted[i + 1] - dlamda_sorted[i];
     }
 
     // Normalize z vector to avoid overflow
-    let zmax = z_perm.iter().map(|&x| x.abs()).fold(0.0, f64::max);
+    let zmax = z_sorted.iter().map(|&x| x.abs()).fold(0.0, f64::max);
     let z_scale = if zmax > safmin { zmax } else { 1.0 };
 
+    // Initialize eigenvalues and eigenvectors
     for j in 0..n {
         let mut lambda = dlamda_sorted[j];
 
@@ -795,17 +797,17 @@ fn solve_secular_equation(
 
         // Fast Newton iterations with bisection fallback
         for _iter in 0..8 {
-            let mut f = rho * (z_perm[j] / z_scale).powi(2);
+            let mut f = rho * (z_sorted[j] / z_scale).powi(2);
             let mut df = 0.0;
 
             for i in 0..n {
                 if i != j {
-                    let del = lambda - dlamda_sorted[i];
+                    let del = dlamda_sorted[i] - lambda;
                     if del.abs() < eps * lambda.abs() {
                         continue;
                     }
-                    let temp = z_perm[i] / (z_scale * del);
-                    f += (z_perm[i] / z_scale) * temp;
+                    let temp = z_sorted[i] / (z_scale * (dlamda_sorted[i] - lambda));
+                    f += temp * z_sorted[i] / z_scale;
                     df += temp * temp;
                 }
             }
@@ -821,19 +823,19 @@ fn solve_secular_equation(
                 // Bisect if Newton step outside bounds
                 lambda = (left + right) * 0.5;
                 if f > 0.0 {
-                    right = lambda;
-                } else {
                     left = lambda;
+                } else {
+                    right = lambda;
                 }
             } else {
                 lambda = new_lambda;
-                if f > 0.0 {
-                    right = lambda;
-                } else {
-                    left = lambda;
-                }
                 if delta_lambda.abs() <= eps * lambda.abs() {
                     break;
+                }
+                if f > 0.0 {
+                    left = lambda;
+                } else {
+                    right = lambda;
                 }
             }
         }
@@ -843,20 +845,17 @@ fn solve_secular_equation(
         // Compute eigenvector with scaled computation
         let mut norm = 0.0;
         for i in 0..n {
-            if i != j {
-                let denom = dlamda_sorted[i] - lambda;
-                if denom.abs() < eps {
-                    z_out[i][j] = 0.0;
-                } else {
-                    let temp = z_perm[i] / denom;
-                    z_out[i][j] = temp;
-                    norm += temp * temp;
-                }
+            let denom = dlamda_sorted[i] - lambda;
+            let temp = if denom.abs() < eps {
+                0.0
             } else {
-                z_out[i][j] = 1.0;
-                norm += 1.0;
-            }
+                z_sorted[i] / denom
+            };
+            z_out[i][j] = temp;
+            norm += temp * temp;
         }
+        z_out[j][j] = 1.0;
+        norm += 1.0;
 
         // Normalize
         norm = norm.sqrt();
@@ -864,6 +863,7 @@ fn solve_secular_equation(
             z_out[i][j] /= norm;
         }
     }
+
     0 // Return 0 to indicate success
 }
 
