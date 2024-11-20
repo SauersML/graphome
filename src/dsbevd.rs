@@ -30,8 +30,10 @@ impl SymmetricBandedMatrix {
         // Get machine constants
         let safmin = f64::MIN_POSITIVE;
         let eps = f64::EPSILON;
-        let rmin = safmin.sqrt();
-        let rmax = (1.0/safmin).sqrt();
+        let smlnum = safmin / eps;
+        let bignum = 1.0 / smlnum;
+        let rmin = smlnum.sqrt();
+        let rmax = bignum.sqrt();
 
         // Matrix norm and scaling
         let anrm = self.matrix_norm();
@@ -232,13 +234,30 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
         return (v, 0.0);
     }
     
-    let mut beta = -(alpha.signum()) * (alpha * alpha + xnorm * xnorm).sqrt();
-    if alpha.abs() > xnorm {
-        beta = -xnorm * xnorm / (alpha + alpha.signum() * (alpha * alpha + xnorm * xnorm).sqrt());
-    }
+    let beta = if xnorm == 0.0 && alpha == 0.0 {
+        0.0
+    } else if alpha.abs() > xnorm {
+        -xnorm * xnorm / (alpha + alpha.signum() * (alpha * alpha + xnorm * xnorm).sqrt())
+    } else {
+        let r = -(alpha.signum()) * (alpha * alpha + xnorm * xnorm).sqrt();
+        if r == 0.0 { safmin } else { r }
+    };
     
-    let tau = (beta - alpha) / beta;
-    let scal = 1.0 / (alpha - beta);
+    let tau = if beta == alpha {
+        0.0
+    } else {
+        let t = (beta - alpha) / beta;
+        if t.abs() < eps {
+            0.0
+        } else {
+            t
+        }
+    };
+    let scal = if tau == 0.0 {
+        1.0
+    } else {
+        1.0 / (alpha - beta)
+    };
     
     for i in 1..n {
         v[i] *= scal;
@@ -500,8 +519,24 @@ fn solve_secular_equation(
                 d[i] = mid;
                 break;
             } else if iter >= 50 {
-                // Force convergence with bisection if Newton fails
-                d[i] = (left + right) / 2.0;
+                // If Newton fails, do additional bisection steps
+                let mut l = left;
+                let mut r = right;
+                for _ in 0..20 {
+                    let m = (l + r) / 2.0;
+                    let mut sum = 0.0;
+                    for j in 0..n {
+                        if j != i {
+                            sum += z_scaled[j] * z_scaled[j] / (dlamda[j] - m);
+                        }
+                    }
+                    if sum > 0.0 {
+                        r = m;
+                    } else {
+                        l = m;
+                    }
+                }
+                d[i] = (l + r) / 2.0;
                 break;
             }
             
@@ -593,8 +628,11 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             let dm1 = d[m-1];
             let diff = (dm1 - dm) / 2.0;
             let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
-            let shift = dm - em1 * em1 / 
-                (diff + sign * (diff * diff + em1 * em1).sqrt());
+            let shift = if em1.abs() < eps * (dm.abs() + dm1.abs()) {
+                dm
+            } else {
+                dm - em1 * em1 / (diff + sign * (diff * diff + em1 * em1).sqrt())
+            };
             let mut x = d[0] - shift;
             let mut zeta = e[0];
 
