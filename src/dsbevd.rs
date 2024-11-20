@@ -434,7 +434,7 @@ fn solve_secular_equation(
         
         // Binary search refinement 
         for _ in 0..50 {  // Max iterations
-            let mid = (left + right) / 2.0;
+            let mut mid = (left + right) / 2.0;
             let mut sum = 0.0;
             let mut deriv = 0.0;
             
