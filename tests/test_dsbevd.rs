@@ -2,8 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use super::super::dsbevd::SymmetricBandedMatrix;
-    use rand::prelude::*;
+    use crate::dsbevd::SymmetricBandedMatrix;
     use rand_distr::{Normal, Distribution};
     use nalgebra::{DMatrix, SymmetricEigen};
     use std::time::Instant;
