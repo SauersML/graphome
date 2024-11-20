@@ -665,92 +665,103 @@ fn solve_secular_equation(
 /// `z`: Eigenvectors (output)
 fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
-    let eps = f64::EPSILON;
-    let eps2 = eps * eps;
-    let safmin = f64::MIN_POSITIVE;
-    let safmax = 1.0 / safmin;
-    let ssfmax = safmax.sqrt() / 3.0;
-    let ssfmin = safmin.sqrt() / eps2;
+    let max_iter = 30 * n;
 
-    // Initialize z to identity if needed
+    // Initialize z to identity matrix
     for i in 0..n {
         for j in 0..n {
             z[i][j] = if i == j { 1.0 } else { 0.0 };
         }
     }
 
-    let mut nmaxit = n * 30;  // Same as DSTEQR's maxit=30
-    let mut jtot = 0;
-
-    'outer: while jtot < nmaxit {
-        // Look for small off-diagonal elements
-        for m in 1..n {
-            let test = e[m-1].abs();
-            if test <= (d[m-1].abs().sqrt() * d[m].abs().sqrt()) * eps {
-                e[m-1] = 0.0;
-                continue 'outer;
+    for l in 0..n {
+        let mut iter = 0;
+        loop {
+            let mut m = l;
+            while m < n - 1 {
+                if e[m].abs() <= f64::EPSILON * (d[m].abs() + d[m + 1].abs()) {
+                    break;
+                }
+                m += 1;
             }
-        }
 
-        // Choose shift
-        let m = n - 1;
-        if m == 0 {
-            break;
-        }
-
-        let g = (d[m] - d[m-1]) / (2.0 * e[m-1]);
-        let r = g.hypot(1.0);
-        let mut g = d[m] - d[m-1] + e[m-1]/(g + r.copysign(g));
-
-        let mut s = 1.0;
-        let mut c = 1.0;
-        let mut p = 0.0;
-
-        for i in (0..m).rev() {
-            let f = s * e[i];
-            let b = c * e[i];
-            let (cs, sn) = givens_rotation(g, f);
-            c = cs;
-            s = sn;
-
-            if i < m - 1 {
-                e[i+1] = r;
+            if m == l {
+                break;
             }
-            g = d[i+1] - p;
-            let r = (d[i] - g) * s + 2.0 * c * b;
-            p = s * r;
-            d[i+1] = g + p;
-            g = c * r - b;
 
-            // Accumulate transformation for eigenvectors
-            for k in 0..n {
-                let temp = z[k][i+1];
-                z[k][i+1] = s * z[k][i] + c * temp;
-                z[k][i] = c * z[k][i] - s * temp;
+            if iter >= max_iter {
+                panic!("Failed to converge in tridiagonal QR algorithm");
             }
-        }
+            iter += 1;
 
-        d[0] -= p;
-        e[m-1] = g;
-        jtot += 1;
+            // Compute shift
+            let g = d[l];
+            let p = (d[l + 1] - g) / (2.0 * e[l]);
+            let r = p.hypot(1.0);
+            let mut t = if p >= 0.0 { g - e[l] / (p + r) } else { g - e[l] / (p - r) };
+
+            for i in l..n {
+                d[i] -= t;
+            }
+            let mut s = 0.0;
+            let mut c = 1.0;
+
+            for i in l..(m) {
+                let f = s * e[i];
+                let b = c * e[i];
+
+                let (r, cs, sn) = plane_rotation(d[i] - t, f);
+                if i > l {
+                    e[i - 1] = r;
+                }
+                let g = c * d[i] + s * e[i];
+                e[i] = c * e[i] - s * d[i];
+                d[i] = g;
+
+                for k in 0..n {
+                    let temp = c * z[k][i] + s * z[k][i + 1];
+                    z[k][i + 1] = -s * z[k][i] + c * z[k][i + 1];
+                    z[k][i] = temp;
+                }
+
+                s = sn;
+                c = cs;
+            }
+            e[m - 1] = s * e[m - 1];
+            d[m] = c * d[m] - s * e[m - 1];
+        }
     }
 
     // Sort eigenvalues and eigenvectors
-    for i in 0..n-1 {
-        let mut k = i;
-        let mut p = d[i];
-        for j in i+1..n {
-            if d[j] < p {
-                k = j;
-                p = d[j];
-            }
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
+
+    let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
+    let sorted_z = idx
+        .iter()
+        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
+        .collect::<Vec<Vec<f64>>>();
+
+    // Copy back sorted eigenvalues and eigenvectors
+    d.copy_from_slice(&sorted_d);
+    for i in 0..n {
+        for j in 0..n {
+            z[i][j] = sorted_z[j][i];
         }
-        if k != i {
-            d.swap(k, i);
-            for j in 0..n {
-                z[j].swap(k, i);
-            }
-        }
+    }
+}
+
+/// Compute plane rotation parameters
+fn plane_rotation(f: f64, g: f64) -> (f64, f64, f64) {
+    if g == 0.0 {
+        (f.abs(), f.signum(), 0.0)
+    } else if f == 0.0 {
+        (g.abs(), 0.0, g.signum())
+    } else {
+        let r = f.hypot(g);
+        let cs = f / r;
+        let sn = g / r;
+        (r, cs, sn)
     }
 }
 
