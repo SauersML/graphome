@@ -156,7 +156,7 @@ impl SymmetricBandedMatrix {
         (d, e, q)
     }
     fn matrix_norm(&self) -> f64 {
-        let mut max = 0.0;
+        let mut max: f64 = 0.0;
         for row in &self.ab {
             for &val in row {
                 max = max.max(val.abs());
