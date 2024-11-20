@@ -381,22 +381,24 @@ fn dlargv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &
     }
 }
 
-fn dlartv(x: &mut [f64], y: &mut [f64], c: &[f64], s: &[f64]) -> (Vec<f64>, Vec<f64>) {
-    let n = x.len();
-    let mut x_out = vec![0.0; n];
-    let mut y_out = vec![0.0; n];
+fn dlartv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &[f64], s: &[f64], incc: usize) {
+    let mut ix = 0;
+    let mut iy = 0;
+    let mut ic = 0;
 
-    for i in 0..n {
-        let xi = x[i];
-        let yi = y[i];
-        let cs = c[i];
-        let sn = s[i];
+    for _ in 0..n {
+        let xi = x[ix];
+        let yi = y[iy];
+        let ci = c[ic];
+        let si = s[ic];
 
-        x_out[i] = cs * xi + sn * yi;
-        y_out[i] = cs * yi - sn * xi;
+        x[ix] = ci * xi + si * yi;
+        y[iy] = ci * yi - si * xi;
+
+        ix += incx;
+        iy += incy;
+        ic += incc;
     }
-
-    (x_out, y_out)
 }
 
 fn drot(dx: &mut [f64], dy: &mut [f64], c: f64, s: f64) {
