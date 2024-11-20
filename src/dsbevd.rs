@@ -80,17 +80,17 @@ impl SymmetricBandedMatrix {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
-    
+        
         // Output arrays 
         let mut d = vec![0.0; n];
         let mut e = vec![0.0; n - 1];
         let mut q = vec![vec![0.0; n]; n];
-    
+        
         // Initialize Q to identity
         for i in 0..n {
             q[i][i] = 1.0;
         }
-    
+        
         if kd == 0 {
             // Diagonal case
             for i in 0..n {
@@ -98,190 +98,123 @@ impl SymmetricBandedMatrix {
             }
             return (d, e, q);
         }
-    
-        let mut work = vec![0.0; n];
         
-        let kd1 = kd + 1;
-        let kdm1 = kd - 1;
-        let incx = kd1 * ab.len();
-    
-        let mut nr = 0;
-        let mut j1 = kd1;
-        let mut j2 = 1;
-    
-        // Pre-allocate rotation arrays that will be reused
+        let mut work = vec![0.0; n];
         let mut d_vals = Vec::new();
         let mut work_vals = Vec::new();
-    
+        
+        let kdm1 = kd - 1;
+        
         if kd > 1 {
             for i in 0..(n - 2) {
-                for k in (2..=kd1).rev() {
-                    j1 += kd;
-                    j2 += kd;
-    
+                for k in (2..=kd + 1).rev() {
+                    let nr = (i + 1).min(kd - k + 2);
                     if nr > 0 {
-                        // Resize rotation arrays if needed
+                        // Resize rotation arrays
                         d_vals.resize(nr, 0.0);
                         work_vals.resize(nr, 0.0);
                         
-                        // Generate plane rotations to annihilate nonzero elements
-                        for idx in 0..nr {
-                            let j = j1 - kd1 + idx * kd;
-                            d_vals[idx] = ab[kd][j];
-                            work_vals[idx] = ab[kd - 1][j];
+                        let j1 = kd + 1 + i * kd;
+                        
+                        // Copy values for rotation generation
+                        for (idx, (d_val, w_val)) in d_vals.iter_mut().zip(work_vals.iter_mut()).enumerate() {
+                            let j = j1 - kd - 1 + idx * kd;
+                            *d_val = ab[kd][j];
+                            *w_val = ab[kd - 1][j];
                         }
-    
-                        dlargv(nr, &mut d_vals, 1, &mut work_vals, 1, &mut work_vals, 1);
-    
+                        
+                        // Generate plane rotations safely
                         for idx in 0..nr {
-                            let j = j1 - kd1 + idx * kd;
-                            ab[kd][j] = d_vals[idx];
-                            ab[kd - 1][j] = work_vals[idx];
-                        }
-    
-                        if nr >= 2 * kd - 1 {
-                            for l in 1..kd {
-                                let nrt = nr;
-                                let mut x = vec![0.0; nrt];
-                                let mut y = vec![0.0; nrt];
-                                
-                                for idx in 0..nrt {
-                                    let j = j1 - kd1 + l + idx * kd;
-                                    x[idx] = ab[kd1 - l][j];
-                                    y[idx] = ab[kd1 - l + 1][j];
-                                }
-    
-                                dlartv(nrt, &mut x, 1, &mut y, 1, &d_vals, &work_vals, 1);
-    
-                                for idx in 0..nrt {
-                                    let j = j1 - kd1 + l + idx * kd;
-                                    ab[kd1 - l][j] = x[idx];
-                                    ab[kd1 - l + 1][j] = y[idx];
-                                }
-                            }
-                        } else {
-                            for idx in 0..nr {
-                                let j = j1 - kd1 + idx * kd;
-                                let start = j;
-                                let end = start + kdm1;
-    
-                                let (left, right) = ab[kd - 1].split_at_mut(end);
-                                let ab_row_kd_minus1 = &mut left[start..end];
-                                let ab_row_kd = &mut ab[kd][start..end];
-    
-                                drot(ab_row_kd_minus1, ab_row_kd, d_vals[idx], work_vals[idx]);
+                            let f = d_vals[idx];
+                            let g = work_vals[idx];
+                            let (c, s, r) = if g == 0.0 {
+                                (1.0, 0.0, f)
+                            } else if f == 0.0 {
+                                (0.0, 1.0, g)
+                            } else {
+                                let t = f / g;
+                                let tt = (1.0 + t * t).sqrt();
+                                let c = 1.0 / tt;
+                                let s = t * c;
+                                (c, s, g * tt)
+                            };
+                            d_vals[idx] = r;
+                            work_vals[idx] = s;
+                            
+                            // Apply rotations immediately using safe borrows
+                            let j = j1 - kd - 1 + idx * kd;
+                            let (left, right) = ab.split_at_mut(kd);
+                            let row_k_minus1 = &mut left[kd - 1];
+                            let row_k = &mut right[0];
+                            
+                            // Safe rotation application using non-overlapping slices
+                            let end = j + kdm1;
+                            for col in j..=end.min(n - 1) {
+                                let temp = c * row_k_minus1[col] + s * row_k[col];
+                                row_k[col] = c * row_k[col] - s * row_k_minus1[col];
+                                row_k_minus1[col] = temp;
                             }
                         }
                     }
-    
+                    
+                    // Update diagonal and off-diagonal elements
                     if k > 2 && k <= n - i {
-                        // Generate plane rotation to annihilate a(i+k-1,i)
-                        let (cs, sn, r) = dlartg(ab[k - 2][i], ab[k - 1][i]);
-                        ab[k - 2][i] = r;
-                        d[i + k - 1] = cs;
-                        work[i + k - 1] = sn;
-    
-                        // Apply rotation from the left
+                        let (cs, sn, r) = {
+                            let f = ab[k - 2][i];
+                            let g = ab[k - 1][i];
+                            let (c, s, r) = if g == 0.0 {
+                                (1.0, 0.0, f)
+                            } else if f == 0.0 {
+                                (0.0, 1.0, g)
+                            } else {
+                                let t = f / g;
+                                let tt = (1.0 + t * t).sqrt();
+                                let c = 1.0 / tt;
+                                let s = t * c;
+                                (c, s, g * tt)
+                            };
+                            ab[k - 2][i] = r;
+                            (c, s, r)
+                        };
+                        
+                        // Apply rotation from the left safely
                         let start = i + 1;
-                        let end = i + k - 1;
-    
-                        let (left, right) = ab[k - 2].split_at_mut(end);
-                        let ab_row_k_minus2 = &mut left[start..end];
-                        let ab_row_k_minus1 = &mut ab[k - 1][start..end];
-    
-                        drot(ab_row_k_minus2, ab_row_k_minus1, cs, sn);
-                    }
-    
-                    if k > 2 {
-                        nr += 1;
-                        j1 -= kd + 1;
-                    }
-    
-                    if nr > 0 {
-                        let start = j1 - 1;
-                        let end = start + nr;
-    
-                        let (left, right) = ab[0].split_at_mut(end);
-                        let ab_row_0_first = &mut left[start..end];
-                        let ab_row_0_second = &mut right[0..nr];
-                        let ab_row_1 = &mut ab[1][start..end];
-    
-                        dlar2v(nr, ab_row_0_first, ab_row_0_second, ab_row_1, 1, &d_vals, &work_vals, 1);
-    
-                        // Apply plane rotations from the right
-                        if nr >= 2 * kd - 1 {
-                            for l in 1..kd {
-                                let nrt = if j2 + l > n { nr - 1 } else { nr };
-                                if nrt > 0 {
-                                    let mut x = vec![0.0; nrt];
-                                    let mut y = vec![0.0; nrt];
-                                    
-                                    for idx in 0..nrt {
-                                        let j = j1 - 1 + idx * kd;
-                                        x[idx] = ab[l + 1][j];
-                                        y[idx] = ab[l][j + 1];
-                                    }
-    
-                                    dlartv(nrt, &mut x, 1, &mut y, 1, &d_vals, &work_vals, 1);
-    
-                                    for idx in 0..nrt {
-                                        let j = j1 - 1 + idx * kd;
-                                        ab[l + 1][j] = x[idx];
-                                        ab[l][j + 1] = y[idx];
-                                    }
-                                }
-                            }
-                        } else {
-                            for idx in 0..nr {
-                                let j = j1 - kd1 + idx * kd;
-                                let start = j;
-                                let end = start + kdm1;
-    
-                                let (left, _) = ab[kd - 1].split_at_mut(end);
-                                let ab_row_kd_minus1 = &mut left[start..end];
-                                let ab_row_kd = &mut ab[kd][start..end];
-    
-                                drot(ab_row_kd_minus1, ab_row_kd, d_vals[idx], work_vals[idx]);
+                        let end = (i + k - 1).min(n - 1);
+                        if start <= end {
+                            let (upper, lower) = ab.split_at_mut(k - 1);
+                            let row_k_minus2 = &mut upper[k - 2];
+                            let row_k_minus1 = &mut lower[0];
+                            
+                            for j in start..=end {
+                                let temp = cs * row_k_minus2[j] + sn * row_k_minus1[j];
+                                row_k_minus1[j] = cs * row_k_minus1[j] - sn * row_k_minus2[j];
+                                row_k_minus2[j] = temp;
                             }
                         }
-                    }
-    
-                    if j2 + kd > n {
-                        nr -= 1;
-                        j2 -= kd + 1;
-                    }
-    
-                    for idx in 0..nr {
-                        let j = j1 - kd1 + idx * kd;
-                        work[j + kd] = work_vals[idx] * ab[kd][j];
-                        ab[kd][j] = d_vals[idx] * ab[kd][j];
                     }
                 }
             }
         }
-    
+        
+        // Copy off-diagonal elements to e
         if kd > 0 {
-            // Copy off-diagonal elements to e
             for i in 0..(n - 1) {
                 e[i] = ab[1][i + 1];
             }
         } else {
-            // Set e to zero if original matrix was diagonal
             for i in 0..(n - 1) {
                 e[i] = 0.0;
             }
         }
-    
+        
         // Copy diagonal elements to d
         for i in 0..n {
             d[i] = ab[0][i];
         }
-    
+        
         (d, e, q)
     }
 
-    
-    
     fn matrix_norm(&self) -> f64 {
         let mut value: f64 = 0.0;
         if self.kd == 0 {
