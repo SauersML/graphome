@@ -3,7 +3,6 @@
 use rayon::prelude::*;
 use rand_distr::Distribution;
 use std::cmp::min;
-use nalgebra::linalg::SymmetricTridiagonal;
 
 /// Represents a real symmetric banded matrix.
 #[derive(Clone)]
@@ -56,11 +55,7 @@ impl SymmetricBandedMatrix {
         let (mut d, mut e, mut q) = working_matrix.reduce_to_tridiagonal();
     
         // Use reliable tridiagonal solver
-        let (eigenvals, eigenvecs) = {
-            let mut tri = SymmetricTridiagonal::new(d.clone(), e[..n-1].clone());
-            let decomp = tri.eigendecomposition(true).unwrap();
-            (decomp.eigenvalues, decomp.eigenvectors)
-        };
+        let (eigenvals, eigenvecs) = tridiagonal_eigen_dc(&d, &e);
     
         // Transform eigenvectors back
         let eigenvectors = multiply_q(&q, &eigenvecs);
@@ -154,7 +149,7 @@ impl SymmetricBandedMatrix {
     }
     
     fn matrix_norm(&self) -> f64 {
-        let mut value = 0.0;
+        let mut value: f64 = 0.0;
         if self.kd == 0 {
             // Diagonal case
             for &val in &self.ab[0] {
@@ -203,7 +198,7 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     let mut v = x.to_vec();
     if n == 1 { return (v, 0.0); }
 
-    let mut scale = 0.0;
+    let mut scale: f64 = 0.0;
     let mut ssq = 0.0;
     
     // Two-pass scale computation for numerical stability
@@ -423,6 +418,7 @@ fn solve_secular_equation(
     d: &mut [f64],
     z_out: &mut [Vec<f64>]
 ) {
+    let safmin: f64 = f64::MIN_POSITIVE;
     let n = d1.len() + d2.len();
     let eps = f64::EPSILON;
     
@@ -538,7 +534,7 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
         let g = (d[m] - d[m-1]) / (2.0 * e[m-1]);
         let r = g.hypot(1.0);
-        let g = d[m] - d[m-1] + e[m-1]/(g + r.copysign(g));
+        let mut g = d[m] - d[m-1] + e[m-1]/(g + r.copysign(g));
 
         let mut s = 1.0;
         let mut c = 1.0;
