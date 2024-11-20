@@ -8,29 +8,6 @@ mod tests {
     use std::time::Instant;
     use std::f64;
 
-    // Helper function to create a known matrix with exact eigenvalues
-    fn create_known_matrix(n: usize, kd: usize) -> (Vec<Vec<f64>>, Vec<f64>) {
-        let mut ab = vec![vec![0.0; n]; kd + 1];
-        // Create diagonal matrix with known eigenvalues 1,2,3,...,n
-        for i in 0..n {
-            ab[kd][i] = (i + 1) as f64;
-        }
-        let eigenvalues = (1..=n).map(|x| x as f64).collect();
-        (ab, eigenvalues)
-    }
-
-    // Helper to check if matrix is properly banded
-    fn verify_band_structure(ab: &[Vec<f64>], n: usize, kd: usize) {
-        for i in 0..=kd {
-            for j in 0..n {
-                if j + i >= n {
-                    assert!(ab[i][j].abs() < 1e-10,
-                        "Matrix element outside band should be zero: ({},{})", i, j);
-                }
-            }
-        }
-    }
-
     #[test]
     fn test_matrix_construction() {
         let n = 5;
