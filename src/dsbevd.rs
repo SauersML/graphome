@@ -81,7 +81,7 @@ impl SymmetricBandedMatrix {
         
         // Output arrays 
         let mut d = vec![0.0; n];
-        let mut e = vec![0.0; n - 1];
+        let mut e = vec![0.0; n.saturating_sub(1)];
         let mut q = vec![vec![0.0; n]; n];
         
         // Initialize Q to identity
@@ -90,123 +90,145 @@ impl SymmetricBandedMatrix {
         }
         
         if kd == 0 {
-            // Diagonal case
             for i in 0..n {
                 d[i] = ab[0][i];
             }
             return (d, e, q);
         }
         
-        let mut d_vals = Vec::new();
-        let mut work_vals = Vec::new();
-        
+        let kd1 = kd + 1;
         let kdm1 = kd - 1;
+        let incx = 1;
+        let inca = kd1;
         
-        if kd > 1 {
-            for i in 0..(n - 2) {
-                for k in (2..=kd + 1).rev() {
-                    let nr = (i + 1).min(kd - k + 2);
-                    if nr > 0 {
-                        // Resize rotation arrays
-                        d_vals.resize(nr, 0.0);
-                        work_vals.resize(nr, 0.0);
-                        
-                        let j1 = kd + 1 + i * kd;
-                        
-                        // Copy values for rotation generation
-                        for (idx, (d_val, w_val)) in d_vals.iter_mut().zip(work_vals.iter_mut()).enumerate() {
-                            let j = j1 - kd - 1 + idx * kd;
-                            *d_val = ab[kd][j];
-                            *w_val = ab[kd - 1][j];
-                        }
-                        
-                        // Generate plane rotations safely
-                        for idx in 0..nr {
-                            let f = d_vals[idx];
-                            let g = work_vals[idx];
-                            let (c, s, r) = if g == 0.0 {
-                                (1.0, 0.0, f)
-                            } else if f == 0.0 {
-                                (0.0, 1.0, g)
-                            } else {
-                                let t = f / g;
-                                let tt = (1.0 + t * t).sqrt();
-                                let c = 1.0 / tt;
-                                let s = t * c;
-                                (c, s, g * tt)
-                            };
-                            d_vals[idx] = r;
-                            work_vals[idx] = s;
-                            
-                            // Apply rotations immediately using safe borrows
-                            let j = j1 - kd - 1 + idx * kd;
-                            let (left, right) = ab.split_at_mut(kd);
-                            let row_k_minus1 = &mut left[kd - 1];
-                            let row_k = &mut right[0];
-                            
-                            // Safe rotation application using non-overlapping slices
-                            let end = j + kdm1;
-                            for col in j..=end.min(n - 1) {
-                                let temp = c * row_k_minus1[col] + s * row_k[col];
-                                row_k[col] = c * row_k[col] - s * row_k_minus1[col];
-                                row_k_minus1[col] = temp;
-                            }
-                        }
+        let mut nr = 0;
+        let mut j1 = kd;
+        let mut j2 = 1;
+        
+        // Match LAPACK's main reduction loop
+        for i in 0..(n-2) {
+            // Reduce i-th row of matrix to tridiagonal form
+            for k in (2..=kd+1).rev() {
+                j1 = j1 + kd;
+                j2 = j2 + kd;
+                
+                if nr > 0 {
+                    // Generate plane rotations to annihilate elements outside band
+                    let mut x = vec![0.0; nr];
+                    let mut y = vec![0.0; nr];
+                    let mut c = vec![0.0; nr];
+                    
+                    for (idx, (x_val, y_val)) in x.iter_mut().zip(y.iter_mut()).enumerate() {
+                        let j = j1 - kd - 1 + idx * kd;
+                        *x_val = ab[kd][j];
+                        *y_val = ab[kd-1][j];
                     }
                     
-                    // Update diagonal and off-diagonal elements
-                    if k > 2 && k <= n - i {
-                        let (cs, sn, r) = {
-                            let f = ab[k - 2][i];
-                            let g = ab[k - 1][i];
-                            let (c, s, r) = if g == 0.0 {
-                                (1.0, 0.0, f)
-                            } else if f == 0.0 {
-                                (0.0, 1.0, g)
-                            } else {
-                                let t = f / g;
-                                let tt = (1.0 + t * t).sqrt();
-                                let c = 1.0 / tt;
-                                let s = t * c;
-                                (c, s, g * tt)
-                            };
-                            ab[k - 2][i] = r;
-                            (c, s, r)
-                        };
-                        
-                        // Apply rotation from the left safely
-                        let start = i + 1;
-                        let end = (i + k - 1).min(n - 1);
-                        if start <= end {
-                            let (upper, lower) = ab.split_at_mut(k - 1);
-                            let row_k_minus2 = &mut upper[k - 2];
-                            let row_k_minus1 = &mut lower[0];
+                    dlargv(nr, &mut x, incx, &mut y, incx, &mut c, incx);
+                    
+                    // Apply rotations based on number of diagonals
+                    if nr > 2*kd-1 {
+                        // Use DLARTV for many diagonals
+                        for l in 1..kd {
+                            let mut v1 = Vec::with_capacity(nr);
+                            let mut v2 = Vec::with_capacity(nr);
                             
-                            for j in start..=end {
-                                let temp = cs * row_k_minus2[j] + sn * row_k_minus1[j];
-                                row_k_minus1[j] = cs * row_k_minus1[j] - sn * row_k_minus2[j];
-                                row_k_minus2[j] = temp;
+                            for idx in 0..nr {
+                                let j = j1 - kd + l + idx * kd;
+                                v1.push(ab[kd-l][j]);
+                                v2.push(ab[kd-l+1][j]);
+                            }
+                            
+                            dlartv(nr, &mut v1, inca, &mut v2, inca, &c, &y, kd1);
+                            
+                            for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+                                let j = j1 - kd + l + idx * kd;
+                                ab[kd-l][j] = *val1;
+                                ab[kd-l+1][j] = *val2;
+                            }
+                        }
+                    } else {
+                        // Use DROT for fewer diagonals
+                        let jend = j1 + kd1 * (nr-1);
+                        for jinc in (j1..=jend).step_by(kd1 as usize) {
+                            let mut row1 = Vec::with_capacity(kdm1);
+                            let mut row2 = Vec::with_capacity(kdm1);
+                            
+                            for j in 0..kdm1 {
+                                row1.push(ab[kd][jinc-kd+j]);
+                                row2.push(ab[kd1][jinc-kd+j]);
+                            }
+                            
+                            drot(&mut row1, &mut row2, c[jinc-j1], y[jinc-j1]);
+                            
+                            for (j, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
+                                ab[kd][jinc-kd+j] = *val1;
+                                ab[kd1][jinc-kd+j] = *val2;
                             }
                         }
                     }
                 }
+                
+                // Handle inner elements of band
+                if k > 2 && k <= n-i {
+                    let (cs, sn) = {
+                        let f = ab[k-2][i];
+                        let g = ab[k-1][i];
+                        givens_rotation(f, g)
+                    };
+                    ab[k-2][i] = cs * f + sn * g;
+                    
+                    // Apply from the left
+                    for j in (i+1)..=(i+k-1).min(n-1) {
+                        let temp = cs * ab[k-2][j] + sn * ab[k-1][j];
+                        ab[k-1][j] = -sn * ab[k-2][j] + cs * ab[k-1][j];
+                        ab[k-2][j] = temp;
+                    }
+                    
+                    nr += 1;
+                    j1 = j1 - kd - 1;
+                }
+                
+                // Handle diagonal blocks
+                if nr > 0 {
+                    // Apply plane rotations from both sides
+                    for j in j1..=j2 {
+                        if j+kd < n {
+                            dlar2v(nr, 
+                                  &mut ab[kd1][j-1],
+                                  &mut ab[kd1][j], 
+                                  &mut ab[kd][j],
+                                  inca,
+                                  &c,
+                                  &y,
+                                  kd1);
+                        }
+                    }
+                }
+                
+                // Update Q matrix if needed
+                if nr > 0 {
+                    for j in j1..=j2 {
+                        if j < n-1 {
+                            drot(&mut q[j], &mut q[j+1], c[j-j1], y[j-j1]);
+                        }
+                    }
+                }
+                
+                // Adjust j2 if needed
+                if j2 + kd > n {
+                    nr -= 1;
+                    j2 = j2 - kd - 1;
+                }
             }
         }
         
-        // Copy off-diagonal elements to e
-        if kd > 0 {
-            for i in 0..(n - 1) {
-                e[i] = ab[1][i + 1];
-            }
-        } else {
-            for i in 0..(n - 1) {
-                e[i] = 0.0;
-            }
-        }
-        
-        // Copy diagonal elements to d
+        // Copy to output arrays
         for i in 0..n {
             d[i] = ab[0][i];
+            if i < n-1 {
+                e[i] = ab[1][i+1];
+            }
         }
         
         (d, e, q)
