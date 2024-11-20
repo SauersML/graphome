@@ -345,43 +345,40 @@ impl SymmetricBandedMatrix {
     }
 }
 
-fn dlargv(d_vals: &mut [f64], work_vals: &mut [f64]) -> (Vec<f64>, Vec<f64>) {
-    let n = d_vals.len();
-    let mut c = vec![0.0; n];
-    let mut s = vec![0.0; n];
+fn dlargv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &mut [f64], incc: usize) {
+    let mut ix = 0;
+    let mut iy = 0;
+    let mut ic = 0;
 
-    for i in 0..n {
-        let f = d_vals[i];
-        let g = work_vals[i];
+    for _ in 0..n {
+        let f = x[ix];
+        let g = y[iy];
 
         if g == 0.0 {
-            c[i] = 1.0;
-            s[i] = 0.0;
-            d_vals[i] = f;
-            work_vals[i] = 0.0;
+            c[ic] = 1.0;
+            y[iy] = 0.0;
         } else if f == 0.0 {
-            c[i] = 0.0;
-            s[i] = 1.0;
-            d_vals[i] = g;
-            work_vals[i] = 1.0;
+            c[ic] = 0.0;
+            x[ix] = g;
+            y[iy] = 1.0;
         } else if f.abs() > g.abs() {
             let t = g / f;
             let tt = (1.0 + t * t).sqrt();
-            c[i] = 1.0 / tt;
-            s[i] = t * c[i];
-            d_vals[i] = f * tt;
-            work_vals[i] = s[i];
+            c[ic] = 1.0 / tt;
+            y[iy] = t * c[ic];
+            x[ix] = f * tt;
         } else {
             let t = f / g;
             let tt = (1.0 + t * t).sqrt();
-            s[i] = 1.0 / tt;
-            c[i] = t * s[i];
-            d_vals[i] = g * tt;
-            work_vals[i] = s[i];
+            y[iy] = 1.0 / tt;
+            c[ic] = t * y[iy];
+            x[ix] = g * tt;
         }
-    }
 
-    (d_vals.to_vec(), work_vals.to_vec())
+        ix += incx;
+        iy += incy;
+        ic += incc;
+    }
 }
 
 fn dlartv(x: &mut [f64], y: &mut [f64], c: &[f64], s: &[f64]) -> (Vec<f64>, Vec<f64>) {
