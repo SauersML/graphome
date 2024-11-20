@@ -268,13 +268,15 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     // Copy new_d to d
     d.copy_from_slice(&new_d);
 
-    // Reconstruct eigenvectors
+    // Create temporary matrix for results
+    let mut temp_z = vec![vec![0.0; n]; n];
+
     // Left eigenvectors
     for i in 0..n1 {
         for j in 0..n {
-            z[i][j] = 0.0;
+            temp_z[i][j] = 0.0;
             for l in 0..n1 {
-                z[i][j] += z1[i][l] * new_z[l][j];
+                temp_z[i][j] += z1[i][l] * new_z[l][j];
             }
         }
     }
@@ -282,10 +284,17 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     // Right eigenvectors
     for i in 0..n2 {
         for j in 0..n {
-            z[n1 + i][j] = 0.0;
+            temp_z[n1 + i][j] = 0.0;
             for l in 0..n2 {
-                z[n1 + i][j] += z2[i][l] * new_z[n1 + l][j];
+                temp_z[n1 + i][j] += z2[i][l] * new_z[n1 + l][j];
             }
+        }
+    }
+
+    // Copy results back to z
+    for i in 0..n {
+        for j in 0..n {
+            z[i][j] = temp_z[i][j];
         }
     }
 }
