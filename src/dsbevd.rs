@@ -72,17 +72,19 @@ impl SymmetricBandedMatrix {
         }
     }
 
-    /// Reduces the symmetric banded matrix to tridiagonal form using plane rotations.
-    /// Returns the diagonal elements `d`, off-diagonal elements `e`, and the accumulated orthogonal matrix `q`.
     fn reduce_to_tridiagonal(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
         
-        // Output arrays 
+        // Output arrays
         let mut d = vec![0.0; n];
         let mut e = vec![0.0; n.saturating_sub(1)];
         let mut q = vec![vec![0.0; n]; n];
+        
+        // Work arrays
+        let mut work = vec![0.0; n];
+        let mut c = vec![0.0; n];
         
         // Initialize Q to identity
         for i in 0..n {
@@ -90,6 +92,7 @@ impl SymmetricBandedMatrix {
         }
         
         if kd == 0 {
+            // Handle diagonal case
             for i in 0..n {
                 d[i] = ab[0][i];
             }
@@ -98,139 +101,156 @@ impl SymmetricBandedMatrix {
         
         let kd1 = kd + 1;
         let kdm1 = kd - 1;
-        let incx = 1;
         let inca = kd1;
         
         let mut nr = 0;
         let mut j1 = kd;
         let mut j2 = 1;
-        
-        // Match LAPACK's main reduction loop
+    
+        // Main reduction loop
         for i in 0..(n-2) {
-            // Reduce i-th row of matrix to tridiagonal form
             for k in (2..=kd+1).rev() {
                 j1 = j1 + kd;
                 j2 = j2 + kd;
-                
+    
                 if nr > 0 {
-                    // Generate plane rotations to annihilate elements outside band
-                    let mut x = vec![0.0; nr];
-                    let mut y = vec![0.0; nr];
-                    let mut c = vec![0.0; nr];
-                    
-                    for (idx, (x_val, y_val)) in x.iter_mut().zip(y.iter_mut()).enumerate() {
+                    // Generate plane rotations to annihilate elements
+                    let mut x_temp = vec![0.0; nr];
+                    let mut y_temp = vec![0.0; nr];
+                    for idx in 0..nr {
                         let j = j1 - kd - 1 + idx * kd;
-                        *x_val = ab[kd][j];
-                        *y_val = ab[kd-1][j];
+                        x_temp[idx] = ab[kd][j];
+                        y_temp[idx] = ab[kd-1][j];
                     }
                     
-                    dlargv(nr, &mut x, incx, &mut y, incx, &mut c, incx);
+                    dlargv(nr, &mut x_temp, 1, &mut y_temp, 1, &mut c[..nr], 1);
                     
                     // Apply rotations based on number of diagonals
                     if nr > 2*kd-1 {
-                        // Use DLARTV for many diagonals
                         for l in 1..kd {
                             let mut v1 = Vec::with_capacity(nr);
                             let mut v2 = Vec::with_capacity(nr);
                             
                             for idx in 0..nr {
                                 let j = j1 - kd + l + idx * kd;
-                                v1.push(ab[kd-l][j]);
-                                v2.push(ab[kd-l+1][j]);
+                                if j < ab[0].len() && j + 1 < ab[0].len() {
+                                    v1.push(ab[kd-l][j]);
+                                    v2.push(ab[kd-l+1][j]);
+                                }
                             }
                             
-                            dlartv(nr, &mut v1, inca, &mut v2, inca, &c, &y, kd1);
+                            dlartv(v1.len(), &mut v1, inca, &mut v2, inca, 
+                                  &c[..v1.len()], &y_temp[..v1.len()], 1);
                             
                             for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
                                 let j = j1 - kd + l + idx * kd;
-                                ab[kd-l][j] = *val1;
-                                ab[kd-l+1][j] = *val2;
+                                if j < ab[0].len() {
+                                    ab[kd-l][j] = *val1;
+                                    ab[kd-l+1][j] = *val2;
+                                }
                             }
                         }
                     } else {
-                        // Use DROT for fewer diagonals
                         let jend = j1 + kd1 * (nr-1);
                         for jinc in (j1..=jend).step_by(kd1 as usize) {
                             let mut row1 = Vec::with_capacity(kdm1);
                             let mut row2 = Vec::with_capacity(kdm1);
                             
                             for j in 0..kdm1 {
-                                row1.push(ab[kd][jinc-kd+j]);
-                                row2.push(ab[kd1][jinc-kd+j]);
+                                if jinc >= kd && jinc-kd+j < ab[0].len() {
+                                    row1.push(ab[kd][jinc-kd+j]);
+                                    row2.push(ab[kd1][jinc-kd+j]);
+                                }
                             }
                             
-                            drot(&mut row1, &mut row2, c[jinc-j1], y[jinc-j1]);
-                            
-                            for (j, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
-                                ab[kd][jinc-kd+j] = *val1;
-                                ab[kd1][jinc-kd+j] = *val2;
+                            if !row1.is_empty() {
+                                drot(&mut row1, &mut row2, c[jinc-j1], y_temp[jinc-j1]);
+                                
+                                for (j, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
+                                    if jinc >= kd && jinc-kd+j < ab[0].len() {
+                                        ab[kd][jinc-kd+j] = *val1;
+                                        ab[kd1][jinc-kd+j] = *val2;
+                                    }
+                                }
                             }
                         }
                     }
                 }
-                
+    
                 // Handle inner elements of band
                 if k > 2 && k <= n-i {
-                    let (cs, sn) = {
-                        let f = ab[k-2][i];
-                        let g = ab[k-1][i];
-                        givens_rotation(f, g)
-                    };
+                    let f = ab[k-2][i];
+                    let g = ab[k-1][i];
+                    let (cs, sn) = givens_rotation(f, g);
                     ab[k-2][i] = cs * f + sn * g;
                     
-                    // Apply from the left
-                    for j in (i+1)..=(i+k-1).min(n-1) {
-                        let temp = cs * ab[k-2][j] + sn * ab[k-1][j];
-                        ab[k-1][j] = -sn * ab[k-2][j] + cs * ab[k-1][j];
-                        ab[k-2][j] = temp;
+                    // Apply rotation from the left
+                    let start = i + 1;
+                    let end = (i + k - 1).min(n - 1);
+                    if start <= end {
+                        for j in start..=end {
+                            let temp = cs * ab[k-2][j] + sn * ab[k-1][j];
+                            ab[k-1][j] = -sn * ab[k-2][j] + cs * ab[k-1][j];
+                            ab[k-2][j] = temp;
+                        }
                     }
                     
                     nr += 1;
                     j1 = j1 - kd - 1;
                 }
                 
-                // Handle diagonal blocks
+                // Apply rotations to the block diagonal
                 if nr > 0 {
-                    // Apply plane rotations from both sides
                     for j in j1..=j2 {
-                        if j+kd < n {
-                            dlar2v(nr, 
-                                  &mut ab[kd1][j-1],
-                                  &mut ab[kd1][j], 
-                                  &mut ab[kd][j],
-                                  inca,
-                                  &c,
-                                  &y,
-                                  kd1);
+                        if j+kd < n && j > 0 {
+                            let range = j..=j+2;
+                            let mut block = Vec::with_capacity(3);
+                            for idx in range {
+                                if idx < ab[0].len() {
+                                    block.push(ab[kd][idx]);
+                                }
+                            }
+                            
+                            if block.len() >= 3 {
+                                let mut x = vec![block[0]];
+                                let mut y = vec![block[1]];
+                                let mut z = vec![block[2]];
+                                dlar2v(1, &mut x, &mut y, &mut z, 1, &c[j-j1..j-j1+1], 
+                                      &y_temp[j-j1..j-j1+1], 1);
+                                
+                                ab[kd][j] = x[0];
+                                ab[kd][j+1] = y[0];
+                                ab[kd][j+2] = z[0];
+                            }
                         }
                     }
                 }
-                
-                // Update Q matrix if needed
+    
+                // Update Q matrix
                 if nr > 0 {
                     for j in j1..=j2 {
-                        if j < n-1 {
-                            drot(&mut q[j], &mut q[j+1], c[j-j1], y[j-j1]);
+                        if j < n-1 && j-j1 < c.len() && j-j1 < y_temp.len() {
+                            drot(&mut q[j], &mut q[j+1], c[j-j1], y_temp[j-j1]);
                         }
                     }
                 }
-                
-                // Adjust j2 if needed
+    
+                // Adjust bounds
                 if j2 + kd > n {
-                    nr -= 1;
-                    j2 = j2 - kd - 1;
+                    nr = nr.saturating_sub(1);
+                    j2 = j2.saturating_sub(kd + 1);
                 }
             }
         }
-        
-        // Copy to output arrays
+    
+        // Copy final results
         for i in 0..n {
             d[i] = ab[0][i];
             if i < n-1 {
                 e[i] = ab[1][i+1];
             }
         }
-        
+    
         (d, e, q)
     }
 
