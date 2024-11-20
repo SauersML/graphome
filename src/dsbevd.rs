@@ -81,7 +81,7 @@ impl SymmetricBandedMatrix {
         let kd = self.kd;
         let mut ab = self.ab.clone();
     
-        // Output arrays
+        // Output arrays 
         let mut d = vec![0.0; n];
         let mut e = vec![0.0; n - 1];
         let mut q = vec![vec![0.0; n]; n];
@@ -108,7 +108,10 @@ impl SymmetricBandedMatrix {
         let mut nr = 0;
         let mut j1 = kd1;
         let mut j2 = 1;
-        let mut iqend = 1;
+    
+        // Pre-allocate rotation arrays that will be reused
+        let mut d_vals = Vec::new();
+        let mut work_vals = Vec::new();
     
         if kd > 1 {
             for i in 0..(n - 2) {
@@ -117,10 +120,11 @@ impl SymmetricBandedMatrix {
                     j2 += kd;
     
                     if nr > 0 {
-                        // Generate plane rotations to annihilate nonzero elements
-                        let mut d_vals = vec![0.0; nr];
-                        let mut work_vals = vec![0.0; nr];
+                        // Resize rotation arrays if needed
+                        d_vals.resize(nr, 0.0);
+                        work_vals.resize(nr, 0.0);
                         
+                        // Generate plane rotations to annihilate nonzero elements
                         for idx in 0..nr {
                             let j = j1 - kd1 + idx * kd;
                             d_vals[idx] = ab[kd][j];
@@ -203,10 +207,8 @@ impl SymmetricBandedMatrix {
                         let ab_row_1 = &mut ab[1][start..end];
     
                         dlar2v(nr, ab_row_0_first, ab_row_0_second, ab_row_1, 1, &d_vals, &work_vals, 1);
-                    }
     
-                    // Apply plane rotations from the right
-                    if nr > 0 {
+                        // Apply plane rotations from the right
                         if nr >= 2 * kd - 1 {
                             for l in 1..kd {
                                 let nrt = if j2 + l > n { nr - 1 } else { nr };
@@ -429,15 +431,35 @@ fn dlartg(f: f64, g: f64) -> (f64, f64, f64) {
     }
 }
 
-fn dlar2v(x: &mut [f64], y: &mut [f64], z: &mut [f64], c: &[f64], s: &[f64]) {
-    let n = x.len();
 
-    for i in 0..n {
-        let xi = x[i];
-        let yi = y[i];
-        let zi = z[i];
-        let ci = c[i];
-        let si = s[i];
+
+fn dlar2v(
+    n: usize,
+    x: &mut [f64],
+    y: &mut [f64],
+    z: &mut [f64],
+    incx: usize,
+    c: &[f64],
+    s: &[f64],
+    incc: usize,
+) {
+    debug_assert!(incx > 0, "incx must be positive");
+    debug_assert!(incc > 0, "incc must be positive");
+    debug_assert!(x.len() >= 1 + (n-1)*incx, "x array too small");
+    debug_assert!(y.len() >= 1 + (n-1)*incx, "y array too small");
+    debug_assert!(z.len() >= 1 + (n-1)*incx, "z array too small");
+    debug_assert!(c.len() >= 1 + (n-1)*incc, "c array too small");
+    debug_assert!(s.len() >= 1 + (n-1)*incc, "s array too small");
+
+    let mut ix = 0;
+    let mut ic = 0;
+
+    for _ in 0..n {
+        let xi = x[ix];
+        let yi = y[ix];
+        let zi = z[ix];
+        let ci = c[ic];
+        let si = s[ic];
 
         let t1 = si * zi;
         let t2 = ci * zi;
@@ -446,11 +468,16 @@ fn dlar2v(x: &mut [f64], y: &mut [f64], z: &mut [f64], c: &[f64], s: &[f64]) {
         let t5 = ci * xi + t1;
         let t6 = ci * yi - t1;
 
-        x[i] = ci * t5 + si * t4;
-        y[i] = ci * t6 - si * t3;
-        z[i] = ci * t4 - si * t5;
+        x[ix] = ci * t5 + si * t4;
+        y[ix] = ci * t6 - si * t3;
+        z[ix] = ci * t4 - si * t5;
+
+        ix += incx;
+        ic += incc;
     }
 }
+
+
 
 /// Computes the Householder reflector for a vector x.
 /// Returns the Householder vector v and the scalar tau.
