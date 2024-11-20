@@ -553,12 +553,6 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
     // We always compute eigenvectors
 
-    if n <= smlsiz {
-        // Use QR algorithm for small matrices
-        tridiagonal_qr(d, e, z);
-        return;
-    }
-
     // Scale the matrix if necessary
     let orgnrm = d.iter().map(|&x| x.abs()).chain(e.iter().map(|&x| x.abs())).fold(0.0_f64, f64::max);
     if orgnrm == 0.0 {
@@ -590,7 +584,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in 0..m {
                 z_sub[i][i] = 1.0;
             }
-            tridiagonal_qr(&mut d_sub, &mut e_sub, &mut z_sub);
+            // ??? (&mut d_sub, &mut e_sub, &mut z_sub);
 
             // Copy back results
             for i in 0..m {
@@ -850,102 +844,6 @@ fn solve_secular_equation(
     }
 
     0 // Return 0 to indicate success
-}
-
-/// Tridiagonal QR algorithm for small matrices.
-/// `d`: Diagonal elements
-/// `e`: Off-diagonal elements
-/// `z`: Eigenvectors (output)
-fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
-    let n = d.len();
-    let mut e_ext = vec![0.0; n];
-    e_ext[..(n - 1)].copy_from_slice(e);
-
-    // Initialize z to identity matrix
-    for i in 0..n {
-        for j in 0..n {
-            z[i][j] = if i == j { 1.0 } else { 0.0 };
-        }
-    }
-
-    for l in 0..n {
-        let mut iter = 0;
-        loop {
-            let mut m = l;
-            while m < n - 1 {
-                let dd = d[m].abs() + d[m + 1].abs();
-                if e_ext[m].abs() <= f64::EPSILON * dd {
-                    break;
-                }
-                m += 1;
-            }
-
-            if m == l {
-                break;
-            }
-
-            iter += 1;
-            if iter > 1000 {
-                panic!("Too many iterations in tridiagonal_qr");
-            }
-
-            // Compute shift (Wilkinson's shift)
-            let delta = (d[m - 1] - d[m]).abs() / 2.0;
-            let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
-            let t = mu;
-
-
-            for i in l..n {
-                d[i] -= t;
-            }
-
-            let mut s = 0.0;
-            let mut c = 1.0;
-
-            for i in l..m {
-                let f = s * e_ext[i];
-                let b = c * e_ext[i];
-                let (r, cs, sn) = plane_rotation(d[i] - t, f);
-                e_ext[i] = r;
-                s = sn;
-                c = cs;
-                let temp = c * d[i] - s * e_ext[i + 1];
-                e_ext[i + 1] = s * d[i] + c * e_ext[i + 1];
-                d[i] = temp;
-
-                // Apply rotation to eigenvectors
-                if i + 1 < n {
-                    for k in 0..n {
-                        let temp = c * z[k][i] - s * z[k][i + 1];
-                        z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
-                        z[k][i] = temp;
-                    }
-                }
-            }
-
-            let temp = c * d[m] - s * e_ext[m];
-            e_ext[m] = s * d[m] + c * e_ext[m];
-            d[m] = temp;
-        }
-    }
-
-    // Sort eigenvalues and eigenvectors
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
-
-    let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
-    let sorted_z = idx
-        .iter()
-        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
-        .collect::<Vec<Vec<f64>>>();
-
-    // Copy back sorted eigenvalues and eigenvectors
-    d.copy_from_slice(&sorted_d);
-    for i in 0..n {
-        for j in 0..n {
-            z[i][j] = sorted_z[j][i];
-        }
-    }
 }
 
 /// Compute plane rotation parameters
