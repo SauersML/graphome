@@ -18,7 +18,6 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     edge_list_path: P,
     start_node: usize,
     end_node: usize,
-    output_path: P,
 ) -> io::Result<()> {
     let start_time = Instant::now();
 
