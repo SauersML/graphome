@@ -363,58 +363,115 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
 fn solve_secular_equation(
-    d1: &[f64],
+    d1: &[f64], 
     d2: &[f64],
     z: &[f64],
     rho: f64,
     d: &mut [f64],
-    z_out: &mut [Vec<f64>],
+    z_out: &mut [Vec<f64>]
 ) {
     let n1 = d1.len();
     let n2 = d2.len();
     let n = n1 + n2;
+    
+    // Machine constants for numerical stability
+    let eps = f64::EPSILON;
+    let safmin = f64::MIN_POSITIVE;
+    let smlnum = safmin / eps;
+    let bignum = 1.0 / smlnum;
+    let rmin = smlnum.sqrt();
+    let rmax = bignum.sqrt();
 
-    // Initialize variables
     let mut dlamda = vec![0.0; n];
-    let mut q2 = vec![vec![0.0; n2]; n];
-
-    // Copy d1 and d2 into dlamda
+    let mut delta = vec![0.0; n]; 
+    
+    // Copy eigenvalues and compute gaps
     for i in 0..n1 {
         dlamda[i] = d1[i];
     }
     for i in 0..n2 {
         dlamda[n1 + i] = d2[i];
     }
+    
+    // Sort eigenvalues and compute gaps
+    dlamda.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    for i in 0..n-1 {
+        delta[i] = dlamda[i+1] - dlamda[i];
+    }
+    delta[n-1] = rmax;
 
-    // Compute the eigenvalues and eigenvectors
-    // For each eigenvalue, solve the secular equation
+    // Normalize z vector
+    let mut z_norm = 0.0;
     for i in 0..n {
-        let lambda = dlamda[i];
+        z_norm += z[i] * z[i];
+    }
+    z_norm = z_norm.sqrt();
+    
+    let mut z_scaled = vec![0.0; n];
+    for i in 0..n {
+        z_scaled[i] = z[i] / z_norm;
+    }
 
-        // Compute the secular equation denominator
-        let mut denom = rho;
-        for j in 0..n {
-            if j != i {
-                denom += z[j] * z[j] / (dlamda[j] - lambda);
+    // Main secular equation solving loop
+    for i in 0..n {
+        let mut left = dlamda[i];
+        let mut right = if i < n-1 { 
+            dlamda[i] + delta[i]
+        } else {
+            dlamda[i] * (1.0 + 4.0 * eps)
+        };
+        
+        // Binary search refinement 
+        for _ in 0..50 {  // Max iterations
+            let mid = (left + right) / 2.0;
+            let mut sum = 0.0;
+            let mut deriv = 0.0;
+            
+            for j in 0..n {
+                if j != i {
+                    let temp = z_scaled[j] / (dlamda[j] - mid);
+                    sum += z_scaled[j] * temp;
+                    deriv += temp * temp;
+                }
+            }
+            
+            if sum.abs() <= eps {
+                d[i] = mid;
+                break;
+            }
+            
+            let update = sum / deriv;
+            if sum > 0.0 {
+                right = mid;
+            } else {
+                left = mid;
+            }
+            
+            // Newton step
+            let new_mid = mid - update;
+            if new_mid >= left && new_mid <= right {
+                d[i] = new_mid;
+                break;
             }
         }
-
-        // Compute the eigenvalue
-        d[i] = lambda + rho * z[i] * z[i] / denom;
-
-        // Compute the eigenvector components
+        
+        // Compute eigenvector components
         for j in 0..n {
             if j != i {
-                z_out[j][i] = z[j] / (dlamda[j] - d[i]);
+                z_out[j][i] = z_scaled[j] / (dlamda[j] - d[i]);
             } else {
                 z_out[j][i] = 1.0;
             }
         }
-
-        // Normalize the eigenvector
-        let norm = z_out.iter().map(|row| row[i] * row[i]).sum::<f64>().sqrt();
-        for row in z_out.iter_mut() {
-            row[i] /= norm;
+        
+        // Normalize eigenvector
+        let mut norm = 0.0;
+        for j in 0..n {
+            norm += z_out[j][i] * z_out[j][i]; 
+        }
+        norm = norm.sqrt();
+        for j in 0..n {
+            z_out[j][i] /= norm;
         }
     }
 }
