@@ -1,5 +1,7 @@
 // src/dsbevd.rs
 
+// We ONLY care about large matrices, and we ALWAYS want both eigenvectors and eigenvalues
+
 use rayon::prelude::*;
 
 /// Represents a real symmetric banded matrix.
