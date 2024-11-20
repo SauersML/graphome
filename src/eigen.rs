@@ -49,7 +49,7 @@ pub fn call_eigendecomp(
     // Compute eigenvalues and eigenvectors using SymmetricEigen
     let eigen = SymmetricEigen::new(dense_laplacian);
     let eigenvalues = eigen.eigenvalues.as_slice().to_vec();
-    let eigenvectors = eigen
+    let eigenvectors: Vec<Vec<f64>> = eigen
         .eigenvectors
         .column_iter()
         .map(|col| col.as_slice().to_vec())
@@ -57,8 +57,11 @@ pub fn call_eigendecomp(
 
     // Return top-k eigenvalues and eigenvectors
     let top_eigenvalues = eigenvalues[..k.min(eigenvalues.len())].to_vec();
-    let top_eigenvectors = eigenvectors[..k.min(eigenvectors.len())].to_vec();
-
+    let top_eigenvectors = eigenvectors[..k.min(eigenvectors.len())]
+        .iter()
+        .cloned()
+        .collect();
+    
     Ok((top_eigenvalues, top_eigenvectors))
 }
 
