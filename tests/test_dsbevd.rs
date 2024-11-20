@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::dsbevd::SymmetricBandedMatrix;
+    use graphome::dsbevd::SymmetricBandedMatrix;
     use rand_distr::{Normal, Distribution};
     use nalgebra::{DMatrix, SymmetricEigen};
     use std::time::Instant;
