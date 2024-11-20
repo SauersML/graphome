@@ -2,97 +2,118 @@
 
 //! Module for eigendecomposition and analyses that depend on eigenvectors or eigenvalues.
 
-// Import necessary crates
 use ndarray::prelude::*;
 use std::io::{self, Write};
 use std::path::Path;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use nalgebra::{DVector, DMatrix, SymmetricEigen};
-use sprs::{CsMat, TriMatI};
 
-/// Struct representing the Laplacian operator for efficient matrix-vector multiplication.
-#[derive(Clone)]
-pub struct LaplacianOperator {
-    laplacian: CsMat<f64>, // Sparse representation
+/// Computes the eigendecomposition of the Laplacian matrix using nalgebra's SymmetricEigen.
+pub fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
+    // Use nalgebra's SymmetricEigen for the matrix
+    println!("Using nalgebra's SymmetricEigen for the matrix.");
+    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym(laplacian)?;
+
+    // Convert nalgebra's DVector and DMatrix to ndarray's Array1 and Array2
+    let eigvals_nd = Array1::from(eigvals.iter().cloned().collect::<Vec<f64>>());
+    let eigvecs_nd = Array2::from_shape_vec(
+        (eigvecs.nrows(), eigvecs.ncols()),
+        eigvecs.iter().cloned().collect(),
+    ).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+
+    Ok((eigvals_nd, eigvecs_nd))
 }
 
-impl LaplacianOperator {
-    /// Converts the sparse Laplacian matrix to a dense DMatrix for eigendecomposition.
-    fn to_dense(&self) -> DMatrix<f64> {
-        let shape = self.laplacian.shape();
-        let mut dense = DMatrix::zeros(shape.0, shape.1);
+/// Computes eigenvalues and eigenvectors for a given Laplacian matrix with SymmetricEigen
+pub fn compute_eigenvalues_and_vectors_sym(
+    laplacian: &Array2<f64>,
+) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
+    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
+    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(laplacian)?;
 
-        for (row, col, value) in self.laplacian.triplet_iter() {
-            dense[(row, col)] = *value;
+    // Compute eigendecomposition using nalgebra's SymmetricEigen
+    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
+
+    let eigvals = symmetric_eigen.eigenvalues;
+    let eigvecs = symmetric_eigen.eigenvectors;
+
+    Ok((eigvals, eigvecs))
+}
+
+/// Converts an ndarray::Array2<f64> to nalgebra::DMatrix<f64>
+pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
+    let (rows, cols) = matrix.dim();
+    let mut nalgebra_matrix = DMatrix::<f64>::zeros(rows, cols);
+
+    for ((i, j), value) in matrix.indexed_iter() {
+        nalgebra_matrix[(i, j)] = *value;
+    }
+
+    Ok(nalgebra_matrix)
+}
+
+/// Saves a nalgebra::DMatrix<f64> to a CSV file
+pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
+    matrix: &DMatrix<f64>,
+    csv_path: P,
+) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    for i in 0..matrix.nrows() {
+        let row = matrix.row(i).iter().cloned().collect::<Vec<f64>>();
+        wtr.serialize(row)?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Saves a nalgebra::DVector<f64> to a CSV file
+pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
+    vector: &DVector<f64>,
+    csv_path: P,
+) -> io::Result<()> {
+    let mut wtr = WriterBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)?;
+    let row = vector.iter().cloned().collect::<Vec<f64>>();
+    wtr.serialize(row)?;
+    wtr.flush()?;
+    Ok(())
+}
+
+/// Converts the adjacency matrix edge list to ndarray::Array2<f64>
+pub fn adjacency_matrix_to_ndarray(
+    edges: &[(u32, u32)],
+    start_node: usize,
+    end_node: usize,
+) -> Array2<f64> {
+    let size = end_node - start_node + 1;
+    let mut adj_array = Array2::<f64>::zeros((size, size));
+    for &(a, b) in edges {
+        let local_a = a as usize - start_node;
+        let local_b = b as usize - start_node;
+        if local_a < size && local_b < size {
+            adj_array[(local_a, local_b)] = 1.0;
+            adj_array[(local_b, local_a)] = 1.0;
         }
-
-        dense
     }
-}
-
-/// Performs eigendecomposition using `nalgebra::SymmetricEigen` for a dense Laplacian matrix.
-pub fn call_eigendecomp(
-    edges: &[(usize, usize)],
-    num_nodes: usize,
-    k: usize,
-) -> io::Result<(Vec<f64>, Vec<Vec<f64>>)> {
-    // Build the sparse Laplacian matrix as CsMat<f64>
-    let laplacian_csmat = build_laplacian_csmat(edges, num_nodes);
-
-    // Create LaplacianOperator and convert to dense
-    let laplacian_operator = LaplacianOperator {
-        laplacian: laplacian_csmat,
-    };
-    let dense_laplacian = laplacian_operator.to_dense();
-
-    // Compute eigenvalues and eigenvectors using SymmetricEigen
-    let eigen = SymmetricEigen::new(dense_laplacian);
-    let eigenvalues = eigen.eigenvalues.as_slice().to_vec();
-    let eigenvectors: Vec<Vec<f64>> = eigen
-        .eigenvectors
-        .column_iter()
-        .map(|col| col.as_slice().to_vec())
-        .collect();
-
-    // Return top-k eigenvalues and eigenvectors
-    let top_eigenvalues = eigenvalues[..k.min(eigenvalues.len())].to_vec();
-    let top_eigenvectors = eigenvectors[..k.min(eigenvectors.len())]
-        .iter()
-        .cloned()
-        .collect();
-    
-    Ok((top_eigenvalues, top_eigenvectors))
-}
-
-/// Builds the Laplacian matrix as a sparse CsMat<f64> from the edge list.
-pub fn build_laplacian_csmat(edges: &[(usize, usize)], num_nodes: usize) -> CsMat<f64> {
-    // Build the Laplacian matrix in triplet format
-    let mut triplet =
-        TriMatI::<f64, usize>::with_capacity((num_nodes, num_nodes), edges.len() * 2 + num_nodes);
-
-    // Compute degrees and add off-diagonal entries
-    let mut degrees = vec![0.0; num_nodes];
-    for &(i, j) in edges {
-        degrees[i] += 1.0;
-        degrees[j] += 1.0;
-
-        // Add off-diagonal entries
-        triplet.add_triplet(i, j, -1.0);
-        triplet.add_triplet(j, i, -1.0);
-    }
-
-    // Add diagonal entries
-    for i in 0..num_nodes {
-        triplet.add_triplet(i, i, degrees[i]);
-    }
-
-    // Convert triplet to CSR format
-    triplet.to_csr()
+    adj_array
 }
 
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
-pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
+/// Ignores eigenvalues that are negative within a small epsilon due to floating-point precision.
+///
+/// # Arguments
+///
+/// * `eigenvalues` - A reference to an Array1<f64> containing the eigenvalues.
+///
+/// # Returns
+///
+/// * `Ok(f64)` - The computed NGEC value.
+/// * `Err(io::Error)` - If the computation fails due to invalid input.
+pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
     let epsilon = 1e-9; // Small epsilon to account for floating-point precision
     let m = eigenvalues.len();
     if m == 0 {
@@ -102,7 +123,7 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
         ));
     }
 
-    // Check for significant negative eigenvalues
+    // Check for eigenvalues significantly below zero (beyond precision tolerance)
     if eigenvalues.iter().any(|&x| x < -epsilon) {
         let negative_eigenvalues: Vec<f64> = eigenvalues
             .iter()
@@ -110,21 +131,23 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
             .cloned()
             .take(5)
             .collect();
-
+    
         println!("❗ Significant negative eigenvalues found: {:?}", negative_eigenvalues);
-
+    
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "Eigenvalues contain significant negative values.",
+            format!(
+                "Eigenvalues contain significant negative values."
+            ),
         ));
     }
 
     // Calculate the sum of eigenvalues, ignoring small negative values due to precision
     let sum_eigen = eigenvalues
         .iter()
-        .filter(|&&x| x >= -epsilon)
+        .filter(|&&x| x >= -epsilon)  // Only include eigenvalues >= -epsilon
         .sum::<f64>();
-
+    
     if sum_eigen <= 0.0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -133,12 +156,10 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
     }
 
     // Normalize the eigenvalues, ignoring small negative values
-    let normalized_eigen: Vec<f64> = eigenvalues
-        .iter()
-        .map(|&x| if x >= -epsilon { x / sum_eigen } else { 0.0 })
-        .collect();
+    let normalized_eigen = eigenvalues.mapv(|x| if x >= -epsilon { x / sum_eigen } else { 0.0 });
 
     // Compute the entropy
+    // Handle cases where normalized eigenvalues are zero
     let entropy: f64 = normalized_eigen
         .iter()
         .filter(|&&x| x > 0.0)
@@ -158,41 +179,6 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
     let ngec = -entropy / log_m;
 
     Ok(ngec)
-}
-
-/// Converts the adjacency matrix edge list to ndarray::Array2<f64>
-pub fn adjacency_matrix_to_ndarray(
-    edges: &[(usize, usize)],
-    num_nodes: usize,
-) -> Array2<f64> {
-    let mut adj_array = Array2::<f64>::zeros((num_nodes, num_nodes));
-    for &(a, b) in edges {
-        adj_array[(a, b)] = 1.0;
-        adj_array[(b, a)] = 1.0;
-    }
-    adj_array
-}
-
-/// Saves a 2D ndarray::Array2<f64> to a CSV file
-pub fn save_array_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    for row in matrix.rows() {
-        wtr.serialize(row.to_vec())?;
-    }
-    wtr.flush()?;
-    Ok(())
-}
-
-/// Saves a 1D Vec<f64> to a CSV file
-pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &[f64], csv_path: P) -> io::Result<()> {
-    let mut wtr = WriterBuilder::new()
-        .has_headers(false)
-        .from_path(csv_path)?;
-    wtr.serialize(vector)?;
-    wtr.flush()?;
-    Ok(())
 }
 
 /// Prints a heatmap of a 2D ndarray::ArrayView2<f64> to the terminal
@@ -309,7 +295,7 @@ pub fn print_heatmap_ndarray(matrix: &Array2<f64>) {
 }
 
 /// Prints a heatmap of eigenvalues
-pub fn print_eigenvalues_heatmap(vector: &[f64]) {
+pub fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
     let num_eigvals = vector.len();
 
     let max_value = vector
