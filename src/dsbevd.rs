@@ -416,150 +416,83 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
 fn solve_secular_equation(
-    d1: &[f64], 
+    d1: &[f64],
     d2: &[f64],
     z: &[f64],
     rho: f64,
     d: &mut [f64],
     z_out: &mut [Vec<f64>]
 ) {
-    let n1 = d1.len();
-    let n2 = d2.len();
-    let n = n1 + n2;
-    
-    // Machine constants for numerical stability
+    let n = d1.len() + d2.len();
     let eps = f64::EPSILON;
-    let safmin = f64::MIN_POSITIVE;
-    let smlnum = safmin / eps;
-    let bignum = 1.0 / smlnum;
-    let rmin = smlnum.sqrt();
-    let rmax = bignum.sqrt();
-
-    let mut dlamda = vec![0.0; n];
-    let mut delta = vec![0.0; n]; 
     
-    // Copy eigenvalues and compute gaps
-    for i in 0..n1 {
+    // Sort d values and permute z 
+    let mut perm: Vec<usize> = (0..n).collect();
+    let mut dlamda = vec![0.0; n];
+    for i in 0..d1.len() {
         dlamda[i] = d1[i];
     }
-    for i in 0..n2 {
-        dlamda[n1 + i] = d2[i];
+    for i in 0..d2.len() {
+        dlamda[d1.len() + i] = d2[i];
     }
+    perm.sort_by(|&i, &j| dlamda[i].partial_cmp(&dlamda[j]).unwrap());
     
-    // Sort eigenvalues and compute gaps
-    dlamda.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    for i in 0..n-1 {
-        delta[i] = dlamda[i+1] - dlamda[i];
-    }
-    delta[n-1] = rmax;
-
-    // Normalize z vector
-    let mut z_norm = 0.0;
+    // Apply permutation
+    let mut z_perm = vec![0.0; n];
     for i in 0..n {
-        z_norm += z[i] * z[i];
+        z_perm[i] = z[perm[i]];
     }
-    z_norm = z_norm.sqrt();
-    
-    let mut z_scaled = vec![0.0; n];
+    let mut dlamda_sorted = vec![0.0; n];
     for i in 0..n {
-        z_scaled[i] = z[i] / z_norm;
+        dlamda_sorted[i] = dlamda[perm[i]];
     }
 
-    // Main secular equation solving loop
-    for i in 0..n {
-        let mut left = if i == 0 { 
-            dlamda[0] - (dlamda[1] - dlamda[0]).abs() 
-        } else { 
-            dlamda[i-1] 
-        };
-        let mut right = if i == n-1 { 
-            dlamda[n-1] + (dlamda[n-1] - dlamda[n-2]).abs()
-        } else { 
-            dlamda[i+1] 
-        };
+    // Compute updated z vector and eigenvalues
+    let zabs_max = z_perm.iter().map(|x| x.abs()).fold(0.0, f64::max);
+    let z_scale = if zabs_max > safmin { zabs_max } else { 1.0 };
+    
+    for j in 0..n {
+        // Initial guess for eigenvalue
+        let mut lambda = dlamda_sorted[j];
+        let mut delta = 0.0;
         
-        let mut mid = dlamda[i];
-        let mut converged = false;
-        
-        // Newton iterations
-        for iter in 0..50 {
-            let mut mid = (left + right) / 2.0;
-            let mut sum = 0.0;
-            let mut deriv = 0.0;
+        for _ in 0..40 { // DLAED4 uses up to 40 iterations
+            let mut f = rho * (z_perm[j] / z_scale).powi(2);
+            let mut df = 0.0;
             
-            for j in 0..n {
-                if j != i {
-                    let temp = z_scaled[j] / (dlamda[j] - mid);
-                    sum += z_scaled[j] * temp;
-                    deriv += temp * temp;
+            for i in 0..n {
+                if i != j {
+                    let del = lambda - dlamda_sorted[i];
+                    let temp = z_perm[i] / (z_scale * del);
+                    f += z_perm[i] * temp;
+                    df += temp * temp;
                 }
             }
             
-            let tol = eps * mid.abs();
-            if sum.abs() <= tol {
-                d[i] = mid;
-                break;
-            } else if iter >= 50 {
-                // If Newton fails, do additional bisection steps
-                let mut l = left;
-                let mut r = right;
-                for _ in 0..20 {
-                    let m = (l + r) / 2.0;
-                    let mut sum = 0.0;
-                    for j in 0..n {
-                        if j != i {
-                            sum += z_scaled[j] * z_scaled[j] / (dlamda[j] - m);
-                        }
-                    }
-                    if sum > 0.0 {
-                        r = m;
-                    } else {
-                        l = m;
-                    }
-                }
-                d[i] = (l + r) / 2.0;
-                break;
-            }
+            // Newton update
+            delta = f / df;
+            lambda -= delta;
             
-            let update = sum / deriv;
-            if sum > 0.0 {
-                right = mid;
-            } else {
-                left = mid;
-            }
-            
-            // Newton step
-            let new_mid = mid - update;
-            if new_mid >= left && new_mid <= right {
-                if (new_mid - mid).abs() < eps * mid.abs() {
-                    d[i] = new_mid;
-                    break;
-                }
-                d[i] = new_mid;
-                mid = new_mid;
-            } else {
-                d[i] = mid;
+            if delta.abs() <= eps * lambda.abs() {
                 break;
             }
         }
         
-        // Compute eigenvector components
-        for j in 0..n {
-            if j != i {
-                z_out[j][i] = z_scaled[j] / (dlamda[j] - d[i]);
+        d[j] = lambda;
+        
+        // Compute corresponding eigenvector component
+        for i in 0..n {
+            if i != j {
+                z_out[i][j] = z_perm[i] / (dlamda_sorted[i] - lambda);
             } else {
-                z_out[j][i] = 1.0;
+                z_out[i][j] = 1.0;
             }
         }
         
-        // Normalize eigenvector
-        let mut norm = 0.0;
-        for j in 0..n {
-            norm += z_out[j][i] * z_out[j][i]; 
-        }
-        norm = norm.sqrt();
-        for j in 0..n {
-            z_out[j][i] /= norm;
+        // Normalize eigenvector component
+        let norm = z_out.iter().map(|row| row[j].powi(2)).sum::<f64>().sqrt();
+        for i in 0..n {
+            z_out[i][j] /= norm;
         }
     }
 }
@@ -570,16 +503,91 @@ fn solve_secular_equation(
 /// `z`: Eigenvectors (output)
 fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
-    let mut tri = SymmetricTridiagonal::new(d.to_vec(), e[..n-1].to_vec());
-    let decomp = tri.eigendecomposition(true).unwrap();
-    
-    // Copy eigenvalues back
-    d.copy_from_slice(&decomp.eigenvalues);
-    
-    // Copy eigenvectors
+    let eps = f64::EPSILON;
+    let eps2 = eps * eps;
+    let safmin = f64::MIN_POSITIVE;
+    let safmax = 1.0 / safmin;
+    let ssfmax = safmax.sqrt() / 3.0;
+    let ssfmin = safmin.sqrt() / eps2;
+
+    // Initialize z to identity if needed
     for i in 0..n {
         for j in 0..n {
-            z[i][j] = decomp.eigenvectors[(i,j)];
+            z[i][j] = if i == j { 1.0 } else { 0.0 };
+        }
+    }
+
+    let mut nmaxit = n * 30;  // Same as DSTEQR's maxit=30
+    let mut jtot = 0;
+
+    'outer: while jtot < nmaxit {
+        // Look for small off-diagonal elements
+        for m in 1..n {
+            let test = e[m-1].abs();
+            if test <= (d[m-1].abs().sqrt() * d[m].abs().sqrt()) * eps {
+                e[m-1] = 0.0;
+                continue 'outer;
+            }
+        }
+
+        // Choose shift
+        let m = n - 1;
+        if m == 0 {
+            break;
+        }
+
+        let g = (d[m] - d[m-1]) / (2.0 * e[m-1]);
+        let r = g.hypot(1.0);
+        let g = d[m] - d[m-1] + e[m-1]/(g + r.copysign(g));
+
+        let mut s = 1.0;
+        let mut c = 1.0;
+        let mut p = 0.0;
+
+        for i in (0..m).rev() {
+            let f = s * e[i];
+            let b = c * e[i];
+            let (cs, sn) = givens_rotation(g, f);
+            c = cs;
+            s = sn;
+
+            if i < m - 1 {
+                e[i+1] = r;
+            }
+            g = d[i+1] - p;
+            let r = (d[i] - g) * s + 2.0 * c * b;
+            p = s * r;
+            d[i+1] = g + p;
+            g = c * r - b;
+
+            // Accumulate transformation for eigenvectors
+            for k in 0..n {
+                let temp = z[k][i+1];
+                z[k][i+1] = s * z[k][i] + c * temp;
+                z[k][i] = c * z[k][i] - s * temp;
+            }
+        }
+
+        d[0] -= p;
+        e[m-1] = g;
+        jtot += 1;
+    }
+
+    // Sort eigenvalues and eigenvectors
+    for i in 0..n-1 {
+        let mut k = i;
+        let mut p = d[i];
+        for j in i+1..n {
+            if d[j] < p {
+                k = j;
+                p = d[j];
+            }
+        }
+        if k != i {
+            d.swap(k, i);
+            for j in 0..n {
+                z[j].swap(k, i);
+            }
         }
     }
 }
