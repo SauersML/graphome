@@ -44,8 +44,12 @@ mod tests {
         
         // Make diagonally dominant for stability
         for j in 0..n {
-            ab[0][j] = ab[0][j].abs() + 
-                (1..=kd).map(|i| ab[i][j].abs()).sum::<f64>() + 1.0;
+            let diag_abs: f64 = ab[0][j].abs();
+            let sum: f64 = (1..=kd)
+                .filter(|&i| j + i < n)
+                .map(|i| ab[i][j].abs())
+                .sum();
+            ab[0][j] = diag_abs + sum + 1.0;
         }
         
         ab
@@ -58,7 +62,7 @@ mod tests {
         let ab = vec![vec![0.0; n]; kd + 1];
         
         // Test basic construction
-        let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
+        let _matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
         
         // Test invalid constructions
         let result = std::panic::catch_unwind(|| {
@@ -88,13 +92,15 @@ mod tests {
         
         // For diagonal matrix, eigenvalues should exactly equal diagonal elements in ascending order
         for i in 0..n {
-            assert!((results.eigenvalues[i] - (i + 1) as f64).abs() < 1e-10,
+            let diff = (results.eigenvalues[i] - (i + 1) as f64).abs();
+            assert!(diff < 1e-10,
                 "Diagonal eigenvalue incorrect at position {}", i);
             
             // Check eigenvector is unit vector
             for j in 0..n {
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!((results.eigenvectors[i][j] - expected).abs() < 1e-10,
+                let diff = (results.eigenvectors[i][j] - expected).abs();
+                assert!(diff < 1e-10,
                     "Diagonal eigenvector incorrect at position ({},{})", i, j);
             }
         }
@@ -107,8 +113,12 @@ mod tests {
         let mut ab = vec![vec![0.0; n]; kd + 1];
         
         // Create tridiagonal Toeplitz matrix with 2 on diagonal and -1 on sub/super-diagonals
-        ab[0].iter_mut().for_each(|x| *x = 2.0);
-        ab[1].iter_mut().take(n-1).for_each(|x| *x = -1.0);
+        for x in ab[0].iter_mut() {
+            *x = 2.0;
+        }
+        for x in ab[1].iter_mut().take(n-1) {
+            *x = -1.0;
+        }
         
         let matrix = SymmetricBandedMatrix::new(n, kd, ab);
         let results = matrix.dsbevd();
@@ -121,7 +131,8 @@ mod tests {
         
         for (i, (&computed, &expected)) in results.eigenvalues.iter()
             .zip(expected.iter()).enumerate() {
-            assert!((computed - expected).abs() < 1e-10,
+            let diff = (computed - expected).abs();
+            assert!(diff < 1e-10,
                 "Eigenvalue mismatch at position {}: computed={}, expected={}", 
                 i, computed, expected);
         }
@@ -150,7 +161,8 @@ mod tests {
                 
                 // Compare eigenvalues (they should be in ascending order)
                 for i in 0..n {
-                    assert!((our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]).abs() < 1e-8,
+                    let diff = (our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]).abs();
+                    assert!(diff < 1e-8,
                         "Eigenvalue mismatch at position {}", i);
                 }
                 
@@ -176,7 +188,8 @@ mod tests {
                     .sum();
                 
                 let expected = if i == j { 1.0 } else { 0.0 };
-                assert!((dot_product - expected).abs() < 1e-8,
+                let diff = (dot_product - expected).abs();
+                assert!(diff < 1e-8,
                     "Eigenvectors {} and {} not orthonormal", i, j);
             }
         }
@@ -208,7 +221,8 @@ mod tests {
         // Compare original and reconstructed matrices
         for i in 0..n {
             for j in 0..n {
-                assert!((original[(i, j)] - reconstructed[(i, j)]).abs() < 1e-8,
+                let diff = (original[(i, j)] - reconstructed[(i, j)]).abs();
+                assert!(diff < 1e-8,
                     "Matrix reconstruction failed at position ({},{})", i, j);
             }
         }
@@ -229,7 +243,9 @@ mod tests {
         let ab = vec![vec![0.0; n]; kd + 1];
         let matrix = SymmetricBandedMatrix::new(n, kd, ab);
         let results = matrix.dsbevd();
-        assert!(results.eigenvalues.iter().all(|&x| x.abs() < 1e-10));
+        for &x in &results.eigenvalues {
+            assert!(x.abs() < 1e-10);
+        }
         
         // Matrix with maximum bandwidth
         let n = 4;
