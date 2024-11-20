@@ -615,24 +615,30 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// [c -s; s c]^T * [a; b] = [r; 0]
 fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     let eps = f64::EPSILON;
-    if b.abs() < eps * a.abs() {
+    let safmin = f64::MIN_POSITIVE;
+    
+    if b == 0.0 {
         (1.0, 0.0)
+    } else if a == 0.0 {
+        (0.0, 1.0)
     } else {
-        let scale = a.abs().max(b.abs());
-        let r;
-        let c;
-        let s;
-        if scale == 0.0 {
-            c = 1.0;
-            s = 0.0;
+        let abs_a = a.abs();
+        let abs_b = b.abs();
+        if abs_b >= abs_a {
+            let t = a / b;
+            let t2 = t * t;
+            let u = (1.0 + t2).sqrt();
+            let s = if b > 0.0 { 1.0 / u } else { -1.0 / u };
+            let c = t * s;
+            (c, s)
         } else {
-            let scaled_a = a / scale;
-            let scaled_b = b / scale;
-            r = scale * (scaled_a * scaled_a + scaled_b * scaled_b).sqrt();
-            c = a / r;
-            s = b / r;
+            let t = b / a;
+            let t2 = t * t;
+            let u = (1.0 + t2).sqrt();
+            let c = if a > 0.0 { 1.0 / u } else { -1.0 / u };
+            let s = t * c;
+            (c, s)
         }
-        (c, s)
     }
 }
 
