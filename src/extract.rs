@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::cmp::min;
 
-use crate::eigen::{call_eigendecomp, save_array_to_csv_dsbevd, save_vector_to_csv_dsbevd, adjacency_matrix_to_ndarray, compute_ngec, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
+use crate::eigen::{call_eigendecomp, adjacency_matrix_to_ndarray, compute_ngec, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -50,26 +50,14 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     let laplacian = &degree_matrix - &adj_matrix;
 
     // Save Laplacian matrix to CSV
-    let laplacian_csv_path = output_path.as_ref().with_extension("laplacian.csv");
-    save_array_to_csv_dsbevd(&laplacian, &laplacian_csv_path)?;
-    println!(
-        "✅ Laplacian matrix saved to {}",
-        laplacian_csv_path.display()
-    );
 
     // Compute eigenvalues and eigenvectors
     println!("🔬 Performing eigendecomposition...");
     let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
     
     // Save eigenvectors to CSV
-    let eigen_csv_path = output_path.as_ref().with_extension("eigenvectors.csv");
-    save_array_to_csv_dsbevd(&eigvecs, &eigen_csv_path)?;
-    println!("✅ Eigenvectors saved to {}", eigen_csv_path.display());
     
     // Save eigenvalues to CSV
-    let eigenvalues_csv_path = output_path.as_ref().with_extension("eigenvalues.csv");
-    save_vector_to_csv_dsbevd(&eigvals, &eigenvalues_csv_path)?;
-    println!("✅ Eigenvalues saved to {}", eigenvalues_csv_path.display());
     
     // Compute and Print NGEC
     println!("📊 Computing Normalized Global Eigen-Complexity (NGEC)...");
