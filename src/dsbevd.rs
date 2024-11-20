@@ -745,7 +745,7 @@ fn solve_secular_equation(
     z: &[f64],
     rho: f64,
     d: &mut [f64],
-    z_out: &mut [Vec<f64>>,
+    z_out: &mut [Vec<f64>],
 ) -> i32 {
     let safmin: f64 = f64::MIN_POSITIVE;
     let n = d1.len() + d2.len();
