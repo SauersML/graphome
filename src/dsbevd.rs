@@ -100,7 +100,7 @@ impl SymmetricBandedMatrix {
         }
     
         let mut work = vec![0.0; n];
-    
+        
         let kd1 = kd + 1;
         let kdm1 = kd - 1;
         let incx = kd1 * ab.len();
@@ -110,7 +110,6 @@ impl SymmetricBandedMatrix {
         let mut j2 = 1;
         let mut iqend = 1;
     
-        // Reduce to tridiagonal form, working with lower triangle
         if kd > 1 {
             for i in 0..(n - 2) {
                 for k in (2..=kd1).rev() {
@@ -119,78 +118,74 @@ impl SymmetricBandedMatrix {
     
                     if nr > 0 {
                         // Generate plane rotations to annihilate nonzero elements
-                        let mut d_vals = Vec::with_capacity(nr);
-                        let mut work_vals = Vec::with_capacity(nr);
+                        let mut d_vals = vec![0.0; nr];
+                        let mut work_vals = vec![0.0; nr];
+                        
                         for idx in 0..nr {
                             let j = j1 - kd1 + idx * kd;
-                            d_vals.push(ab[kd][j]);
-                            work_vals.push(ab[kd - 1][j]);
+                            d_vals[idx] = ab[kd][j];
+                            work_vals[idx] = ab[kd - 1][j];
                         }
     
-                        let (d_rot, work_rot) = dlargv(&mut d_vals, &mut work_vals);
+                        dlargv(nr, &mut d_vals, 1, &mut work_vals, 1, &mut work_vals, 1);
     
                         for idx in 0..nr {
                             let j = j1 - kd1 + idx * kd;
-                            ab[kd][j] = d_rot[idx];
-                            ab[kd - 1][j] = work_rot[idx];
+                            ab[kd][j] = d_vals[idx];
+                            ab[kd - 1][j] = work_vals[idx];
                         }
     
-                        // Apply rotations from the right
                         if nr >= 2 * kd - 1 {
                             for l in 1..kd {
                                 let nrt = nr;
-                                let mut x = Vec::with_capacity(nrt);
-                                let mut y = Vec::with_capacity(nrt);
+                                let mut x = vec![0.0; nrt];
+                                let mut y = vec![0.0; nrt];
+                                
                                 for idx in 0..nrt {
                                     let j = j1 - kd1 + l + idx * kd;
-                                    x.push(ab[kd1 - l][j]);
-                                    y.push(ab[kd1 - l + 1][j]);
+                                    x[idx] = ab[kd1 - l][j];
+                                    y[idx] = ab[kd1 - l + 1][j];
                                 }
-                                let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
+    
+                                dlartv(nrt, &mut x, 1, &mut y, 1, &d_vals, &work_vals, 1);
+    
                                 for idx in 0..nrt {
                                     let j = j1 - kd1 + l + idx * kd;
-                                    ab[kd1 - l][j] = x_rot[idx];
-                                    ab[kd1 - l + 1][j] = y_rot[idx];
+                                    ab[kd1 - l][j] = x[idx];
+                                    ab[kd1 - l + 1][j] = y[idx];
                                 }
                             }
                         } else {
-                            for idx in 0..(nr) {
+                            for idx in 0..nr {
                                 let j = j1 - kd1 + idx * kd;
                                 let start = j;
                                 let end = start + kdm1;
     
-                                // Split the ab[kd - 1] slice to avoid overlapping mutable borrows
                                 let (left, right) = ab[kd - 1].split_at_mut(end);
                                 let ab_row_kd_minus1 = &mut left[start..end];
                                 let ab_row_kd = &mut ab[kd][start..end];
     
-                                drot(
-                                    ab_row_kd_minus1,
-                                    ab_row_kd,
-                                    d_vals[idx],
-                                    work_vals[idx],
-                                );
+                                drot(ab_row_kd_minus1, ab_row_kd, d_vals[idx], work_vals[idx]);
                             }
                         }
                     }
     
                     if k > 2 && k <= n - i {
                         // Generate plane rotation to annihilate a(i+k-1,i)
-                        let (d_val, work_val, temp) = dlartg(ab[k - 2][i], ab[k - 1][i]);
-                        ab[k - 2][i] = temp;
-                        d[i + k - 1] = d_val;
-                        work[i + k - 1] = work_val;
+                        let (cs, sn, r) = dlartg(ab[k - 2][i], ab[k - 1][i]);
+                        ab[k - 2][i] = r;
+                        d[i + k - 1] = cs;
+                        work[i + k - 1] = sn;
     
                         // Apply rotation from the left
                         let start = i + 1;
                         let end = i + k - 1;
     
-                        // Split the ab[k - 2] slice to avoid overlapping mutable borrows
                         let (left, right) = ab[k - 2].split_at_mut(end);
                         let ab_row_k_minus2 = &mut left[start..end];
                         let ab_row_k_minus1 = &mut ab[k - 1][start..end];
     
-                        drot(ab_row_k_minus2, ab_row_k_minus1, d_val, work_val);
+                        drot(ab_row_k_minus2, ab_row_k_minus1, cs, sn);
                     }
     
                     if k > 2 {
@@ -198,24 +193,16 @@ impl SymmetricBandedMatrix {
                         j1 -= kd + 1;
                     }
     
-                    // Apply plane rotations from both sides to diagonal blocks
                     if nr > 0 {
                         let start = j1 - 1;
                         let end = start + nr;
     
-                        // Split ab[0] to avoid overlapping mutable borrows
                         let (left, right) = ab[0].split_at_mut(end);
                         let ab_row_0_first = &mut left[start..end];
                         let ab_row_0_second = &mut right[0..nr];
                         let ab_row_1 = &mut ab[1][start..end];
     
-                        dlar2v(
-                            ab_row_0_first,
-                            ab_row_0_second,
-                            ab_row_1,
-                            &d_vals,
-                            &work_vals,
-                        );
+                        dlar2v(nr, ab_row_0_first, ab_row_0_second, ab_row_1, 1, &d_vals, &work_vals, 1);
                     }
     
                     // Apply plane rotations from the right
@@ -224,51 +211,36 @@ impl SymmetricBandedMatrix {
                             for l in 1..kd {
                                 let nrt = if j2 + l > n { nr - 1 } else { nr };
                                 if nrt > 0 {
-                                    let mut x = Vec::with_capacity(nrt);
-                                    let mut y = Vec::with_capacity(nrt);
+                                    let mut x = vec![0.0; nrt];
+                                    let mut y = vec![0.0; nrt];
+                                    
                                     for idx in 0..nrt {
                                         let j = j1 - 1 + idx * kd;
-                                        x.push(ab[l + 1][j]);
-                                        y.push(ab[l][j + 1]);
+                                        x[idx] = ab[l + 1][j];
+                                        y[idx] = ab[l][j + 1];
                                     }
-                                    let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
+    
+                                    dlartv(nrt, &mut x, 1, &mut y, 1, &d_vals, &work_vals, 1);
+    
                                     for idx in 0..nrt {
                                         let j = j1 - 1 + idx * kd;
-                                        ab[l + 1][j] = x_rot[idx];
-                                        ab[l][j + 1] = y_rot[idx];
+                                        ab[l + 1][j] = x[idx];
+                                        ab[l][j + 1] = y[idx];
                                     }
                                 }
                             }
                         } else {
-                            for idx in 0..(nr) {
+                            for idx in 0..nr {
                                 let j = j1 - kd1 + idx * kd;
-                                let start1 = j - 1;
-                                let end1 = start1 + kdm1;
-                                let start2 = j;
-                                let end2 = start2 + kdm1;
+                                let start = j;
+                                let end = start + kdm1;
     
-                                // Split ab[2] and ab[1] to avoid overlapping mutable borrows
-                                let (left_ab2, _) = ab[2].split_at_mut(end1);
-                                let ab_row_2 = &mut left_ab2[start1..end1];
-                                let ab_row_1 = &mut ab[1][start2..end2];
+                                let (left, _) = ab[kd - 1].split_at_mut(end);
+                                let ab_row_kd_minus1 = &mut left[start..end];
+                                let ab_row_kd = &mut ab[kd][start..end];
     
-                                drot(ab_row_2, ab_row_1, d_vals[idx], work_vals[idx]);
+                                drot(ab_row_kd_minus1, ab_row_kd, d_vals[idx], work_vals[idx]);
                             }
-                        }
-                    }
-    
-                    // Accumulate transformations in q
-                    if nr > 0 {
-                        for idx in 0..nr {
-                            let j = j1 - kd1 + idx * kd;
-                            let i_q = i;
-                            let i_q_plus_1 = i + 1;
-                            drot(
-                                &mut q[i_q],
-                                &mut q[i_q_plus_1],
-                                d_vals[idx],
-                                work_vals[idx],
-                            );
                         }
                     }
     
@@ -305,7 +277,6 @@ impl SymmetricBandedMatrix {
     
         (d, e, q)
     }
-
 
     
     
