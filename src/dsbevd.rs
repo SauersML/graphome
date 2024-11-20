@@ -432,61 +432,102 @@ fn solve_secular_equation(
         dlamda[d1.len() + i] = d2[i];
     }
     perm.sort_by(|&i, &j| dlamda[i].partial_cmp(&dlamda[j]).unwrap());
-    
-    // Apply permutation
+
+    // Apply permutation and compute gaps
     let mut z_perm = vec![0.0; n];
+    let mut dlamda_sorted = vec![0.0; n];
+    let mut delta = vec![0.0; n];
+    
     for i in 0..n {
         z_perm[i] = z[perm[i]];
-    }
-    let mut dlamda_sorted = vec![0.0; n];
-    for i in 0..n {
         dlamda_sorted[i] = dlamda[perm[i]];
+        if i > 0 {
+            delta[i-1] = dlamda_sorted[i] - dlamda_sorted[i-1];
+        }
     }
-
-    // Compute updated z vector and eigenvalues
-    let zabs_max = z_perm.iter().map(|x| x.abs()).fold(0.0, f64::max);
-    let z_scale = if zabs_max > safmin { zabs_max } else { 1.0 };
+    
+    // Normalize z vector to avoid overflow
+    let zmax = z_perm.iter().map(|&x| x.abs()).fold(0.0, f64::max);
+    let z_scale = if zmax > safmin { zmax } else { 1.0 };
     
     for j in 0..n {
-        // Initial guess for eigenvalue
         let mut lambda = dlamda_sorted[j];
-        let mut delta = 0.0;
         
-        for _ in 0..40 { // DLAED4 uses up to 40 iterations
+        // Initial bounds based on gaps
+        let mut left = if j == 0 {
+            lambda - delta[0].abs()
+        } else {
+            lambda - delta[j-1].abs() * 0.5
+        };
+        
+        let mut right = if j == n-1 {
+            lambda + delta[n-2].abs()
+        } else {
+            lambda + delta[j].abs() * 0.5
+        };
+
+        // Fast Newton iterations with bisection fallback
+        for iter in 0..8 {  // DLAED4 uses max 8 iterations for most cases
             let mut f = rho * (z_perm[j] / z_scale).powi(2);
             let mut df = 0.0;
             
             for i in 0..n {
                 if i != j {
                     let del = lambda - dlamda_sorted[i];
+                    if del.abs() < eps * lambda.abs() {
+                        continue;
+                    }
                     let temp = z_perm[i] / (z_scale * del);
                     f += z_perm[i] * temp;
                     df += temp * temp;
                 }
             }
             
-            // Newton update
-            delta = f / df;
-            lambda -= delta;
-            
-            if delta.abs() <= eps * lambda.abs() {
+            // Newton update with bounds
+            if df == 0.0 {
                 break;
+            }
+            let delta = f / df;
+            let new_lambda = lambda - delta;
+            
+            if new_lambda <= left || new_lambda >= right {
+                // Bisect if Newton step outside bounds
+                lambda = (left + right) * 0.5;
+                if f > 0.0 {
+                    right = lambda;
+                } else {
+                    left = lambda;
+                }
+            } else {
+                lambda = new_lambda;
+                if f > 0.0 {
+                    right = lambda;
+                } else {
+                    left = lambda;
+                }
+                if delta.abs() <= eps * lambda.abs() {
+                    break;
+                }
             }
         }
         
         d[j] = lambda;
         
-        // Compute corresponding eigenvector component
+        // Compute eigenvector with scaled computation
+        let mut norm = 0.0;
         for i in 0..n {
             if i != j {
-                z_out[i][j] = z_perm[i] / (dlamda_sorted[i] - lambda);
+                let temp = z_perm[i] / (dlamda_sorted[i] - lambda);
+                z_out[i][j] = temp;
+                norm += temp * temp;
             } else {
                 z_out[i][j] = 1.0;
+                norm += 1.0;
             }
         }
         
-        // Normalize eigenvector component
-        let norm = z_out.iter().map(|row| row[j].powi(2)).sum::<f64>().sqrt();
+        // Normalize
+        norm = norm.sqrt();
         for i in 0..n {
             z_out[i][j] /= norm;
         }
