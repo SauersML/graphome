@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use graphome::dsbevd::SymmetricBandedMatrix;
     use rand::prelude::*;
     use nalgebra::{DMatrix, SymmetricEigen};
 
