@@ -34,6 +34,7 @@ impl SymmetricBandedMatrix {
     
         let anrm = self.matrix_norm();
         let mut scale = 1.0;
+        let mut iscale = 0;
         
         if anrm > 0.0 && anrm < rmin {
             iscale = 1;
