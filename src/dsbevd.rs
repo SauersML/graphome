@@ -34,7 +34,6 @@ impl SymmetricBandedMatrix {
     
         let anrm = self.matrix_norm();
         let mut scale = 1.0;
-        let mut iscale = 0;
         
         if anrm > 0.0 && anrm < rmin {
             iscale = 1;
@@ -444,7 +443,7 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
         ssq += temp * temp;
     }
     
-    let mut xnorm = scale * ssq.sqrt();
+    let xnorm = scale * ssq.sqrt();
     let alpha = x[0];
     
     if xnorm == 0.0 {
