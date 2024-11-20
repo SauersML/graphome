@@ -104,11 +104,14 @@ impl SymmetricBandedMatrix {
     
         let kd1 = kd + 1;
         let kdm1 = kd - 1;
-        let incx = ldab - 1;
     
         let mut nr;
         let mut j1;
         let mut j2;
+    
+        // Declare d_vals and work_vals outside the loops
+        let mut d_vals = Vec::new();
+        let mut work_vals = Vec::new();
     
         // Reduce to tridiagonal form, working with lower triangle
         if kd > 1 {
@@ -123,14 +126,14 @@ impl SymmetricBandedMatrix {
     
                     if nr > 0 {
                         // Generate plane rotations to annihilate nonzero elements
-                        let mut d_vals = Vec::with_capacity(nr);
-                        let mut work_vals = Vec::with_capacity(nr);
+                        d_vals.clear();
+                        work_vals.clear();
                         for j in (j1 - kd1..j1 - kd1 + nr * kd).step_by(kd) {
                             d_vals.push(ab[kd][j]);
                             work_vals.push(ab[kd - 1][j]);
                         }
     
-                        let (d_rot, work_rot) = dlargv(&d_vals, &work_vals);
+                        let (d_rot, work_rot) = dlargv(&mut d_vals, &mut work_vals);
                         for idx in 0..nr {
                             ab[kd][j1 - kd1 + idx * kd] = d_rot[idx];
                             ab[kd - 1][j1 - kd1 + idx * kd] = work_rot[idx];
@@ -145,7 +148,7 @@ impl SymmetricBandedMatrix {
                                     x.push(ab[kd1 - l][j]);
                                     y.push(ab[kd1 - l + 1][j]);
                                 }
-                                let (x_rot, y_rot) = dlartv(&x, &y, &d_vals, &work_vals);
+                                let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
                                 for idx in 0..nr {
                                     ab[kd1 - l][j1 - kd1 + l + idx * kd] = x_rot[idx];
                                     ab[kd1 - l + 1][j1 - kd1 + l + idx * kd] = y_rot[idx];
@@ -173,8 +176,8 @@ impl SymmetricBandedMatrix {
     
                             // Apply rotation from the left
                             drot(
-                                &mut ab[k - 2][i + 1..i + k - 2],
-                                &mut ab[k - 1][i + 1..i + k - 2],
+                                &mut ab[k - 2][(i + 1)..(i + k - 1)],
+                                &mut ab[k - 1][(i + 1)..(i + k - 1)],
                                 d_val,
                                 work_val,
                             );
@@ -186,9 +189,9 @@ impl SymmetricBandedMatrix {
                     // Apply plane rotations from both sides to diagonal blocks
                     if nr > 0 {
                         dlar2v(
-                            &mut ab[0][j1 - 1..],
-                            &mut ab[0][j1..],
-                            &mut ab[1][j1 - 1..],
+                            &mut ab[0][(j1 - 1)..(j1 - 1 + nr)],
+                            &mut ab[0][j1..(j1 + nr)],
+                            &mut ab[1][(j1 - 1)..(j1 - 1 + nr)],
                             &d_vals,
                             &work_vals,
                         );
@@ -206,7 +209,7 @@ impl SymmetricBandedMatrix {
                                         x.push(ab[l + 1][j]);
                                         y.push(ab[l][j + 1]);
                                     }
-                                    let (x_rot, y_rot) = dlartv(&x, &y, &d_vals, &work_vals);
+                                    let (x_rot, y_rot) = dlartv(&mut x, &mut y, &d_vals, &work_vals);
                                     for idx in 0..nrt {
                                         ab[l + 1][j1 - 1 + idx * kd] = x_rot[idx];
                                         ab[l][j1 - 1 + idx * kd + 1] = y_rot[idx];
@@ -216,8 +219,8 @@ impl SymmetricBandedMatrix {
                         } else {
                             for j in (j1..j1 + (nr - 2) * kd).step_by(kd) {
                                 drot(
-                                    &mut ab[2][j - 1..j - 1 + kdm1],
-                                    &mut ab[1][j..j + kdm1],
+                                    &mut ab[2][(j - 1)..(j - 1 + kdm1)],
+                                    &mut ab[1][j..(j + kdm1)],
                                     d_vals[(j - j1) / kd],
                                     work_vals[(j - j1) / kd],
                                 );
@@ -227,12 +230,13 @@ impl SymmetricBandedMatrix {
     
                     // Accumulate transformations in q
                     if nr > 0 {
-                        for j in (j1..j2).step_by(kd) {
+                        for idx in 0..nr {
+                            let j = j1 + idx * kd;
                             drot(
-                                &mut q[i][..],
-                                &mut q[i + 1][..],
-                                d_vals[(j - j1) / kd],
-                                work_vals[(j - j1) / kd],
+                                &mut q[i],
+                                &mut q[i + 1],
+                                d_vals[idx],
+                                work_vals[idx],
                             );
                         }
                     }
@@ -242,9 +246,10 @@ impl SymmetricBandedMatrix {
                         j2 -= kd + 1;
                     }
     
-                    for j in (j1..j2).step_by(kd) {
-                        work[j + kd] = work_vals[(j - j1) / kd] * ab[kd][j];
-                        ab[kd][j] = d_vals[(j - j1) / kd] * ab[kd][j];
+                    for idx in 0..nr {
+                        let j = j1 + idx * kd;
+                        work[j + kd] = work_vals[idx] * ab[kd][j];
+                        ab[kd][j] = d_vals[idx] * ab[kd][j];
                     }
                 }
             }
@@ -253,7 +258,7 @@ impl SymmetricBandedMatrix {
         if kd > 0 {
             // Copy off-diagonal elements to e
             for i in 0..(n - 1) {
-                e[i] = ab[1][i];
+                e[i] = ab[1][i + 1];
             }
         } else {
             // Set e to zero if original matrix was diagonal
@@ -269,6 +274,7 @@ impl SymmetricBandedMatrix {
     
         (d, e, q)
     }
+
 
 
     
@@ -306,6 +312,117 @@ impl SymmetricBandedMatrix {
             }
         }
         scaled
+    }
+}
+
+fn dlargv(d_vals: &mut [f64], work_vals: &mut [f64]) -> (Vec<f64>, Vec<f64>) {
+    let n = d_vals.len();
+    let mut c = vec![0.0; n];
+    let mut s = vec![0.0; n];
+
+    for i in 0..n {
+        let f = d_vals[i];
+        let g = work_vals[i];
+
+        if g == 0.0 {
+            c[i] = 1.0;
+            s[i] = 0.0;
+            d_vals[i] = f;
+            work_vals[i] = 0.0;
+        } else if f == 0.0 {
+            c[i] = 0.0;
+            s[i] = 1.0;
+            d_vals[i] = g;
+            work_vals[i] = 1.0;
+        } else if f.abs() > g.abs() {
+            let t = g / f;
+            let tt = (1.0 + t * t).sqrt();
+            c[i] = 1.0 / tt;
+            s[i] = t * c[i];
+            d_vals[i] = f * tt;
+            work_vals[i] = s[i];
+        } else {
+            let t = f / g;
+            let tt = (1.0 + t * t).sqrt();
+            s[i] = 1.0 / tt;
+            c[i] = t * s[i];
+            d_vals[i] = g * tt;
+            work_vals[i] = s[i];
+        }
+    }
+
+    (d_vals.to_vec(), work_vals.to_vec())
+}
+
+fn dlartv(x: &mut [f64], y: &mut [f64], c: &[f64], s: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let n = x.len();
+    let mut x_out = vec![0.0; n];
+    let mut y_out = vec![0.0; n];
+
+    for i in 0..n {
+        let xi = x[i];
+        let yi = y[i];
+        let cs = c[i];
+        let sn = s[i];
+
+        x_out[i] = cs * xi + sn * yi;
+        y_out[i] = cs * yi - sn * xi;
+    }
+
+    (x_out, y_out)
+}
+
+fn drot(dx: &mut [f64], dy: &mut [f64], c: f64, s: f64) {
+    let n = dx.len();
+    for i in 0..n {
+        let temp = c * dx[i] + s * dy[i];
+        dy[i] = c * dy[i] - s * dx[i];
+        dx[i] = temp;
+    }
+}
+
+fn dlartg(f: f64, g: f64) -> (f64, f64, f64) {
+    if g == 0.0 {
+        let cs = f.signum();
+        let sn = 0.0;
+        let r = f.abs();
+        (cs, sn, r)
+    } else if f == 0.0 {
+        let cs = 0.0;
+        let sn = g.signum();
+        let r = g.abs();
+        (cs, sn, r)
+    } else {
+        let scale = f.abs().max(g.abs());
+        let fs = f / scale;
+        let gs = g / scale;
+        let r = scale * (fs * fs + gs * gs).sqrt();
+        let cs = f / r;
+        let sn = g / r;
+        (cs, sn, r)
+    }
+}
+
+fn dlar2v(x: &mut [f64], y: &mut [f64], z: &mut [f64], c: &[f64], s: &[f64]) {
+    let n = x.len();
+
+    for i in 0..n {
+        let xi = x[i];
+        let yi = y[i];
+        let zi = z[i];
+        let ci = c[i];
+        let si = s[i];
+
+        let t1 = si * zi;
+        let t2 = ci * zi;
+        let t3 = t2 - si * xi;
+        let t4 = t2 + si * yi;
+        let t5 = ci * xi + t1;
+        let t6 = ci * yi - t1;
+
+        x[i] = ci * t5 + si * t4;
+        y[i] = ci * t6 - si * t3;
+        z[i] = ci * t4 - si * t5;
     }
 }
 
@@ -609,13 +726,13 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
 fn solve_secular_equation(
-    d1: &[f64],
-    d2: &[f64],
-    z: &[f64],
-    rho: f64,
     d: &mut [f64],
-    z_out: &mut [Vec<f64>]
-) {
+    z: &mut [f64],
+    left_size: usize,
+    rho: f64,
+    work: &mut [f64],
+    iwork: &mut [usize],
+) -> i32 {
     let safmin: f64 = f64::MIN_POSITIVE;
     let n = d1.len() + d2.len();
     let eps = f64::EPSILON;
