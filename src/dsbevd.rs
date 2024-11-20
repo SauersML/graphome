@@ -1,7 +1,7 @@
 // src/dsbevd.rs
 
 use rayon::prelude::*;
-use rand_distr::{Distribution};
+use rand_distr::Distribution;
 use std::cmp::min;
 
 /// Represents a real symmetric banded matrix.
