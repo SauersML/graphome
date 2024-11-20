@@ -182,36 +182,52 @@ impl SymmetricBandedMatrix {
 fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     let n = x.len();
     let mut v = x.to_vec();
+    
+    // Machine constants
+    let safmin = f64::MIN_POSITIVE;
+    let eps = f64::EPSILON;
+    let smlnum = safmin / eps;
+    let bignum = 1.0 / smlnum;
+    
     let alpha = x[0];
-    let sigma = x[1..].iter().map(|&xi| xi * xi).sum::<f64>();
-
-    let mut tau = 0.0;
-    if sigma == 0.0 {
-        tau = 0.0;
-    } else {
-        let mut beta = 0.0;
-        if sigma == 0.0 {
-            beta = 0.0;
-        } else {
-            let s = (alpha * alpha + sigma).abs();
-            if s <= 0.0 {
-                beta = 0.0; 
-            } else {
-                let sqrt_s = s.sqrt();
-                beta = if alpha >= 0.0 { -sqrt_s } else { sqrt_s };
-            }
-        }
-        v[0] = alpha - beta;
-        for i in 1..n {
-            v[i] = x[i];
-        }
-        let v_norm = (beta * v[0]).abs().sqrt();
-        for vi in v.iter_mut() {
-            *vi /= v_norm;
-        }
-        tau = (beta - alpha) / beta;
+    let mut sigma = 0.0;
+    for xi in x.iter().skip(1) {
+        sigma += xi * xi;
     }
-
+    
+    let mut tau = 0.0;
+    let mut beta = 0.0;
+    
+    if sigma == 0.0 {
+        if alpha < 0.0 {
+            tau = 2.0;
+            v[0] = -alpha;
+        }
+    } else {
+        let mu = (alpha * alpha + sigma).sqrt();
+        if alpha <= 0.0 {
+            v[0] = alpha - mu;
+        } else {
+            v[0] = -sigma / (alpha + mu);
+        }
+        
+        tau = 2.0 * v[0] * v[0] / (sigma + v[0] * v[0]);
+        beta = 2.0 / (sigma + v[0] * v[0]);
+        
+        // Scale if needed
+        if beta > bignum {
+            let scale = (bignum / beta).sqrt();
+            for vi in v.iter_mut() {
+                *vi *= scale;
+            }
+            beta *= scale * scale;
+        }
+        
+        for vi in v.iter_mut() {
+            *vi *= beta;
+        }
+    }
+    
     (v, tau)
 }
 
