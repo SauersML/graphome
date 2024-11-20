@@ -77,6 +77,20 @@ impl SymmetricBandedMatrix {
     fn reduce_to_tridiagonal(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
+        
+        // Special case for diagonal matrix
+        if kd == 0 {
+            let mut d = vec![0.0; n];
+            let e = vec![0.0; n - 1];
+            let mut q = vec![vec![0.0; n]; n];
+            
+            for i in 0..n {
+                d[i] = self.ab[0][i];
+                q[i][i] = 1.0;
+            }
+            return (d, e, q);
+        }
+
         let mut ab = self.ab.clone();
 
         // Initialize q as the identity matrix
@@ -183,58 +197,51 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     let n = x.len();
     let mut v = x.to_vec();
     
-    // Machine constants
+    // Handle empty or single element case
+    if n <= 1 {
+        return (v, 0.0);
+    }
+    
     let safmin = f64::MIN_POSITIVE;
     let eps = f64::EPSILON;
-    let smlnum = safmin / eps;
-    let bignum = 1.0 / smlnum;
+    
+    // Compute xnorm without overflow
+    let mut scale = 0.0;
+    let mut ssq = 1.0;
+    for &xi in x.iter().skip(1) {
+        if xi != 0.0 {
+            let absxi = xi.abs();
+            if scale < absxi {
+                ssq = 1.0 + ssq * (scale/absxi).powi(2);
+                scale = absxi;
+            } else {
+                ssq += (absxi/scale).powi(2);
+            }
+        }
+    }
+    let xnorm = if scale == 0.0 { 0.0 } else { scale * ssq.sqrt() };
     
     let alpha = x[0];
-    let mut sigma = 0.0;
-    for xi in x.iter().skip(1) {
-        sigma += xi * xi;
+    if xnorm == 0.0 && alpha == 0.0 {
+        return (v, 0.0);
     }
     
-    let mut tau = 0.0;
-    let mut beta = 0.0;
-    
-    if sigma == 0.0 {
-        if alpha < 0.0 {
-            tau = 2.0;
-            v[0] = -alpha;
-        }
-    } else {
-        let mu = (alpha * alpha + sigma).sqrt();
-        if alpha <= 0.0 {
-            v[0] = alpha - mu;
-        } else {
-            v[0] = -sigma / (alpha + mu);
-        }
-        
-        tau = 2.0 * v[0] * v[0] / (sigma + v[0] * v[0]);
-        let norm = (sigma + v[0] * v[0]).sqrt();
-        if norm < smlnum {
-            beta = 0.0;
-        } else {
-            beta = 2.0 / (norm * norm);
-        }
-
-        // Scale if needed
-        if beta > bignum {
-            let scale = (bignum / beta).sqrt();
-            for vi in v.iter_mut() {
-                *vi *= scale;
-            }
-            beta *= scale * scale;
-        }
-        
-        for vi in v.iter_mut() {
-            *vi *= beta;
-        }
+    let mut beta = -(alpha.signum()) * (alpha * alpha + xnorm * xnorm).sqrt();
+    if alpha.abs() > xnorm {
+        beta = -xnorm * xnorm / (alpha + alpha.signum() * (alpha * alpha + xnorm * xnorm).sqrt());
     }
+    
+    let tau = (beta - alpha) / beta;
+    let scal = 1.0 / (alpha - beta);
+    
+    for i in 1..n {
+        v[i] *= scal;
+    }
+    v[0] = beta;
     
     (v, tau)
 }
+
 
 /// Computes the eigenvalues and eigenvectors of a symmetric tridiagonal matrix using the divide and conquer algorithm.
 /// `d`: diagonal elements
