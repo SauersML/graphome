@@ -548,10 +548,16 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     }
 
     // Parameters
-    // Note: no minimum size smlsiz, ALWAYS use divide and conquer
+    let smlsiz = 25; // Minimum size to use divide and conquer. We don't care about small input matrices but we need this for a base case.
     let eps = f64::EPSILON;
 
     // We always compute eigenvectors
+
+    if n <= smlsiz {
+        // Use QR algorithm for small matrices
+        tridiagonal_qr(d, e, z);
+        return;
+    }
 
     // Scale the matrix if necessary
     let orgnrm = d.iter().map(|&x| x.abs()).chain(e.iter().map(|&x| x.abs())).fold(0.0_f64, f64::max);
@@ -576,96 +582,115 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
         let m = submat_end - submat_start + 1;
 
-        // Recursive divide and conquer
-        // Divide the matrix into two submatrices
-        let mid = submat_start + m / 2 - 1;
-        let rho = e[mid];
-        e[mid] = 0.0; // Split the matrix
-
-        // Left subproblem
-        let left_size = mid - submat_start + 1;
-        let mut d_left = d[submat_start..=mid].to_vec();
-        let mut e_left = e[submat_start..mid].to_vec();
-        let mut z_left = vec![vec![0.0; left_size]; left_size];
-        for i in 0..left_size {
-            z_left[i][i] = 1.0;
-        }
-        divide_and_conquer(&mut d_left, &mut e_left, &mut z_left);
-
-        // Right subproblem
-        let right_size = submat_end - mid;
-        let mut d_right = d[(mid + 1)..=submat_end].to_vec();
-        let mut e_right = e[(mid + 1)..submat_end].to_vec();
-        let mut z_right = vec![vec![0.0; right_size]; right_size];
-        for i in 0..right_size {
-            z_right[i][i] = 1.0;
-        }
-        divide_and_conquer(&mut d_right, &mut e_right, &mut z_right);
-
-        // Merge the two subproblems
-        let mut d_merged = vec![0.0; m];
-        let mut z_merged = vec![vec![0.0; m]; m];
-
-        // Copy eigenvalues
-        for i in 0..left_size {
-            d_merged[i] = d_left[i];
-        }
-        for i in 0..right_size {
-            d_merged[left_size + i] = d_right[i];
-        }
-
-        // Form the z vector for the rank-one update
-        let mut z_vector = vec![0.0; m];
-        for i in 0..left_size {
-            z_vector[i] = z_left[i][left_size - 1];
-        }
-        for i in 0..right_size {
-            z_vector[left_size + i] = z_right[i][0];
-        }
-
-        // Initialize z_out for solve_secular_equation
-        let mut z_out = vec![vec![0.0; m]; m];
-
-        // Solve the secular equation
-        let info = solve_secular_equation(
-            &d_left,
-            &d_right,
-            &z_vector,
-            rho,
-            &mut d_merged,
-            &mut z_out,
-        );
-        if info != 0 {
-            panic!("Error in solve_secular_equation: info = {}", info);
-        }
-
-        // Copy eigenvalues back
-        for i in 0..m {
-            d[submat_start + i] = d_merged[i];
-        }
-
-        // Compute the updated eigenvectors
-        // Multiply the eigenvectors of the left and right subproblems with z_out
-        for i in 0..m {
-            for j in 0..m {
-                let mut sum = 0.0;
-                if i < left_size {
-                    for k in 0..left_size {
-                        sum += z_left[i][k] * z_out[k][j];
-                    }
-                } else {
-                    for k in 0..right_size {
-                        sum += z_right[i - left_size][k] * z_out[left_size + k][j];
-                    }
-                }
-                z_merged[i][j] = sum;
+        if m <= smlsiz {
+            // Use QR algorithm for small submatrices
+            let mut d_sub = d[submat_start..=submat_end].to_vec();
+            let mut e_sub = e[submat_start..submat_end].to_vec();
+            let mut z_sub = vec![vec![0.0; m]; m];
+            for i in 0..m {
+                z_sub[i][i] = 1.0;
             }
-        }
+            tridiagonal_qr(&mut d_sub, &mut e_sub, &mut z_sub);
 
-        // Copy back eigenvectors
-        for i in 0..m {
-            for j in 0..m {
-                z[submat_start + i][submat_start + j] = z_merged[i][j];
+            // Copy back results
+            for i in 0..m {
+                d[submat_start + i] = d_sub[i];
+                for j in 0..m {
+                    z[submat_start + i][submat_start + j] = z_sub[i][j];
+                }
+            }
+        } else {
+            // Recursive divide and conquer
+            // Divide the matrix into two submatrices
+            let mid = submat_start + m / 2 - 1;
+            let rho = e[mid];
+            e[mid] = 0.0; // Split the matrix
+
+            // Left subproblem
+            let left_size = mid - submat_start + 1;
+            let mut d_left = d[submat_start..=mid].to_vec();
+            let mut e_left = e[submat_start..mid].to_vec();
+            let mut z_left = vec![vec![0.0; left_size]; left_size];
+            for i in 0..left_size {
+                z_left[i][i] = 1.0;
+            }
+            divide_and_conquer(&mut d_left, &mut e_left, &mut z_left);
+
+            // Right subproblem
+            let right_size = submat_end - mid;
+            let mut d_right = d[(mid + 1)..=submat_end].to_vec();
+            let mut e_right = e[(mid + 1)..submat_end].to_vec();
+            let mut z_right = vec![vec![0.0; right_size]; right_size];
+            for i in 0..right_size {
+                z_right[i][i] = 1.0;
+            }
+            divide_and_conquer(&mut d_right, &mut e_right, &mut z_right);
+
+            // Merge the two subproblems
+            let mut d_merged = vec![0.0; m];
+            let mut z_merged = vec![vec![0.0; m]; m];
+
+            // Copy eigenvalues
+            for i in 0..left_size {
+                d_merged[i] = d_left[i];
+            }
+            for i in 0..right_size {
+                d_merged[left_size + i] = d_right[i];
+            }
+
+            // Form the z vector for the rank-one update
+            let mut z_vector = vec![0.0; m];
+            for i in 0..left_size {
+                z_vector[i] = z_left[i][left_size - 1];
+            }
+            for i in 0..right_size {
+                z_vector[left_size + i] = z_right[i][0];
+            }
+
+            // Initialize z_out for solve_secular_equation
+            let mut z_out = vec![vec![0.0; m]; m];
+
+            // Solve the secular equation
+            let info = solve_secular_equation(
+                &d_left,
+                &d_right,
+                &z_vector,
+                rho,
+                &mut d_merged,
+                &mut z_out,
+            );
+            if info != 0 {
+                panic!("Error in solve_secular_equation: info = {}", info);
+            }
+
+            // Copy eigenvalues back
+            for i in 0..m {
+                d[submat_start + i] = d_merged[i];
+            }
+
+            // Compute the updated eigenvectors
+            // Multiply the eigenvectors of the left and right subproblems with z_out
+            for i in 0..m {
+                for j in 0..m {
+                    let mut sum = 0.0;
+                    if i < left_size {
+                        for k in 0..left_size {
+                            sum += z_left[i][k] * z_out[k][j];
+                        }
+                    } else {
+                        for k in 0..right_size {
+                            sum += z_right[i - left_size][k] * z_out[left_size + k][j];
+                        }
+                    }
+                    z_merged[i][j] = sum;
+                }
+            }
+
+            // Copy back eigenvectors
+            for i in 0..m {
+                for j in 0..m {
+                    z[submat_start + i][submat_start + j] = z_merged[i][j];
+                }
             }
         }
 
@@ -825,6 +850,102 @@ fn solve_secular_equation(
     }
 
     0 // Return 0 to indicate success
+}
+
+/// Tridiagonal QR algorithm for small matrices.
+/// `d`: Diagonal elements
+/// `e`: Off-diagonal elements
+/// `z`: Eigenvectors (output)
+fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
+    let n = d.len();
+    let mut e_ext = vec![0.0; n];
+    e_ext[..(n - 1)].copy_from_slice(e);
+
+    // Initialize z to identity matrix
+    for i in 0..n {
+        for j in 0..n {
+            z[i][j] = if i == j { 1.0 } else { 0.0 };
+        }
+    }
+
+    for l in 0..n {
+        let mut iter = 0;
+        loop {
+            let mut m = l;
+            while m < n - 1 {
+                let dd = d[m].abs() + d[m + 1].abs();
+                if e_ext[m].abs() <= f64::EPSILON * dd {
+                    break;
+                }
+                m += 1;
+            }
+
+            if m == l {
+                break;
+            }
+
+            iter += 1;
+            if iter > 1000 {
+                panic!("Too many iterations in tridiagonal_qr");
+            }
+
+            // Compute shift (Wilkinson's shift)
+            let delta = (d[m - 1] - d[m]).abs() / 2.0;
+            let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
+            let t = mu;
+
+
+            for i in l..n {
+                d[i] -= t;
+            }
+
+            let mut s = 0.0;
+            let mut c = 1.0;
+
+            for i in l..m {
+                let f = s * e_ext[i];
+                let b = c * e_ext[i];
+                let (r, cs, sn) = plane_rotation(d[i] - t, f);
+                e_ext[i] = r;
+                s = sn;
+                c = cs;
+                let temp = c * d[i] - s * e_ext[i + 1];
+                e_ext[i + 1] = s * d[i] + c * e_ext[i + 1];
+                d[i] = temp;
+
+                // Apply rotation to eigenvectors
+                if i + 1 < n {
+                    for k in 0..n {
+                        let temp = c * z[k][i] - s * z[k][i + 1];
+                        z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
+                        z[k][i] = temp;
+                    }
+                }
+            }
+
+            let temp = c * d[m] - s * e_ext[m];
+            e_ext[m] = s * d[m] + c * e_ext[m];
+            d[m] = temp;
+        }
+    }
+
+    // Sort eigenvalues and eigenvectors
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
+
+    let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
+    let sorted_z = idx
+        .iter()
+        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
+        .collect::<Vec<Vec<f64>>>();
+
+    // Copy back sorted eigenvalues and eigenvectors
+    d.copy_from_slice(&sorted_d);
+    for i in 0..n {
+        for j in 0..n {
+            z[i][j] = sorted_z[j][i];
+        }
+    }
 }
 
 /// Compute plane rotation parameters
