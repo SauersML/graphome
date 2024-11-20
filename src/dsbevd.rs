@@ -3,6 +3,7 @@
 use rayon::prelude::*;
 use rand_distr::Distribution;
 use std::cmp::min;
+use nalgebra::linalg::SymmetricTridiagonal;
 
 /// Represents a real symmetric banded matrix.
 #[derive(Clone)]
@@ -27,47 +28,51 @@ impl SymmetricBandedMatrix {
 
     /// Computes all eigenvalues and eigenvectors of the symmetric banded matrix.
     pub fn dsbevd(&self) -> EigenResults {
-        // Get machine constants
         let safmin = f64::MIN_POSITIVE;
         let eps = f64::EPSILON;
         let smlnum = safmin / eps;
         let bignum = 1.0 / smlnum;
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
-
-        // Matrix norm and scaling
+    
         let anrm = self.matrix_norm();
-        let scale = if anrm > 0.0 && anrm < rmin {
-            rmin / anrm
+        let mut scale = 1.0;
+        let mut iscale = 0;
+        
+        if anrm > 0.0 && anrm < rmin {
+            iscale = 1;
+            scale = rmin / anrm;
         } else if anrm > rmax {
-            rmax / anrm
-        } else {
-            1.0
-        };
-
-        // Create scaled copy
+            iscale = 2;
+            scale = rmax / anrm;
+        }
+    
         let working_matrix = if scale != 1.0 {
             self.scaled_copy(scale)
         } else {
             self.clone()
         };
-
-        // Step 1: Reduce to tridiagonal form
-        let (d, e, q) = working_matrix.reduce_to_tridiagonal();
-
-        // Step 2: Compute eigenvalues and eigenvectors of the tridiagonal matrix using divide and conquer
-        let (mut eigenvalues, eigenvectors_tridiag) = tridiagonal_eigen_dc(&d, &e);
-
-        // Step 3: Transform eigenvectors back to those of the original matrix
-        let eigenvectors = multiply_q(&q, &eigenvectors_tridiag);
-
+    
+        let (mut d, mut e, mut q) = working_matrix.reduce_to_tridiagonal();
+    
+        // Use reliable tridiagonal solver
+        let (eigenvals, eigenvecs) = {
+            let mut tri = SymmetricTridiagonal::new(d.clone(), e[..n-1].clone());
+            let decomp = tri.eigendecomposition(true).unwrap();
+            (decomp.eigenvalues, decomp.eigenvectors)
+        };
+    
+        // Transform eigenvectors back
+        let eigenvectors = multiply_q(&q, &eigenvecs);
+    
         // Rescale eigenvalues
+        let mut eigenvalues = eigenvals;
         if scale != 1.0 {
-            for eigenval in eigenvalues.iter_mut() {
+            for eigenval in &mut eigenvalues {
                 *eigenval /= scale;
             }
         }
-
+    
         EigenResults {
             eigenvalues,
             eigenvectors,
@@ -79,107 +84,99 @@ impl SymmetricBandedMatrix {
     fn reduce_to_tridiagonal(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
-        
-        // Special case for diagonal matrix
-        if kd == 0 {
-            let mut d = vec![0.0; n];
-            let e = vec![0.0; n - 1];
-            let mut q = vec![vec![0.0; n]; n];
-            
-            for i in 0..n {
-                d[i] = self.ab[0][i];
-                q[i][i] = 1.0;
-            }
-            return (d, e, q);
-        }
-
         let mut ab = self.ab.clone();
-
-        // Initialize q as the identity matrix
+        
+        // Output arrays
+        let mut d = vec![0.0; n];
+        let mut e = vec![0.0; n-1];
         let mut q = vec![vec![0.0; n]; n];
+        
+        // Initialize Q to identity
         for i in 0..n {
             q[i][i] = 1.0;
         }
-
-        // Diagonal and off-diagonal elements
-        let mut d = vec![0.0; n];
-        let mut e = vec![0.0; n - 1];
-
-        // Process lower triangle (assuming 'L' storage)
-        for i in 0..n {
-            let m = min(kd, n - i - 1);
-            if m > 0 {
-                // Form the vector x consisting of the diagonal and subdiagonals in column i
-                let mut x = Vec::with_capacity(m + 1);
-                for j in 0..=m {
-                    x.push(ab[j][i]);
+    
+        if kd == 0 {
+            // Diagonal case
+            for i in 0..n {
+                d[i] = ab[0][i];
+            }
+            return (d, e, q);
+        }
+    
+        // Use DSBTRD algorithm structure
+        let mut work = vec![0.0; n];
+        
+        for i in 0..n-1 {
+            // Generate Householder to annihilate A(i+2:min(i+kd+1,n),i)
+            let nrt = (n-i-1).min(kd);
+            if nrt > 0 {
+                let mut temp = Vec::with_capacity(nrt);
+                for j in 0..nrt {
+                    temp.push(ab[j+1][i]);
                 }
-
-                // Compute Householder reflector
-                let (v, tau) = householder_reflector(&x);
-
-                // Apply reflector to A
-                for j in i..n {
-                    let mut sum = 0.0;
-                    for k in 0..=m {
-                        if i + k < n && j < n {
-                            sum += ab[k][i + k] * v[k];
-                        }
-                    }
-                    sum *= tau;
-                    for k in 0..=m {
-                        if i + k < n && j < n {
-                            ab[k][i + k] -= sum * v[k];
-                        }
-                    }
+                let (v, tau) = householder_reflector(&temp);
+                
+                // Apply transformation
+                let mut sum = 0.0;
+                for j in 0..nrt {
+                    sum += v[j] * ab[j+1][i+j+1];
                 }
-
-                // Apply reflector to Q
+                sum *= tau;
+                
+                for j in 0..nrt {
+                    ab[j+1][i+j+1] -= sum * v[j];
+                }
+                
+                // Accumulate transformation in q
                 for j in 0..n {
                     let mut sum = 0.0;
-                    for k in 0..=m {
-                        if i + k < n {
-                            sum += q[j][i + k] * v[k];
-                        }
+                    for k in 0..nrt {
+                        sum += q[j][i+k+1] * v[k];
                     }
                     sum *= tau;
-                    for k in 0..=m {
-                        if i + k < n {
-                            q[j][i + k] -= sum * v[k];
-                        }
+                    for k in 0..nrt {
+                        q[j][i+k+1] -= sum * v[k];
                     }
                 }
-
-                // Store the subdiagonal element
-                if i + 1 < n {
-                    e[i] = ab[1][i];
-                }
-                // Update the diagonal element
-                d[i] = ab[0][i];
-                // Zero out the elements below the subdiagonal
-                for k in 1..=m {
-                    ab[k][i] = 0.0;
-                }
-            } else {
-                // No reflector needed; just copy the diagonal and subdiagonal elements
-                d[i] = ab[0][i];
-                if i + 1 < n {
-                    e[i] = ab[1][i];
-                }
             }
         }
-
+        
+        // Copy diagonal and subdiagonal
+        for i in 0..n {
+            d[i] = ab[0][i];
+            if i < n-1 {
+                e[i] = ab[1][i];
+            }
+        }
+        
         (d, e, q)
     }
+    
     fn matrix_norm(&self) -> f64 {
-        let mut max: f64 = 0.0;
-        for row in &self.ab {
-            for &val in row {
-                max = max.max(val.abs());
+        let mut value = 0.0;
+        if self.kd == 0 {
+            // Diagonal case
+            for &val in &self.ab[0] {
+                value = value.max(val.abs());
             }
+            return value;
         }
-        max
+    
+        // Band matrix case
+        for j in 0..self.n {
+            let mut sum = 0.0;
+            for i in 0..=self.kd {
+                if i + j < self.n {
+                    sum += self.ab[i][j].abs();
+                }
+            }
+            value = value.max(sum);
+        }
+        value
     }
+    
+
     
     fn scaled_copy(&self, scale: f64) -> Self {
         let mut scaled = (*self).clone();
@@ -197,65 +194,54 @@ impl SymmetricBandedMatrix {
 /// The reflector is of the form H = I - tau * v * v^T
 fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     let n = x.len();
-    if n == 0 {
-        return (vec![], 0.0);
-    }
-    let mut v = x.to_vec();
-    if n == 1 {
-        return (v, 0.0);
-    }
+    if n == 0 { return (vec![], 0.0); }
     
     let safmin = f64::MIN_POSITIVE;
     let eps = f64::EPSILON;
+    let safemin = safmin.max(eps * x[0].abs());
     
-    // Compute xnorm without overflow
+    let mut v = x.to_vec();
+    if n == 1 { return (v, 0.0); }
+
     let mut scale = 0.0;
-    let mut ssq = 1.0;
-    for &xi in x.iter().skip(1) {
-        if xi != 0.0 {
-            let absxi = xi.abs();
-            if scale < absxi {
-                ssq = 1.0 + ssq * (scale/absxi).powi(2);
-                scale = absxi;
-            } else {
-                ssq += (absxi/scale).powi(2);
-            }
-        }
-    }
-    let xnorm = if scale == 0.0 { 0.0 } else { scale * ssq.sqrt() };
+    let mut ssq = 0.0;
     
-    let alpha = x[0];
-    if xnorm == 0.0 && alpha == 0.0 {
+    // Two-pass scale computation for numerical stability
+    for &xi in x.iter().skip(1) {
+        scale = scale.max(xi.abs());
+    }
+    
+    if scale == 0.0 {
+        v[0] = x[0];
+        for i in 1..n {
+            v[i] = 0.0;
+        }
         return (v, 0.0);
     }
-    
-    let beta = if xnorm == 0.0 && alpha == 0.0 {
-        0.0
-    } else if alpha.abs() > xnorm {
-        -xnorm * xnorm / (alpha + alpha.signum() * (alpha * alpha + xnorm * xnorm).sqrt())
-    } else {
-        let r = -(alpha.signum()) * (alpha * alpha + xnorm * xnorm).sqrt();
-        if r == 0.0 { safmin } else { r }
-    };
 
-    let tau = if alpha == beta || beta == 0.0 {
-        0.0
-    } else {
-        let t = (beta - alpha) / beta;
-        if t == 0.0 {
-            0.0
-        } else {
-            t
-        }
-    };
-    let scal = if beta == alpha || beta == 0.0 {
-        1.0
-    } else {
-        1.0 / (alpha - beta)
-    };
+    for &xi in x.iter().skip(1) {
+        let temp = xi / scale;
+        ssq += temp * temp;
+    }
+    
+    let mut xnorm = scale * ssq.sqrt();
+    let alpha = x[0];
+    
+    if xnorm == 0.0 {
+        return (v, 0.0);
+    }
+
+    let mut beta = -alpha.signum() * (alpha.abs().hypot(xnorm));
+    
+    if beta.abs() < safemin {
+        beta = -safemin.copysign(alpha);
+    }
+
+    let tau = (beta - alpha) / beta;
+    let scale = 1.0 / (alpha - beta);
     
     for i in 1..n {
-        v[i] *= scal;
+        v[i] *= scale;
     }
     v[0] = beta;
     
@@ -584,75 +570,16 @@ fn solve_secular_equation(
 /// `z`: Eigenvectors (output)
 fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
-
-    // Initialize eigenvector matrix as identity
+    let mut tri = SymmetricTridiagonal::new(d.to_vec(), e[..n-1].to_vec());
+    let decomp = tri.eigendecomposition(true).unwrap();
+    
+    // Copy eigenvalues back
+    d.copy_from_slice(&decomp.eigenvalues);
+    
+    // Copy eigenvectors
     for i in 0..n {
         for j in 0..n {
-            z[i][j] = if i == j { 1.0 } else { 0.0 };
-        }
-    }
-
-    // Implement the QR algorithm for tridiagonal matrices
-    const MAX_ITER: usize = 100;
-    for m in (0..n).rev() {
-        let mut iter = 0;
-        loop {
-            let mut done = true;
-            for i in 0..m {
-                let scale = d[i].abs() + d[i + 1].abs();
-                let eps = f64::EPSILON;
-                if scale == 0.0 {
-                    if e[i].abs() > eps {
-                        done = false;
-                    }
-                } else if e[i].abs() > eps * scale {
-                    done = false;
-                }
-            }
-            if done {
-                break;
-            }
-            if iter >= MAX_ITER {
-                panic!("QR algorithm failed to converge");
-            }
-            iter += 1;
-
-            // Perform implicit QR step
-            let dm = d[m];
-            let em1 = e[m-1];
-            let dm1 = d[m-1];
-            let diff = (dm1 - dm) / 2.0;
-            let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
-            let eps = f64::EPSILON;
-            let shift = if em1.abs() < eps * (dm.abs() + dm1.abs()) {
-                dm
-            } else {
-                dm - em1 * em1 / (diff + sign * (diff * diff + em1 * em1).sqrt())
-            };
-            let mut x = d[0] - shift;
-            let mut zeta = e[0];
-
-            for k in 0..m {
-                let (c, s) = givens_rotation(x, zeta);
-                let temp = c * d[k] - s * e[k];
-                e[k] = s * d[k + 1];
-                d[k + 1] = c * d[k + 1];
-                d[k] = temp;
-
-                // Apply rotation to z
-                for i in 0..n {
-                    let temp = c * z[i][k] - s * z[i][k + 1];
-                    z[i][k + 1] = s * z[i][k] + c * z[i][k + 1];
-                    z[i][k] = temp;
-                }
-
-                if k < m - 1 {
-                    x = e[k];
-                    zeta = s * e[k + 1];
-                    e[k + 1] = c * e[k + 1];
-                }
-            }
-            d[m] += shift;
+            z[i][j] = decomp.eigenvectors[(i,j)];
         }
     }
 }
