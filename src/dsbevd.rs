@@ -107,7 +107,7 @@ impl SymmetricBandedMatrix {
     
         // Main reduction loop matching LAPACK's structure
         for i in 0..(n - 2) {
-            for k in (2..=kd + 1).rev() {
+            for k in (2..=kd1).rev() {
                 j1 += kd;
                 j2 += kd;
     
@@ -121,7 +121,9 @@ impl SymmetricBandedMatrix {
                         let j = j1 - kd - 1 + idx * kd;
                         if j < ab[kd].len() {
                             x_temp[idx] = ab[kd][j];
-                            y_temp[idx] = ab[kd - 1][j];
+                            if kd >= 1 {
+                                y_temp[idx] = ab[kd - 1][j];
+                            }
                         }
                     }
     
@@ -137,13 +139,13 @@ impl SymmetricBandedMatrix {
     
                     // Apply rotations based on number of diagonals
                     if nr > 2 * kd - 1 {
-                        for l in 1..kd {
+                        for l in 1..=kdm1 {
                             let mut v1 = vec![];
                             let mut v2 = vec![];
     
                             for idx in 0..nr {
                                 let j = j1 - kd + l + idx * kd;
-                                if j < ab[0].len() && j + 1 < ab[0].len() {
+                                if j < ab[0].len() && j + 1 < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
                                     v1.push(ab[kd - l][j]);
                                     v2.push(ab[kd - l + 1][j]);
                                 }
@@ -164,7 +166,7 @@ impl SymmetricBandedMatrix {
                                 
                                 for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
                                     let j = j1 - kd + l + idx * kd;
-                                    if j < ab[0].len() {
+                                    if j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
                                         ab[kd - l][j] = *val1;
                                         ab[kd - l + 1][j] = *val2;
                                     }
@@ -179,7 +181,7 @@ impl SymmetricBandedMatrix {
                                 let mut row2 = vec![];
     
                                 for idx in 0..kdm1 {
-                                    if jinc - kd + idx < ab[0].len() {
+                                    if jinc - kd + idx < ab[0].len() && (kd) < ab.len() && (kd1) < ab.len() {
                                         row1.push(ab[kd][jinc - kd + idx]);
                                         row2.push(ab[kd1][jinc - kd + idx]);
                                     }
@@ -196,7 +198,7 @@ impl SymmetricBandedMatrix {
                                         );
     
                                         for (idx, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
-                                            if jinc - kd + idx < ab[0].len() {
+                                            if jinc - kd + idx < ab[0].len() && (kd) < ab.len() && (kd1) < ab.len() {
                                                 ab[kd][jinc - kd + idx] = *val1;
                                                 ab[kd1][jinc - kd + idx] = *val2;
                                             }
@@ -207,7 +209,7 @@ impl SymmetricBandedMatrix {
                         }
                     }
     
-                    // Block diagonal updates moved inside k-loop
+                    // Update Q matrix safely
                     for j in j1..=j2 {
                         if j + kd < n {
                             let mut block = Vec::with_capacity(3);
@@ -246,13 +248,11 @@ impl SymmetricBandedMatrix {
                         if j < n - 1 {
                             let j_idx = (j - j1) / kd1;
                             if j_idx < work.len() && j_idx < y_temp.len() {
-                                let (left, right) = q.split_at_mut(j + 1);
-                                drot(
-                                    &mut left[j],
-                                    &mut right[0],
-                                    work[j_idx],
-                                    y_temp[j_idx],
-                                );
+                                for k in 0..n {
+                                    let temp = work[j_idx] * q[k][j] + y_temp[j_idx] * q[k][j + 1];
+                                    q[k][j + 1] = -y_temp[j_idx] * q[k][j] + work[j_idx] * q[k][j + 1];
+                                    q[k][j] = temp;
+                                }
                             }
                         }
                     }
@@ -260,22 +260,26 @@ impl SymmetricBandedMatrix {
     
                 // Handle inner elements of band for current k
                 if k > 2 && k <= n - i {
-                    let f = ab[k - 2][i];
-                    let g = ab[k - 1][i];
-                    let (cs, sn) = givens_rotation(f, g);
-                    ab[k - 2][i] = cs * f + sn * g;
+                    // Safe indexing
+                    if kd - 2 < ab.len() && i < ab[kd - 2].len() {
+                        let f = ab[kd - 2][i];
+                        let g = ab[kd - 1][i];
+                        let (cs, sn) = givens_rotation(f, g);
+                        ab[kd - 2][i] = cs * f + sn * g;
     
-                    // Apply from the left
-                    let start = i + 1;
-                    let end = (i + k - 1).min(n - 1);
-                    if start <= end {
-                        for j in start..=end {
-                            let temp = cs * ab[k - 2][j] + sn * ab[k - 1][j];
-                            ab[k - 1][j] = -sn * ab[k - 2][j] + cs * ab[k - 1][j];
-                            ab[k - 2][j] = temp;
+                        // Apply from the left
+                        let start = i + 1;
+                        let end = (i + k - 1).min(n - 1);
+                        if start <= end {
+                            for j in start..=end {
+                                if kd - 2 < ab.len() && kd - 1 < ab.len() && j < ab[kd - 2].len() && j < ab[kd - 1].len() {
+                                    let temp = cs * ab[kd - 2][j] + sn * ab[kd - 1][j];
+                                    ab[kd - 1][j] = -sn * ab[kd - 2][j] + cs * ab[kd - 1][j];
+                                    ab[kd - 2][j] = temp;
+                                }
+                            }
                         }
                     }
-    
                     nr += 1;
                     j1 = j1.saturating_sub(kd + 1);
                 }
@@ -287,15 +291,15 @@ impl SymmetricBandedMatrix {
                 }
             }
         }
-
+    
         // Copy final results
         for i in 0..n {
             d[i] = ab[0][i];
-            if i < n - 1 {
+            if i < n - 1 && i + 1 < ab[1].len() {
                 e[i] = ab[1][i + 1];
             }
         }
-
+    
         (d, e, q)
     }
     
