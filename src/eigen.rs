@@ -9,7 +9,7 @@ use std::path::Path;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use nalgebra::{DVector, DMatrix};
-use eigenvalues::{SymmetricLanczos, SymmetricOperator};
+use eigenvalues::SymmetricEigen;
 use sprs::{CsMat, TriMatI};
 
 /// Struct representing the Laplacian operator for efficient matrix-vector multiplication.
