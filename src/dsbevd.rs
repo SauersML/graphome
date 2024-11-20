@@ -113,120 +113,94 @@ impl SymmetricBandedMatrix {
                 j1 = j1 + kd;
                 j2 = j2 + kd;
     
-                if nr > 0 {
-                    // Generate plane rotations to annihilate elements
-                    let mut x_temp = vec![0.0; nr];
-                    let mut y_temp = vec![0.0; nr];
-                    for idx in 0..nr {
-                        let j = j1 - kd - 1 + idx * kd;
-                        x_temp[idx] = ab[kd][j];
-                        y_temp[idx] = ab[kd-1][j];
-                    }
-                    
-                    dlargv(nr, &mut x_temp, 1, &mut y_temp, 1, &mut c[..nr], 1);
-                    
-                    // Apply rotations based on number of diagonals
-                    if nr > 2*kd-1 {
-                        for l in 1..kd {
-                            let mut v1 = Vec::with_capacity(nr);
-                            let mut v2 = Vec::with_capacity(nr);
-                            
-                            for idx in 0..nr {
-                                let j = j1 - kd + l + idx * kd;
-                                if j < ab[0].len() && j + 1 < ab[0].len() {
-                                    v1.push(ab[kd-l][j]);
-                                    v2.push(ab[kd-l+1][j]);
-                                }
-                            }
-                            
-                            dlartv(v1.len(), &mut v1, inca, &mut v2, inca, 
-                                  &c[..v1.len()], &y_temp[..v1.len()], 1);
-                            
-                            for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
-                                let j = j1 - kd + l + idx * kd;
-                                if j < ab[0].len() {
-                                    ab[kd-l][j] = *val1;
-                                    ab[kd-l+1][j] = *val2;
-                                }
-                            }
-                        }
-                    } else {
-                        let jend = j1 + kd1 * (nr-1);
-                        for jinc in (j1..=jend).step_by(kd1 as usize) {
-                            let mut row1 = Vec::with_capacity(kdm1);
-                            let mut row2 = Vec::with_capacity(kdm1);
-                            
-                            for j in 0..kdm1 {
-                                if jinc >= kd && jinc-kd+j < ab[0].len() {
-                                    row1.push(ab[kd][jinc-kd+j]);
-                                    row2.push(ab[kd1][jinc-kd+j]);
-                                }
-                            }
-                            
-                            if !row1.is_empty() {
-                                drot(&mut row1, &mut row2, c[jinc-j1], y_temp[jinc-j1]);
-                                
-                                for (j, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
-                                    if jinc >= kd && jinc-kd+j < ab[0].len() {
-                                        ab[kd][jinc-kd+j] = *val1;
-                                        ab[kd1][jinc-kd+j] = *val2;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-    
-                // Handle inner elements of band
-                if k > 2 && k <= n-i {
-                    let f = ab[k-2][i];
-                    let g = ab[k-1][i];
-                    let (cs, sn) = givens_rotation(f, g);
-                    ab[k-2][i] = cs * f + sn * g;
-                    
-                    // Apply rotation from the left
-                    let start = i + 1;
-                    let end = (i + k - 1).min(n - 1);
-                    if start <= end {
-                        for j in start..=end {
-                            let temp = cs * ab[k-2][j] + sn * ab[k-1][j];
-                            ab[k-1][j] = -sn * ab[k-2][j] + cs * ab[k-1][j];
-                            ab[k-2][j] = temp;
-                        }
-                    }
-                    
-                    nr += 1;
-                    j1 = j1 - kd - 1;
+            if nr > 0 {
+                // Generate plane rotations to annihilate elements
+                let mut x_temp = vec![0.0; nr];
+                let mut y_temp = vec![0.0; nr]; // Create y_temp at this scope
+            
+                for idx in 0..nr {
+                    let j = j1 - kd - 1 + idx * kd;
+                    x_temp[idx] = ab[kd][j];
+                    y_temp[idx] = ab[kd-1][j];
                 }
                 
-                // Apply rotations to the block diagonal
-                if nr > 0 {
-                    for j in j1..=j2 {
-                        if j+kd < n && j > 0 {
-                            let range = j..=j+2;
-                            let mut block = Vec::with_capacity(3);
-                            for idx in range {
-                                if idx < ab[0].len() {
-                                    block.push(ab[kd][idx]);
-                                }
+                dlargv(nr, &mut x_temp, 1, &mut y_temp, 1, &mut c[..nr], 1);
+                
+                // Apply rotations based on number of diagonals
+                if nr > 2*kd-1 {
+                    for l in 1..kd {
+                        let mut v1 = Vec::with_capacity(nr);
+                        let mut v2 = Vec::with_capacity(nr);
+                        
+                        for idx in 0..nr {
+                            let j = j1 - kd + l + idx * kd;
+                            if j < ab[0].len() && j + 1 < ab[0].len() {
+                                v1.push(ab[kd-l][j]);
+                                v2.push(ab[kd-l+1][j]);
                             }
+                        }
+                        
+                        dlartv(v1.len(), &mut v1, inca, &mut v2, inca, 
+                              &c[..v1.len()], &y_temp[..v1.len()], 1);
+                        
+                        for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+                            let j = j1 - kd + l + idx * kd;
+                            if j < ab[0].len() {
+                                ab[kd-l][j] = *val1;
+                                ab[kd-l+1][j] = *val2;
+                            }
+                        }
+                    }
+                } else {
+                    let jend = j1 + kd1 * (nr-1);
+                    for jinc in (j1..=jend).step_by(kd1 as usize) {
+                        let mut row1 = Vec::with_capacity(kdm1);
+                        let mut row2 = Vec::with_capacity(kdm1);
+                        
+                        for j in 0..kdm1 {
+                            if jinc >= kd && jinc-kd+j < ab[0].len() {
+                                row1.push(ab[kd][jinc-kd+j]);
+                                row2.push(ab[kd1][jinc-kd+j]);
+                            }
+                        }
+                        
+                        if !row1.is_empty() {
+                            drot(&mut row1, &mut row2, c[jinc-j1], y_temp[jinc-j1]);
                             
-                            if block.len() >= 3 {
-                                let mut x = vec![block[0]];
-                                let mut y = vec![block[1]];
-                                let mut z = vec![block[2]];
-                                dlar2v(1, &mut x, &mut y, &mut z, 1, &c[j-j1..j-j1+1], 
-                                      &y_temp[j-j1..j-j1+1], 1);
-                                
-                                ab[kd][j] = x[0];
-                                ab[kd][j+1] = y[0];
-                                ab[kd][j+2] = z[0];
+                            for (j, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
+                                if jinc >= kd && jinc-kd+j < ab[0].len() {
+                                    ab[kd][jinc-kd+j] = *val1;
+                                    ab[kd1][jinc-kd+j] = *val2;
+                                }
                             }
                         }
                     }
                 }
-    
-                // Update Q matrix
+                
+                // Apply plane rotations to block diagonal
+                if j+kd < n && j > 0 {
+                    let range = j..=j+2;
+                    let mut block = Vec::with_capacity(3);
+                    for idx in range {
+                        if idx < ab[0].len() {
+                            block.push(ab[kd][idx]);
+                        }
+                    }
+                    
+                    if block.len() >= 3 {
+                        let mut x = vec![block[0]];
+                        let mut y = vec![block[1]];
+                        let mut z = vec![block[2]];
+                        dlar2v(1, &mut x, &mut y, &mut z, 1, 
+                              &c[j-j1..j-j1+1], &y_temp[j-j1..j-j1+1], 1);
+                        
+                        ab[kd][j] = x[0];
+                        ab[kd][j+1] = y[0]; 
+                        ab[kd][j+2] = z[0];
+                    }
+                }
+                
+                // Update Q matrix 
                 if nr > 0 {
                     for j in j1..=j2 {
                         if j < n-1 && j-j1 < c.len() && j-j1 < y_temp.len() {
@@ -234,6 +208,7 @@ impl SymmetricBandedMatrix {
                         }
                     }
                 }
+            }
     
                 // Adjust bounds
                 if j2 + kd > n {
