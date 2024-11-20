@@ -74,18 +74,19 @@ impl SymmetricBandedMatrix {
         }
     }
 
-    /// Reduces the symmetric banded matrix to tridiagonal form.
+    /// Reduces the symmetric banded matrix to tridiagonal form using plane rotations.
     /// Returns the diagonal elements `d`, off-diagonal elements `e`, and the accumulated orthogonal matrix `q`.
     fn reduce_to_tridiagonal(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
-        
+        let ldab = kd + 1;
+    
         // Output arrays
         let mut d = vec![0.0; n];
-        let mut e = vec![0.0; n-1];
+        let mut e = vec![0.0; n - 1];
         let mut q = vec![vec![0.0; n]; n];
-        
+    
         // Initialize Q to identity
         for i in 0..n {
             q[i][i] = 1.0;
@@ -99,54 +100,178 @@ impl SymmetricBandedMatrix {
             return (d, e, q);
         }
     
-        // Use DSBTRD algorithm structure
         let mut work = vec![0.0; n];
-        
-        for i in 0..n-1 {
-            // Generate Householder to annihilate A(i+2:min(i+kd+1,n),i)
-            let nrt = (n-i-1).min(kd);
-            if nrt > 0 {
-                let mut temp = Vec::with_capacity(nrt);
-                for j in 0..nrt {
-                    temp.push(ab[j+1][i]);
-                }
-                let (v, tau) = householder_reflector(&temp);
-                
-                // Apply transformation
-                let mut sum = 0.0;
-                for j in 0..nrt {
-                    sum += v[j] * ab[j+1][i+j+1];
-                }
-                sum *= tau;
-                
-                for j in 0..nrt {
-                    ab[j+1][i+j+1] -= sum * v[j];
-                }
-                
-                // Accumulate transformation in q
-                for j in 0..n {
-                    let mut sum = 0.0;
-                    for k in 0..nrt {
-                        sum += q[j][i+k+1] * v[k];
+    
+        let kd1 = kd + 1;
+        let kdm1 = kd - 1;
+        let incx = ldab - 1;
+    
+        let mut nr;
+        let mut j1;
+        let mut j2;
+    
+        // Reduce to tridiagonal form, working with lower triangle
+        if kd > 1 {
+            nr = 0;
+            j1 = kd1;
+            j2 = 1;
+    
+            for i in 0..(n - 2) {
+                for k in ((2..=kd1).rev()) {
+                    j1 += kd;
+                    j2 += kd;
+    
+                    if nr > 0 {
+                        // Generate plane rotations to annihilate nonzero elements
+                        let mut d_vals = Vec::with_capacity(nr);
+                        let mut work_vals = Vec::with_capacity(nr);
+                        for j in (j1 - kd1..j1 - kd1 + nr * kd).step_by(kd) {
+                            d_vals.push(ab[kd][j]);
+                            work_vals.push(ab[kd - 1][j]);
+                        }
+    
+                        let (d_rot, work_rot) = dlargv(&d_vals, &work_vals);
+                        for idx in 0..nr {
+                            ab[kd][j1 - kd1 + idx * kd] = d_rot[idx];
+                            ab[kd - 1][j1 - kd1 + idx * kd] = work_rot[idx];
+                        }
+    
+                        // Apply rotations from one side
+                        if nr > 2 * kd - 1 {
+                            for l in 1..kd {
+                                let mut x = Vec::with_capacity(nr);
+                                let mut y = Vec::with_capacity(nr);
+                                for j in (j1 - kd1 + l..j1 - kd1 + l + nr * kd).step_by(kd) {
+                                    x.push(ab[kd1 - l][j]);
+                                    y.push(ab[kd1 - l + 1][j]);
+                                }
+                                let (x_rot, y_rot) = dlartv(&x, &y, &d_vals, &work_vals);
+                                for idx in 0..nr {
+                                    ab[kd1 - l][j1 - kd1 + l + idx * kd] = x_rot[idx];
+                                    ab[kd1 - l + 1][j1 - kd1 + l + idx * kd] = y_rot[idx];
+                                }
+                            }
+                        } else {
+                            for j in (j1..j1 + (nr - 1) * kd).step_by(kd) {
+                                drot(
+                                    &mut ab[kd - 1][j..j + kdm1],
+                                    &mut ab[kd][j..j + kdm1],
+                                    d_vals[(j - j1) / kd],
+                                    work_vals[(j - j1) / kd],
+                                );
+                            }
+                        }
                     }
-                    sum *= tau;
-                    for k in 0..nrt {
-                        q[j][i+k+1] -= sum * v[k];
+    
+                    if k > 2 {
+                        if k <= n - i {
+                            // Generate plane rotation to annihilate a(i+k-1,i)
+                            let (d_val, work_val, temp) = dlartg(ab[k - 2][i], ab[k - 1][i]);
+                            ab[k - 2][i] = temp;
+                            d[i + k - 1] = d_val;
+                            work[i + k - 1] = work_val;
+    
+                            // Apply rotation from the left
+                            drot(
+                                &mut ab[k - 2][i + 1..i + k - 2],
+                                &mut ab[k - 1][i + 1..i + k - 2],
+                                d_val,
+                                work_val,
+                            );
+                        }
+                        nr += 1;
+                        j1 -= kd + 1;
+                    }
+    
+                    // Apply plane rotations from both sides to diagonal blocks
+                    if nr > 0 {
+                        dlar2v(
+                            &mut ab[0][j1 - 1..],
+                            &mut ab[0][j1..],
+                            &mut ab[1][j1 - 1..],
+                            &d_vals,
+                            &work_vals,
+                        );
+                    }
+    
+                    // Apply plane rotations from the right
+                    if nr > 0 {
+                        if nr > 2 * kd - 1 {
+                            for l in 1..kd {
+                                let nrt = if j2 + l > n { nr - 1 } else { nr };
+                                if nrt > 0 {
+                                    let mut x = Vec::with_capacity(nrt);
+                                    let mut y = Vec::with_capacity(nrt);
+                                    for j in (j1 - 1..j1 - 1 + nrt * kd).step_by(kd) {
+                                        x.push(ab[l + 1][j]);
+                                        y.push(ab[l][j + 1]);
+                                    }
+                                    let (x_rot, y_rot) = dlartv(&x, &y, &d_vals, &work_vals);
+                                    for idx in 0..nrt {
+                                        ab[l + 1][j1 - 1 + idx * kd] = x_rot[idx];
+                                        ab[l][j1 - 1 + idx * kd + 1] = y_rot[idx];
+                                    }
+                                }
+                            }
+                        } else {
+                            for j in (j1..j1 + (nr - 2) * kd).step_by(kd) {
+                                drot(
+                                    &mut ab[2][j - 1..j - 1 + kdm1],
+                                    &mut ab[1][j..j + kdm1],
+                                    d_vals[(j - j1) / kd],
+                                    work_vals[(j - j1) / kd],
+                                );
+                            }
+                        }
+                    }
+    
+                    // Accumulate transformations in q
+                    if nr > 0 {
+                        for j in (j1..j2).step_by(kd) {
+                            drot(
+                                &mut q[i][..],
+                                &mut q[i + 1][..],
+                                d_vals[(j - j1) / kd],
+                                work_vals[(j - j1) / kd],
+                            );
+                        }
+                    }
+    
+                    if j2 + kd > n {
+                        nr -= 1;
+                        j2 -= kd + 1;
+                    }
+    
+                    for j in (j1..j2).step_by(kd) {
+                        work[j + kd] = work_vals[(j - j1) / kd] * ab[kd][j];
+                        ab[kd][j] = d_vals[(j - j1) / kd] * ab[kd][j];
                     }
                 }
             }
         }
-        
-        // Copy diagonal and subdiagonal
-        for i in 0..n {
-            d[i] = ab[0][i];
-            if i < n-1 {
+    
+        if kd > 0 {
+            // Copy off-diagonal elements to e
+            for i in 0..(n - 1) {
                 e[i] = ab[1][i];
             }
+        } else {
+            // Set e to zero if original matrix was diagonal
+            for i in 0..(n - 1) {
+                e[i] = 0.0;
+            }
         }
-        
+    
+        // Copy diagonal elements to d
+        for i in 0..n {
+            d[i] = ab[0][i];
+        }
+    
         (d, e, q)
     }
+
+
+    
     
     fn matrix_norm(&self) -> f64 {
         let mut value: f64 = 0.0;
