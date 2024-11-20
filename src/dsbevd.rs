@@ -205,11 +205,6 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
         return (v, 0.0);
     }
     
-    // Handle empty or single element case
-    if n <= 1 {
-        return (v, 0.0);
-    }
-    
     let safmin = f64::MIN_POSITIVE;
     let eps = f64::EPSILON;
     
