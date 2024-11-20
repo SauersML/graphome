@@ -941,19 +941,15 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             }
 
             iter += 1;
-            if iter > 30 {
+            if iter > 1000 {
                 panic!("Too many iterations in tridiagonal_qr");
             }
 
-            // Compute shift
-            let g = d[l];
-            let p = (d[l + 1] - g) / (2.0 * e_ext[l]);
-            let r = p.hypot(1.0);
-            let mut t = if p >= 0.0 {
-                g - e_ext[l] / (p + r)
-            } else {
-                g - e_ext[l] / (p - r)
-            };
+            // Compute shift (Wilkinson's shift)
+            let delta = (d[m - 1] - d[m]).abs() / 2.0;
+            let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
+            let t = mu;
+
 
             for i in l..n {
                 d[i] -= t;
@@ -974,10 +970,12 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 d[i] = temp;
 
                 // Apply rotation to eigenvectors
-                for k in 0..n {
-                    let temp = c * z[k][i] - s * z[k][i + 1];
-                    z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
-                    z[k][i] = temp;
+                if i + 1 < n {
+                    for k in 0..n {
+                        let temp = c * z[k][i] - s * z[k][i + 1];
+                        z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
+                        z[k][i] = temp;
+                    }
                 }
             }
 
