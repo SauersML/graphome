@@ -30,8 +30,8 @@ impl SymmetricBandedMatrix {
         // Get machine constants
         let safmin = f64::MIN_POSITIVE;
         let eps = f64::EPSILON;
-        let rmin = SAFMIN.sqrt();
-        let rmax = (1.0/SAFMIN).sqrt();
+        let rmin = safmin.sqrt();
+        let rmax = (1.0/safmin).sqrt();
 
         // Matrix norm and scaling
         let anrm = self.matrix_norm();
