@@ -166,14 +166,14 @@ impl SymmetricBandedMatrix {
     }
     
     fn scaled_copy(&self, scale: f64) -> Self {
-        let mut scaled = self.clone();
+        let mut scaled = (*self).clone();
         for row in &mut scaled.ab {
             for val in row {
                 *val *= scale;
             }
         }
         scaled
-    }    
+    }
 }
 
 /// Computes the Householder reflector for a vector x.
