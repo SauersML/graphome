@@ -295,6 +295,7 @@ impl SymmetricBandedMatrix {
     
             (d, e, q)
         }
+    }
     
         
 
