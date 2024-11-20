@@ -357,7 +357,7 @@ fn solve_secular_equation(
 /// `d`: Diagonal elements
 /// `e`: Off-diagonal elements
 /// `z`: Eigenvectors (output)
-fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>>) {
+fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
 
     // Initialize eigenvector matrix as identity
