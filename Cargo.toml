@@ -23,6 +23,7 @@ lapack-sys = "0.14.0"
 rand = "0.8.5"
 memmap2 = "0.9.5"
 rand_chacha = "0.3.1"
+rand_distr = "0.4.3"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
