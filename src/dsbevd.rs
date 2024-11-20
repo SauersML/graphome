@@ -237,18 +237,18 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
         let r = -(alpha.signum()) * (alpha * alpha + xnorm * xnorm).sqrt();
         if r == 0.0 { safmin } else { r }
     };
-    
-    let tau = if beta == alpha {
+
+    let tau = if alpha == beta || beta == 0.0 {
         0.0
     } else {
         let t = (beta - alpha) / beta;
-        if t.abs() < eps {
+        if t == 0.0 {
             0.0
         } else {
             t
         }
     };
-    let scal = if tau == 0.0 {
+    let scal = if beta == alpha || beta == 0.0 {
         1.0
     } else {
         1.0 / (alpha - beta)
