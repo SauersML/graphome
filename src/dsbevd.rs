@@ -299,6 +299,34 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
         return;
     }
 
+    // Check for deflation
+    let eps = f64::EPSILON;
+    let mut deflated = false;
+    for i in 0..n-1 {
+        if e[i].abs() <= eps * (d[i].abs() + d[i+1].abs()) {
+            e[i] = 0.0;
+            deflated = true;
+        }
+    }
+    
+    if deflated {
+        // Find blocks and solve each separately
+        let mut start = 0;
+        for i in 0..n-1 {
+            if e[i] == 0.0 {
+                let block_size = i - start + 1;
+                if block_size > 1 {
+                    let d_block = &mut d[start..=i];
+                    let e_block = &mut e[start..i];
+                    let z_block = &mut z[start..=i];
+                    divide_and_conquer(d_block, e_block, z_block);
+                }
+                start = i + 1;
+            }
+        }
+        return;
+    }
+
     // Divide step
     let m = n / 2;
 
