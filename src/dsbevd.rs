@@ -28,8 +28,8 @@ impl SymmetricBandedMatrix {
     /// Computes all eigenvalues and eigenvectors of the symmetric banded matrix.
     pub fn dsbevd(&self) -> EigenResults {
         // Get machine constants
-        const SAFMIN: f64 = 1e-300;
-        const EPS: f64 = 1e-14;
+        let safmin = f64::MIN_POSITIVE;
+        let eps = f64::EPSILON;
         let rmin = SAFMIN.sqrt();
         let rmax = (1.0/SAFMIN).sqrt();
 
@@ -212,8 +212,13 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
         }
         
         tau = 2.0 * v[0] * v[0] / (sigma + v[0] * v[0]);
-        beta = 2.0 / (sigma + v[0] * v[0]);
-        
+        let norm = (sigma + v[0] * v[0]).sqrt();
+        if norm < smlnum {
+            beta = 0.0;
+        } else {
+            beta = 2.0 / (norm * norm);
+        }
+
         // Scale if needed
         if beta > bignum {
             let scale = (bignum / beta).sqrt();
@@ -289,6 +294,10 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
     // Divide step
     let m = n / 2;
+
+    if m == 0 || m == n {
+        return;
+    }
     
     // Save and zero out off-diagonal element
     let e_m_minus_1 = e[m - 1];
@@ -452,7 +461,14 @@ fn solve_secular_equation(
             // Newton step
             let new_mid = mid - update;
             if new_mid >= left && new_mid <= right {
+                if (new_mid - mid).abs() < eps * mid.abs() {
+                    d[i] = new_mid;
+                    break;
+                }
                 d[i] = new_mid;
+                mid = new_mid;
+            } else {
+                d[i] = mid;
                 break;
             }
         }
@@ -500,11 +516,12 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             let mut done = true;
             for i in 0..m {
                 let scale = d[i].abs() + d[i + 1].abs();
+                let eps = f64::EPSILON;
                 if scale == 0.0 {
-                    if e[i].abs() > 0.0 {
+                    if e[i].abs() > eps {
                         done = false;
                     }
-                } else if e[i].abs() > 1e-14 * scale {
+                } else if e[i].abs() > eps * scale {
                     done = false;
                 }
             }
@@ -555,8 +572,9 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// Computes the Givens rotation coefficients c and s such that
 /// [c -s; s c]^T * [a; b] = [r; 0]
 fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
-    if b == 0.0 {
-        (1.0, 0.0)  
+    let eps = f64::EPSILON;
+    if b.abs() < eps * a.abs() {
+        (1.0, 0.0)
     } else {
         let scale = a.abs().max(b.abs());
         let r;
