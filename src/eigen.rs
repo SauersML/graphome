@@ -8,67 +8,58 @@ use std::io::{self, Write};
 use std::path::Path;
 use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use nalgebra::{DVector, DMatrix};
-use nalgebra::SymmetricEigen;
+use nalgebra::{DVector, DMatrix, SymmetricEigen};
 use sprs::{CsMat, TriMatI};
 
 /// Struct representing the Laplacian operator for efficient matrix-vector multiplication.
 #[derive(Clone)]
 pub struct LaplacianOperator {
-    laplacian: CsMat<f64>,
+    laplacian: CsMat<f64>, // Sparse representation
 }
 
-impl SymmetricOperator<f64> for LaplacianOperator {
-    fn dim(&self) -> usize {
-        self.laplacian.rows()
-    }
+impl LaplacianOperator {
+    /// Converts the sparse Laplacian matrix to a dense DMatrix for eigendecomposition.
+    fn to_dense(&self) -> DMatrix<f64> {
+        let shape = self.laplacian.shape();
+        let mut dense = DMatrix::zeros(shape.0, shape.1);
 
-    fn matvec(&self, x: &[f64], y: &mut [f64]) {
-        assert_eq!(x.len(), self.dim());
-        assert_eq!(y.len(), self.dim());
+        for (row, col, value) in self.laplacian.triplet_iter() {
+            dense[(row, col)] = *value;
+        }
 
-        // Compute y = A * x efficiently using sparse matrix-vector multiplication
-        self.laplacian.mul_mat_vec(x, y);
+        dense
     }
 }
 
-/// Performs eigendecomposition using the Lanczos algorithm optimized for sparse banded matrices.
+/// Performs eigendecomposition using `nalgebra::SymmetricEigen` for a dense Laplacian matrix.
 pub fn call_eigendecomp(
     edges: &[(usize, usize)],
     num_nodes: usize,
     k: usize,
 ) -> io::Result<(Vec<f64>, Vec<Vec<f64>>)> {
-    // Build the Laplacian matrix as CsMat<f64>
+    // Build the sparse Laplacian matrix as CsMat<f64>
     let laplacian_csmat = build_laplacian_csmat(edges, num_nodes);
 
-    // Create LaplacianOperator
+    // Create LaplacianOperator and convert to dense
     let laplacian_operator = LaplacianOperator {
         laplacian: laplacian_csmat,
     };
+    let dense_laplacian = laplacian_operator.to_dense();
 
-    // Use SymmetricLanczos to compute k eigenvalues and eigenvectors
-    let mut lanczos = SymmetricLanczos::new(laplacian_operator, k);
-    lanczos.max_iterations = 1000;
-    lanczos.tolerance = 1e-10;
-
-    let result = lanczos.compute().map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("Lanczos algorithm failed: {}", e),
-        )
-    })?;
-
-    // Get eigenvalues and eigenvectors
-    let eigenvalues = result.eigenvalues;
-    let eigenvectors = result.eigenvectors;
-
-    // Convert eigenvectors to Vec<Vec<f64>>
-    let eigenvectors_vec = eigenvectors
+    // Compute eigenvalues and eigenvectors using SymmetricEigen
+    let eigen = SymmetricEigen::new(dense_laplacian);
+    let eigenvalues = eigen.eigenvalues.as_slice().to_vec();
+    let eigenvectors = eigen
+        .eigenvectors
         .column_iter()
-        .map(|col| col.iter().cloned().collect())
+        .map(|col| col.as_slice().to_vec())
         .collect();
 
-    Ok((eigenvalues.to_vec(), eigenvectors_vec))
+    // Return top-k eigenvalues and eigenvectors
+    let top_eigenvalues = eigenvalues[..k.min(eigenvalues.len())].to_vec();
+    let top_eigenvectors = eigenvectors[..k.min(eigenvectors.len())].to_vec();
+
+    Ok((top_eigenvalues, top_eigenvectors))
 }
 
 /// Builds the Laplacian matrix as a sparse CsMat<f64> from the edge list.
@@ -95,6 +86,16 @@ pub fn build_laplacian_csmat(edges: &[(usize, usize)], num_nodes: usize) -> CsMa
 
     // Convert triplet to CSR format
     triplet.to_csr()
+}
+
+/// Converts the adjacency matrix edge list to ndarray::Array2<f64>.
+pub fn adjacency_matrix_to_ndarray(edges: &[(usize, usize)], num_nodes: usize) -> Array2<f64> {
+    let mut adj_array = Array2::<f64>::zeros((num_nodes, num_nodes));
+    for &(a, b) in edges {
+        adj_array[(a, b)] = 1.0;
+        adj_array[(b, a)] = 1.0;
+    }
+    adj_array
 }
 
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
