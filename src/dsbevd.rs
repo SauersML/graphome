@@ -26,8 +26,31 @@ impl SymmetricBandedMatrix {
 
     /// Computes all eigenvalues and eigenvectors of the symmetric banded matrix.
     pub fn dsbevd(&self) -> EigenResults {
+        // Get machine constants
+        const SAFMIN: f64 = 1e-300;
+        const EPS: f64 = 1e-14;
+        let rmin = SAFMIN.sqrt();
+        let rmax = (1.0/SAFMIN).sqrt();
+
+        // Matrix norm and scaling
+        let anrm = self.matrix_norm();
+        let scale = if anrm > 0.0 && anrm < rmin {
+            rmin / anrm
+        } else if anrm > rmax {
+            rmax / anrm
+        } else {
+            1.0
+        };
+
+        // Create scaled copy
+        let working_matrix = if scale != 1.0 {
+            self.scaled_copy(scale)
+        } else {
+            self.clone()
+        };
+
         // Step 1: Reduce to tridiagonal form
-        let (d, e, q) = self.reduce_to_tridiagonal();
+        let (d, e, q) = working_matrix.reduce_to_tridiagonal();
 
         // Step 2: Compute eigenvalues and eigenvectors of the tridiagonal matrix using divide and conquer
         let (eigenvalues, eigenvectors_tridiag) = tridiagonal_eigen_dc(&d, &e);
@@ -139,11 +162,18 @@ fn householder_reflector(x: &[f64]) -> (Vec<f64>, f64) {
     if sigma == 0.0 {
         tau = 0.0;
     } else {
-        let beta = if alpha >= 0.0 {
-            -((alpha * alpha + sigma).sqrt())
+        let mut beta = 0.0;
+        if sigma == 0.0 {
+            beta = 0.0;
         } else {
-            (alpha * alpha + sigma).sqrt()
-        };
+            let s = (alpha * alpha + sigma).abs();
+            if s <= 0.0 {
+                beta = 0.0; 
+            } else {
+                let sqrt_s = s.sqrt();
+                beta = if alpha >= 0.0 { -sqrt_s } else { sqrt_s };
+            }
+        }
         v[0] = alpha - beta;
         for i in 1..n {
             v[i] = x[i];
@@ -383,9 +413,13 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
         loop {
             let mut done = true;
             for i in 0..m {
-                if e[i].abs() > 1e-12 * (d[i].abs() + d[i + 1].abs()) {
+                let scale = d[i].abs() + d[i + 1].abs();
+                if scale == 0.0 {
+                    if e[i].abs() > 0.0 {
+                        done = false;
+                    }
+                } else if e[i].abs() > 1e-14 * scale {
                     done = false;
-                    break;
                 }
             }
             if done {
@@ -397,7 +431,13 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             iter += 1;
 
             // Perform implicit QR step
-            let mut shift = d[m];
+            let dm = d[m];
+            let em1 = e[m-1];
+            let dm1 = d[m-1];
+            let diff = (dm1 - dm) / 2.0;
+            let sign = if diff >= 0.0 { 1.0 } else { -1.0 };
+            let shift = dm - em1 * em1 / 
+                (diff + sign * (diff * diff + em1 * em1).sqrt());
             let mut x = d[0] - shift;
             let mut zeta = e[0];
 
@@ -430,18 +470,22 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// [c -s; s c]^T * [a; b] = [r; 0]
 fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
     if b == 0.0 {
-        (1.0, 0.0)
-    } else if a.abs() > b.abs() {
-        let t = b / a;
-        let u = (1.0 + t * t).sqrt();
-        let c = 1.0 / u;
-        let s = c * t;
-        (c, s)
+        (1.0, 0.0)  
     } else {
-        let t = a / b;
-        let u = (1.0 + t * t).sqrt();
-        let s = 1.0 / u;
-        let c = s * t;
+        let scale = a.abs().max(b.abs());
+        let r;
+        let c;
+        let s;
+        if scale == 0.0 {
+            c = 1.0;
+            s = 0.0;
+        } else {
+            let scaled_a = a / scale;
+            let scaled_b = b / scale;
+            r = scale * (scaled_a * scaled_a + scaled_b * scaled_b).sqrt();
+            c = a / r;
+            s = b / r;
+        }
         (c, s)
     }
 }
