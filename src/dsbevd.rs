@@ -738,7 +738,8 @@ fn solve_secular_equation(
 /// `z`: Eigenvectors (output)
 fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
-    let max_iter = 30 * n;
+    let mut e_ext = vec![0.0; n];
+    e_ext[..(n - 1)].copy_from_slice(e);
 
     // Initialize z to identity matrix
     for i in 0..n {
@@ -752,7 +753,8 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
         loop {
             let mut m = l;
             while m < n - 1 {
-                if e[m].abs() <= f64::EPSILON * (d[m].abs() + d[m + 1].abs()) {
+                let dd = d[m].abs() + d[m + 1].abs();
+                if e_ext[m].abs() <= f64::EPSILON * dd {
                     break;
                 }
                 m += 1;
@@ -762,46 +764,50 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 break;
             }
 
-            if iter >= max_iter {
-                panic!("Failed to converge in tridiagonal QR algorithm");
-            }
             iter += 1;
+            if iter > 30 {
+                panic!("Too many iterations in tridiagonal_qr");
+            }
 
             // Compute shift
             let g = d[l];
-            let p = (d[l + 1] - g) / (2.0 * e[l]);
+            let p = (d[l + 1] - g) / (2.0 * e_ext[l]);
             let r = p.hypot(1.0);
-            let mut t = if p >= 0.0 { g - e[l] / (p + r) } else { g - e[l] / (p - r) };
+            let mut t = if p >= 0.0 {
+                g - e_ext[l] / (p + r)
+            } else {
+                g - e_ext[l] / (p - r)
+            };
 
             for i in l..n {
                 d[i] -= t;
             }
+
             let mut s = 0.0;
             let mut c = 1.0;
 
-            for i in l..(m) {
-                let f = s * e[i];
-                let b = c * e[i];
-
+            for i in l..m {
+                let f = s * e_ext[i];
+                let b = c * e_ext[i];
                 let (r, cs, sn) = plane_rotation(d[i] - t, f);
-                if i > l {
-                    e[i - 1] = r;
-                }
-                let g = c * d[i] + s * e[i];
-                e[i] = c * e[i] - s * d[i];
-                d[i] = g;
-
-                for k in 0..n {
-                    let temp = c * z[k][i] + s * z[k][i + 1];
-                    z[k][i + 1] = -s * z[k][i] + c * z[k][i + 1];
-                    z[k][i] = temp;
-                }
-
+                e_ext[i] = r;
                 s = sn;
                 c = cs;
+                let temp = c * d[i] - s * e_ext[i + 1];
+                e_ext[i + 1] = s * d[i] + c * e_ext[i + 1];
+                d[i] = temp;
+
+                // Apply rotation to eigenvectors
+                for k in 0..n {
+                    let temp = c * z[k][i] - s * z[k][i + 1];
+                    z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
+                    z[k][i] = temp;
+                }
             }
-            e[m - 1] = s * e[m - 1];
-            d[m] = c * d[m] - s * e[m - 1];
+
+            let temp = c * d[m] - s * e_ext[m];
+            e_ext[m] = s * d[m] + c * e_ext[m];
+            d[m] = temp;
         }
     }
 
