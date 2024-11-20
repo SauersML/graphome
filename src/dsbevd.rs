@@ -576,115 +576,96 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
         let m = submat_end - submat_start + 1;
 
-        if m <= smlsiz {
-            // Use QR algorithm for small submatrices
-            let mut d_sub = d[submat_start..=submat_end].to_vec();
-            let mut e_sub = e[submat_start..submat_end].to_vec();
-            let mut z_sub = vec![vec![0.0; m]; m];
-            for i in 0..m {
-                z_sub[i][i] = 1.0;
-            }
-            // ??? (&mut d_sub, &mut e_sub, &mut z_sub);
+        // Recursive divide and conquer
+        // Divide the matrix into two submatrices
+        let mid = submat_start + m / 2 - 1;
+        let rho = e[mid];
+        e[mid] = 0.0; // Split the matrix
 
-            // Copy back results
-            for i in 0..m {
-                d[submat_start + i] = d_sub[i];
-                for j in 0..m {
-                    z[submat_start + i][submat_start + j] = z_sub[i][j];
-                }
-            }
-        } else {
-            // Recursive divide and conquer
-            // Divide the matrix into two submatrices
-            let mid = submat_start + m / 2 - 1;
-            let rho = e[mid];
-            e[mid] = 0.0; // Split the matrix
+        // Left subproblem
+        let left_size = mid - submat_start + 1;
+        let mut d_left = d[submat_start..=mid].to_vec();
+        let mut e_left = e[submat_start..mid].to_vec();
+        let mut z_left = vec![vec![0.0; left_size]; left_size];
+        for i in 0..left_size {
+            z_left[i][i] = 1.0;
+        }
+        divide_and_conquer(&mut d_left, &mut e_left, &mut z_left);
 
-            // Left subproblem
-            let left_size = mid - submat_start + 1;
-            let mut d_left = d[submat_start..=mid].to_vec();
-            let mut e_left = e[submat_start..mid].to_vec();
-            let mut z_left = vec![vec![0.0; left_size]; left_size];
-            for i in 0..left_size {
-                z_left[i][i] = 1.0;
-            }
-            divide_and_conquer(&mut d_left, &mut e_left, &mut z_left);
+        // Right subproblem
+        let right_size = submat_end - mid;
+        let mut d_right = d[(mid + 1)..=submat_end].to_vec();
+        let mut e_right = e[(mid + 1)..submat_end].to_vec();
+        let mut z_right = vec![vec![0.0; right_size]; right_size];
+        for i in 0..right_size {
+            z_right[i][i] = 1.0;
+        }
+        divide_and_conquer(&mut d_right, &mut e_right, &mut z_right);
 
-            // Right subproblem
-            let right_size = submat_end - mid;
-            let mut d_right = d[(mid + 1)..=submat_end].to_vec();
-            let mut e_right = e[(mid + 1)..submat_end].to_vec();
-            let mut z_right = vec![vec![0.0; right_size]; right_size];
-            for i in 0..right_size {
-                z_right[i][i] = 1.0;
-            }
-            divide_and_conquer(&mut d_right, &mut e_right, &mut z_right);
+        // Merge the two subproblems
+        let mut d_merged = vec![0.0; m];
+        let mut z_merged = vec![vec![0.0; m]; m];
 
-            // Merge the two subproblems
-            let mut d_merged = vec![0.0; m];
-            let mut z_merged = vec![vec![0.0; m]; m];
+        // Copy eigenvalues
+        for i in 0..left_size {
+            d_merged[i] = d_left[i];
+        }
+        for i in 0..right_size {
+            d_merged[left_size + i] = d_right[i];
+        }
 
-            // Copy eigenvalues
-            for i in 0..left_size {
-                d_merged[i] = d_left[i];
-            }
-            for i in 0..right_size {
-                d_merged[left_size + i] = d_right[i];
-            }
+        // Form the z vector for the rank-one update
+        let mut z_vector = vec![0.0; m];
+        for i in 0..left_size {
+            z_vector[i] = z_left[i][left_size - 1];
+        }
+        for i in 0..right_size {
+            z_vector[left_size + i] = z_right[i][0];
+        }
 
-            // Form the z vector for the rank-one update
-            let mut z_vector = vec![0.0; m];
-            for i in 0..left_size {
-                z_vector[i] = z_left[i][left_size - 1];
-            }
-            for i in 0..right_size {
-                z_vector[left_size + i] = z_right[i][0];
-            }
+        // Initialize z_out for solve_secular_equation
+        let mut z_out = vec![vec![0.0; m]; m];
 
-            // Initialize z_out for solve_secular_equation
-            let mut z_out = vec![vec![0.0; m]; m];
+        // Solve the secular equation
+        let info = solve_secular_equation(
+            &d_left,
+            &d_right,
+            &z_vector,
+            rho,
+            &mut d_merged,
+            &mut z_out,
+        );
+        if info != 0 {
+            panic!("Error in solve_secular_equation: info = {}", info);
+        }
 
-            // Solve the secular equation
-            let info = solve_secular_equation(
-                &d_left,
-                &d_right,
-                &z_vector,
-                rho,
-                &mut d_merged,
-                &mut z_out,
-            );
-            if info != 0 {
-                panic!("Error in solve_secular_equation: info = {}", info);
-            }
+        // Copy eigenvalues back
+        for i in 0..m {
+            d[submat_start + i] = d_merged[i];
+        }
 
-            // Copy eigenvalues back
-            for i in 0..m {
-                d[submat_start + i] = d_merged[i];
-            }
-
-            // Compute the updated eigenvectors
-            // Multiply the eigenvectors of the left and right subproblems with z_out
-            for i in 0..m {
-                for j in 0..m {
-                    let mut sum = 0.0;
-                    if i < left_size {
-                        for k in 0..left_size {
-                            sum += z_left[i][k] * z_out[k][j];
-                        }
-                    } else {
-                        for k in 0..right_size {
-                            sum += z_right[i - left_size][k] * z_out[left_size + k][j];
-                        }
+        // Compute the updated eigenvectors
+        // Multiply the eigenvectors of the left and right subproblems with z_out
+        for i in 0..m {
+            for j in 0..m {
+                let mut sum = 0.0;
+                if i < left_size {
+                    for k in 0..left_size {
+                        sum += z_left[i][k] * z_out[k][j];
                     }
-                    z_merged[i][j] = sum;
+                } else {
+                    for k in 0..right_size {
+                        sum += z_right[i - left_size][k] * z_out[left_size + k][j];
+                    }
                 }
+                z_merged[i][j] = sum;
             }
+        }
 
-            // Copy back eigenvectors
-            for i in 0..m {
-                for j in 0..m {
-                    z[submat_start + i][submat_start + j] = z_merged[i][j];
-                }
+        // Copy back eigenvectors
+        for i in 0..m {
+            for j in 0..m {
+                z[submat_start + i][submat_start + j] = z_merged[i][j];
             }
         }
 
