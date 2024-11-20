@@ -345,7 +345,36 @@ impl SymmetricBandedMatrix {
     }
 }
 
-fn dlargv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &mut [f64], incc: usize) {
+/// Generates a vector of real plane rotations determined by elements of vectors x and y.
+/// For i = 1,2,...,n the routine computes:
+///    (  c(i)  s(i) ) ( x(i) ) = ( a(i) )
+///    ( -s(i)  c(i) ) ( y(i) ) = (   0  )
+///
+/// # Arguments
+///
+/// * `n` - The number of plane rotations to be generated
+/// * `x` - On entry, the x vector. On exit, x[i] contains a(i) for i = 1,...,n
+/// * `incx` - The increment between elements of x (must be > 0)
+/// * `y` - On entry, the y vector. On exit, contains sines of rotations
+/// * `incy` - The increment between elements of y (must be > 0)
+/// * `c` - On exit, contains cosines of rotations
+/// * `incc` - The increment between elements of c (must be > 0)
+fn dlargv(
+    n: usize,
+    x: &mut [f64],
+    incx: usize,
+    y: &mut [f64],  
+    incy: usize,
+    c: &mut [f64],
+    incc: usize,
+) {
+    debug_assert!(incx > 0, "incx must be positive");
+    debug_assert!(incy > 0, "incy must be positive");
+    debug_assert!(incc > 0, "incc must be positive");
+    debug_assert!(x.len() >= 1 + (n - 1) * incx, "x array too small");
+    debug_assert!(y.len() >= 1 + (n - 1) * incy, "y array too small");
+    debug_assert!(c.len() >= 1 + (n - 1) * incc, "c array too small");
+
     let mut ix = 0;
     let mut iy = 0;
     let mut ic = 0;
@@ -355,19 +384,23 @@ fn dlargv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &
         let g = y[iy];
 
         if g == 0.0 {
+            // Special case: g = 0 implies rotation by 0 degrees
             c[ic] = 1.0;
             y[iy] = 0.0;
         } else if f == 0.0 {
+            // Special case: f = 0 implies rotation by 90 degrees
             c[ic] = 0.0;
-            x[ix] = g;
             y[iy] = 1.0;
+            x[ix] = g;
         } else if f.abs() > g.abs() {
+            // Case |f| > |g|: use f to calculate stable rotation
             let t = g / f;
             let tt = (1.0 + t * t).sqrt();
             c[ic] = 1.0 / tt;
             y[iy] = t * c[ic];
             x[ix] = f * tt;
         } else {
+            // Case |g| >= |f|: use g to calculate stable rotation
             let t = f / g;
             let tt = (1.0 + t * t).sqrt();
             y[iy] = 1.0 / tt;
@@ -375,6 +408,7 @@ fn dlargv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &
             x[ix] = g * tt;
         }
 
+        // Update indices using increments
         ix += incx;
         iy += incy;
         ic += incc;
