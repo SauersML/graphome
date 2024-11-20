@@ -150,17 +150,18 @@ impl SymmetricBandedMatrix {
                             }
     
                             if !v1.is_empty() {
+                                let len = v1.len();
                                 dlartv(
-                                    v1.len(),
+                                    len,
                                     &mut v1,
                                     inca,
                                     &mut v2,
                                     inca,
-                                    &work[..v1.len()],
-                                    &y_temp[..v1.len()],
+                                    &work[..len],
+                                    &y_temp[..len],
                                     1,
                                 );
-    
+                                
                                 for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
                                     let j = j1 - kd + l + idx * kd;
                                     if j < ab[0].len() {
@@ -245,9 +246,10 @@ impl SymmetricBandedMatrix {
                         if j < n - 1 {
                             let j_idx = (j - j1) / kd1;
                             if j_idx < work.len() && j_idx < y_temp.len() {
+                                let (left, right) = q.split_at_mut(j + 1);
                                 drot(
-                                    &mut q[j],
-                                    &mut q[j + 1],
+                                    &mut left[j],
+                                    &mut right[0],
                                     work[j_idx],
                                     y_temp[j_idx],
                                 );
