@@ -54,7 +54,7 @@ impl SymmetricBandedMatrix {
         let (d, e, q) = working_matrix.reduce_to_tridiagonal();
 
         // Step 2: Compute eigenvalues and eigenvectors of the tridiagonal matrix using divide and conquer
-        let (eigenvalues, eigenvectors_tridiag) = tridiagonal_eigen_dc(&d, &e);
+        let (mut eigenvalues, eigenvectors_tridiag) = tridiagonal_eigen_dc(&d, &e);
 
         // Step 3: Transform eigenvectors back to those of the original matrix
         let eigenvectors = multiply_q(&q, &eigenvectors_tridiag);
