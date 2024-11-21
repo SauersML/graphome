@@ -1599,7 +1599,6 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
     }
 }
 
-// 1. DLASSQ
 
 /// Updates a sum of squares represented in scaled form.
 /// This function computes values `scale` and `sumsq` such that
@@ -1751,6 +1750,7 @@ Not yet implemented functions:
 
    - Description: Computes all eigenvalues and corresponding eigenvectors of an unreduced symmetric tridiagonal matrix using the divide and conquer method. It serves as a high-level driver routine that orchestrates the divide and conquer process.
    - When it's called: Within `dstedc` when dealing with larger matrices (size greater than a threshold `SMLSIZ`), `dlaed0` is called to compute the eigenvalues and eigenvectors using the divide and conquer strategy.
+   - Perhaps partially in divide_and_conquer function
 
 4. DCOPY
 
@@ -1801,20 +1801,9 @@ Not yet implemented functions:
 
     - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
     - When it's called: Used within `dlaed0` during the divide and conquer process to set up vectors necessary for merging eigenvalues and eigenvectors from subproblems.
-
-15. DLASCL
-
-    - Description: Scales a matrix by a real scalar factor defined as `cto/cfrom`, adjusting the matrix elements to prevent overflow or underflow during computations.
-    - When it's called: Employed in various routines like `dsteqr` and `dsbevd` to rescale matrices or vectors when their norms are outside the safe range for numerical stability.
-
+    
 16. DLASR
 
     - Description: Applies a sequence of plane rotations to a general rectangular matrix. This function can apply rotations from the left or the right, in forward or backward order, and with different pivot strategies.
     - When it's called: Used in `dsteqr` to apply accumulated rotations to eigenvectors during the QR iteration process for computing eigenvalues and eigenvectors of a tridiagonal matrix.
-
-17. DSWAP
-
-    - Description: Interchanges two vectors, swapping their elements. This operation is essential in sorting procedures and when rearranging data for computational efficiency.
-    - When it's called: Called in routines like `dsteqr` to swap eigenvalues and corresponding eigenvectors when sorting them into ascending order after computation.
-
 */
