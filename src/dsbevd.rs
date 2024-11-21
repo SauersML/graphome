@@ -1010,3 +1010,243 @@ fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
 
     result
 }
+
+
+/// DLAMC3 is intended to force a and b to be stored prior to doing the addition of a and b.
+/// For use in situations where optimizers might hold one of these in a register.
+fn dlamc3(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+/// Compute the norm of a symmetric tridiagonal matrix
+fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
+    match norm_type {
+        'M' | 'm' => {
+            // Maximum absolute value
+            let mut result = 0.0;
+            for &val in d.iter() {
+                result = result.max(val.abs());
+            }
+            for &val in e.iter() {
+                result = result.max(val.abs());
+            }
+            result
+        },
+        'O' | 'o' | '1' => {
+            // One norm
+            if n == 0 {
+                return 0.0;
+            }
+            if n == 1 {
+                return d[0].abs();
+            }
+            
+            let mut work = vec![0.0; n];
+            // First row
+            work[0] = d[0].abs() + e[0].abs();
+            // Middle rows
+            for i in 1..n-1 {
+                work[i] = e[i-1].abs() + d[i].abs() + e[i].abs();
+            }
+            // Last row
+            work[n-1] = e[n-2].abs() + d[n-1].abs();
+            
+            work.iter().fold(0.0, |max, &x| max.max(x))
+        },
+        'I' | 'i' => {
+            // Infinity norm (same as one norm for symmetric matrix)
+            if n == 0 {
+                return 0.0;
+            }
+            if n == 1 {
+                return d[0].abs();
+            }
+            
+            let mut work = vec![0.0; n];
+            // First row
+            work[0] = d[0].abs() + e[0].abs();
+            // Middle rows
+            for i in 1..n-1 {
+                work[i] = e[i-1].abs() + d[i].abs() + e[i].abs();
+            }
+            // Last row
+            work[n-1] = e[n-2].abs() + d[n-1].abs();
+            
+            work.iter().fold(0.0, |max, &x| max.max(x))
+        },
+        'F' | 'f' | 'E' | 'e' => {
+            // Frobenius norm
+            let mut scale = 0.0;
+            let mut sumsq = 1.0;
+            
+            // Add diagonal elements
+            dlassq(n, d, 1, &mut scale, &mut sumsq);
+            
+            // Add off-diagonal elements
+            if n > 1 {
+                dlassq(n-1, e, 1, &mut scale, &mut sumsq);
+                sumsq *= 2.0;
+            }
+            
+            scale * sumsq.sqrt()
+        },
+        _ => panic!("Invalid norm type")
+    }
+}
+
+/// Compute parameters for a 2x2 eigenvalue problem
+fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
+    let (rt1, rt2, cs1, sn1) = if b == 0.0 && c == 0.0 {
+        // Matrix is diagonal
+        if a >= c {
+            (a, c, 1.0, 0.0)
+        } else {
+            (c, a, 0.0, 1.0)
+        }
+    } else {
+        let sm = a + c;
+        let df = a - c;
+        let adf = df.abs();
+        let tb = b + b;
+        let ab = tb.abs();
+        
+        let acmx = if a.abs() > c.abs() { a } else { c };
+        let acmn = if a.abs() > c.abs() { c } else { a };
+        
+        if adf > ab {
+            let rt = adf * (1.0 + (ab/adf).powi(2)).sqrt();
+            if df >= 0.0 {
+                rt1 = sm + rt;
+                rt2 = (acmx / rt1) * acmn - (b / rt1) * b;
+            } else {
+                rt1 = (acmx / (sm - rt)) * acmn - (b / (sm - rt)) * b;
+                rt2 = sm - rt;
+            }
+            
+            // Compute eigenvector
+            if df >= 0.0 {
+                cs1 = df + rt;
+                sn1 = tb;
+            } else {
+                cs1 = tb;
+                sn1 = df + rt;
+            }
+            
+            let temp = 1.0 / (cs1 * cs1 + sn1 * sn1).sqrt();
+            cs1 *= temp;
+            sn1 *= temp;
+        } else if ab == 0.0 {
+            rt1 = sm;
+            rt2 = 0.0;
+            cs1 = 1.0;
+            sn1 = 0.0;
+        } else {
+            let rt = ab * (1.0 + (adf/ab).powi(2)).sqrt();
+            if sm >= 0.0 {
+                rt1 = 0.5 * (sm + rt);
+                rt2 = (acmx/rt1) * acmn - (b/rt1) * b;
+            } else {
+                rt2 = 0.5 * (sm - rt);
+                rt1 = (acmx/(rt2)) * acmn - (b/rt2) * b;
+            }
+            
+            // Compute eigenvector
+            cs1 = 1.0;
+            sn1 = if tb >= 0.0 {
+                if ab >= 0.0 { ab } else { -ab }
+            } else {
+                if ab >= 0.0 { -ab } else { ab }
+            };
+            
+            let temp = 1.0 / (1.0 + sn1 * sn1).sqrt();
+            cs1 *= temp;
+            sn1 *= temp;
+        }
+        (rt1, rt2, cs1, sn1)
+    };
+
+    (rt1, rt2, cs1, sn1, 0.0) // Last value is work space
+}
+
+/// Safe computation of sqrt(x*x + y*y)
+fn dlapy2(x: f64, y: f64) -> f64 {
+    let x_abs = x.abs();
+    let y_abs = y.abs();
+    
+    if x_abs > y_abs {
+        let temp = y_abs / x_abs;
+        x_abs * (1.0 + temp * temp).sqrt()
+    } else if y_abs > x_abs {
+        let temp = x_abs / y_abs;
+        y_abs * (1.0 + temp * temp).sqrt()
+    } else {
+        x_abs * 2.0f64.sqrt()
+    }
+}
+
+/// Scale and sum of squares calculation
+fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
+    if n == 0 {
+        return;
+    }
+
+    for i in (0..n*incx).step_by(incx) {
+        if x[i] != 0.0 {
+            let abs_x = x[i].abs();
+            if *scale < abs_x {
+                *sumsq = 1.0 + *sumsq * (*scale / abs_x).powi(2);
+                *scale = abs_x;
+            } else {
+                *sumsq += (abs_x / *scale).powi(2);
+            }
+        }
+    }
+}
+
+/// Initialize a matrix with diagonal and off-diagonal values
+fn dlaset(uplo: char, m: usize, n: usize, alpha: f64, beta: f64, a: &mut [Vec<f64>]) {
+    match uplo {
+        'U' | 'u' => {
+            // Upper triangle
+            for j in 0..n {
+                for i in 0..j.min(m) {
+                    a[i][j] = alpha;
+                }
+                if j < m {
+                    a[j][j] = beta;
+                }
+            }
+        },
+        'L' | 'l' => {
+            // Lower triangle
+            for j in 0..n {
+                for i in j+1..m {
+                    a[i][j] = alpha;
+                }
+                if j < m {
+                    a[j][j] = beta;
+                }
+            }
+        },
+        _ => {
+            // Full matrix
+            for j in 0..n {
+                for i in 0..m {
+                    a[i][j] = if i == j { beta } else { alpha };
+                }
+            }
+        }
+    }
+}
+
+/// Constants for machine parameters
+const DLAMCH_EPS: f64 = f64::EPSILON;
+const DLAMCH_SFMIN: f64 = f64::MIN_POSITIVE;
+const DLAMCH_BASE: f64 = 2.0;
+const DLAMCH_PREC: f64 = f64::EPSILON;
+const DLAMCH_T: f64 = 53.0; // Number of base-DLAMCH_BASE digits in mantissa
+const DLAMCH_RND: f64 = 1.0;
+const DLAMCH_EMIN: f64 = f64::MIN_EXPONENT as f64;
+const DLAMCH_RMIN: f64 = f64::MIN_POSITIVE;
+const DLAMCH_EMAX: f64 = f64::MAX_EXPONENT as f64;
+const DLAMCH_RMAX: f64 = f64::MAX;
