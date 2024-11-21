@@ -425,38 +425,35 @@ fn dlartv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &
     }
 }
 
+/// Apply plane rotation
 fn drot(dx: &mut [f64], dy: &mut [f64], c: f64, s: f64) {
-    let n = dx.len();
-    for i in 0..n {
+    assert_eq!(dx.len(), dy.len(), "Vector lengths must match");
+    for i in 0..dx.len() {
         let temp = c * dx[i] + s * dy[i];
-        dy[i] = c * dy[i] - s * dx[i];
+        dy[i] = -s * dx[i] + c * dy[i];
         dx[i] = temp;
     }
 }
 
-fn dlartg(f: f64, g: f64) -> (f64, f64, f64) {
+
+/// Generate plane rotation
+fn dlartg(f: f64, g: f64) -> (f64, f64) {  // Changed to return just (c, s)
     if g == 0.0 {
-        let cs = f.signum();
-        let sn = 0.0;
-        let r = f.abs();
-        (cs, sn, r)
+        (1.0, 0.0)
     } else if f == 0.0 {
-        let cs = 0.0;
-        let sn = g.signum();
-        let r = g.abs();
-        (cs, sn, r)
+        (0.0, 1.0)
     } else {
-        let scale = f.abs().max(g.abs());
+        let abs_f = f.abs();
+        let abs_g = g.abs();
+        let scale = abs_f.max(abs_g);
         let fs = f / scale;
         let gs = g / scale;
-        let r = scale * (fs * fs + gs * gs).sqrt();
-        let cs = f / r;
-        let sn = g / r;
-        (cs, sn, r)
+        let norm = (fs * fs + gs * gs).sqrt();
+        let c = fs / norm;
+        let s = gs / norm;
+        (c, s)
     }
 }
-
-
 
 fn dlar2v(
     n: usize,
@@ -1307,10 +1304,9 @@ pub fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64
 
     let kd1 = kd + 1;
     let kdm1 = kd - 1;
-    let ncc = 0; // Number of columns of Q to update
-    let mut nr = 0;
-    let mut j1 = kd1;
-    let mut j2 = 1;
+    let mut nr: usize = 0;
+    let mut j1: usize = kd1;
+    let mut j2: usize = 1;
 
     let mut work = vec![0.0; n];
     
@@ -1318,44 +1314,44 @@ pub fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64
         // Upper triangular storage
         for j in 0..n-2 {
             // Reduce jth column of matrix to tridiagonal form
-            for k in kd-1..0 {
-                j1 = j1.saturating_sub(kd1);
-                j2 = j2.saturating_sub(kd1);
+            for k in (0..kd-1).rev() {
+                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
                 
                 if nr > 0 {
-                    // Generate rotations to annihilate nonzero elements
-                    dlargv(nr, &mut ab[k+1][j1-1], kd1, 
-                          &mut ab[k][j1], kd1,
-                          &mut work[j1], 1);
+                    // Create slices for rotations
+                    let j_start = j1.saturating_sub(1);
+                    let len = nr.min(ab[0].len() - j_start);
+                    
+                    // Get mutable slices for the bands we need to modify
+                    let (upper, lower) = get_mut_bands(ab, k, j_start, len);
+                    let work_slice = &mut work[j_start..j_start+len];
+                    
+                    dlargv(len, upper, 1, lower, 1, work_slice, 1);
 
-                    // Apply rotations from the right
+                    // Apply rotations
                     for l in 0..k {
-                        dlartv(nr, &mut ab[l+1][j1-1], kd1,
-                              &mut ab[l][j1], kd1,
-                              &work[j1], &ab[k][j1], 1);
+                        let (band1, band2) = get_mut_bands(ab, l, j_start, len);
+                        dlartv(len, band1, 1, band2, 1, 
+                              &work[j_start..j_start+len], 
+                              &ab[k][j_start..j_start+len], 1);
                     }
                 }
 
-                if k < kd-1 {
-                    // Generate rotation to annihilate a(j,j+k) within the band
+                if k < kdm1 {
+                    // Generate rotation
                     let (cs, sn) = dlartg(ab[kd-k][j+k], ab[kd-k-1][j+k+1]);
                     
-                    // Apply rotation from the right
-                    drot(k, &mut ab[kd-k][j+k..], 1, 
-                         &mut ab[kd-k-1][j+k+1..], 1,
-                         cs, sn);
-                         
+                    // Get slices for the rotation
+                    let len = k.min(n - (j+k) - 1);
+                    let slice1 = &mut ab[kd-k][j+k..j+k+len];
+                    let slice2 = &mut ab[kd-k-1][j+k+1..j+k+1+len];
+                    
+                    drot(slice1, slice2, cs, sn);
                     ab[kd-k-1][j+k+1] = 0.0;
                 }
 
                 nr += 1;
-            }
-
-            // Copy superdiagonal elements back into A
-            for i in 0..kd-1 {
-                if j+i+1 < n {
-                    ab[i][j+i+1] = ab[kd][j+i];
-                }
             }
 
             // Update diagonal and subdiagonal elements
@@ -1364,88 +1360,52 @@ pub fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64
                 e[j] = ab[kdm1][j+1];
             }
         }
-        // Handle last diagonal element
         d[n-1] = ab[kd][n-1];
 
     } else {
-        // Lower triangular storage
+        // Lower triangular storage - similar structure to upper case
         for j in 0..n-2 {
-            // Reduce jth row of matrix to tridiagonal form
-            for k in kd-1..0 {
-                j1 = j1.saturating_sub(kd1);
-                j2 = j2.saturating_sub(kd1);
+            for k in (0..kd-1).rev() {
+                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
                 
                 if nr > 0 {
-                    // Generate rotations to annihilate nonzero elements
-                    dlargv(nr, &mut ab[kd1-k-1][j1], kd1,
-                          &mut ab[kd1-k][j1], kd1,
-                          &mut work[j1], 1);
+                    let j_start = j1;
+                    let len = nr.min(ab[0].len() - j_start);
+                    
+                    let (lower, upper) = get_mut_bands(ab, k, j_start, len);
+                    let work_slice = &mut work[j_start..j_start+len];
+                    
+                    dlargv(len, lower, kd1, upper, kd1, work_slice, 1);
 
-                    // Apply rotations from the left
                     for l in 0..k {
-                        dlartv(nr, &mut ab[kd1-l-1][j1], kd1,
-                              &mut ab[kd1-l][j1], kd1,
-                              &work[j1], &ab[kd1-k][j1], 1);
+                        let (band1, band2) = get_mut_bands(ab, l, j_start, len);
+                        dlartv(len, band1, kd1, band2, kd1,
+                              &work[j_start..j_start+len],
+                              &ab[k+1][j_start..j_start+len], 1);
                     }
                 }
 
-                if k < kd-1 {
-                    // Generate rotation to annihilate a(j+k,j) within the band
+                if k < kdm1 {
                     let (cs, sn) = dlartg(ab[k+1][j], ab[k+2][j]);
                     
-                    // Apply rotation from the left
-                    drot(k, &mut ab[k+2][j..], kd1,
-                         &mut ab[k+1][j+1..], kd1,
-                         cs, sn);
-                         
+                    let len = k.min(n - j - 1);
+                    let slice1 = &mut ab[k+2][j..j+len];
+                    let slice2 = &mut ab[k+1][j+1..j+1+len];
+                    
+                    drot(slice1, slice2, cs, sn);
                     ab[k+2][j] = 0.0;
                 }
 
                 nr += 1;
             }
 
-            // Copy subdiagonal elements back into A
-            for i in 0..kd-1 {
-                if j+i+1 < n {
-                    ab[i+1][j] = ab[0][j+i+1];
-                }
-            }
-
-            // Update diagonal and subdiagonal elements
             if j < n-1 {
                 d[j] = ab[0][j];
                 e[j] = ab[1][j];
             }
         }
-        // Handle last diagonal element
         d[n-1] = ab[0][n-1];
-    }
-    
-    // If we're computing eigenvectors, update Q
-    if ncc > 0 {
-        if uplo == 'U' {
-            // Update Q for upper storage
-            for j in 0..n-1 {
-                for k in 0..kd-1 {
-                    if j+k+1 < n {
-                        drot(ncc, &mut q[j][..], 1,
-                             &mut q[j+k+1][..], 1,
-                             work[j], ab[k][j+k+1]);
-                    }
-                }
-            }
-        } else {
-            // Update Q for lower storage
-            for j in 0..n-1 {
-                for k in 0..kd-1 {
-                    if j+k+1 < n {
-                        drot(ncc, &mut q[j][..], 1,
-                             &mut q[j+k+1][..], 1,
-                             work[j], ab[k+1][j]);
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1465,4 +1425,12 @@ pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>])
     dsbtrd(uplo, n, kd, ab, &mut d, &mut e, &mut q);
 
     (d, e, q)
+}
+
+// Helper function to get mutable slices of two different bands
+fn get_mut_bands<'a>(ab: &'a mut [Vec<f64>], k: usize, start: usize, len: usize) 
+    -> (&'a mut [f64], &'a mut [f64]) 
+{
+    let (part1, part2) = ab.split_at_mut(k + 1);
+    (&mut part1[k][start..start+len], &mut part2[0][start..start+len])
 }
