@@ -1658,3 +1658,94 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
         1
     }
 }
+
+
+/*
+Not yet implemented functions:
+
+1. DLAMCH
+
+   - Description: Determines double-precision real machine parameters, such as the machine precision (EPS), the safe minimum (SAFMIN), the base of the machine, the maximum and minimum exponents, etc. This function is essential for setting up constants used in scaling and convergence criteria in numerical algorithms.
+   - When it's called: It's called during `dsbevd` to get machine constants like EPS (precision), SAFMIN (safe minimum), SMLNUM, BIGNUM, RMIN, RMAX. These constants are crucial for scaling decisions, convergence checks, and to avoid overflow or underflow during computations.
+
+2. DLASSQ
+
+   - Description: Updates a sum of squares represented in scaled form. It efficiently computes the values `scale` and `sumsq` such that `(scale2) * sumsq` equals the sum of squares of the given vector elements, preventing overflow or underflow during the computation.
+   - When it's called: It's used within functions like `dlanst` and other norm computations to accumulate sums of squares safely. In the context of `dstedc`, it's called in `dlanst` for matrix norm calculations during the scaling process.
+
+3. DLAED0
+
+   - Description: Computes all eigenvalues and corresponding eigenvectors of an unreduced symmetric tridiagonal matrix using the divide and conquer method. It serves as a high-level driver routine that orchestrates the divide and conquer process.
+   - When it's called: Within `dstedc` when dealing with larger matrices (size greater than a threshold `SMLSIZ`), `dlaed0` is called to compute the eigenvalues and eigenvectors using the divide and conquer strategy.
+
+4. DCOPY
+
+   - Description: Copies the contents of one vector to another, i.e., performs the operation `y := x`. It handles copying vectors with specific increments between elements.
+   - When it's called: Used throughout the algorithms to copy vectors or portions of vectors. In routines like `dlaed0`, `dlaed1`, and `dlaed2`, it is essential for duplicating data during the divide and conquer steps.
+
+5. DLACPY
+
+   - Description: Copies all or part of a two-dimensional matrix `A` to another matrix `B`. It can copy the entire matrix or just the upper or lower triangular part, depending on the specified options.
+   - When it's called: Used to copy matrices or submatrices, particularly when manipulating eigenvector matrices. In `dstedc` and `dlaed0`, `dlacpy` is called to manage workspace matrices during computations.
+
+6. DLAED1
+
+   - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix. It is specifically used when the original matrix is tridiagonal and involves deflation techniques.
+   - When it's called: Within `dlaed0` during the divide step of the divide and conquer algorithm, when handling merged eigenvalues and eigenvectors.
+
+7. DLAED2
+
+   - Description: Merges eigenvalues and deflates the secular equation, reducing the problem size when possible. It handles cases with multiple eigenvalues or negligible entries in the updating vector.
+   - When it's called: Called by `dlaed1` to perform deflation during the divide and conquer process, optimizing the computation by exploiting the structure of the problem.
+
+8. DLAMRG
+
+   - Description: Merges two sorted arrays into a single sorted array, creating a permutation list that can be used to rearrange data. It efficiently handles the merging of the eigenvalues from two subproblems.
+   - When it's called: Used in `dlaed1`, `dlaed3`, and other routines when the eigenvalues from subproblems need to be merged in sorted order during the divide and conquer algorithm.
+
+9. DLAED5
+
+   - Description: Computes the i-th eigenvalue and eigenvector of a symmetric rank-one modification of a 2-by-2 diagonal matrix. It handles the special case where the problem size is two.
+   - When it's called: Within `dlaed4` when the problem has been reduced to size two, allowing for a direct computation of eigenvalues and eigenvectors in the divide and conquer algorithm.
+
+10. DLAED6
+
+    - Description: Computes one Newton step in the solution of the secular equation, specializing in refining a single eigenvalue. It is used for efficiently finding roots of the secular equation.
+    - When it's called: Invoked by `dlaed4` during the iterative solution of the secular equation, particularly when dealing with closely spaced eigenvalues that require careful handling to ensure convergence.
+
+11. DLAED7
+
+    - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix, used when the original matrix is dense. It specifically handles larger subproblems in the divide and conquer algorithm.
+    - When it's called: Within `dstedc`, `dlaed7` is called during recursive steps of the divide and conquer process to update eigenvalues and eigenvectors after merging subproblems.
+
+12. DLAED8
+
+    - Description: Merges eigenvalues and deflates the secular equation for dense matrices. It works alongside `dlaed7` to handle eigenvalue deflation and convergence during the divide and conquer algorithm.
+    - When it's called: Called by `dlaed7` to perform the merging and deflation steps necessary for efficiently computing the eigenvalues and eigenvectors of the updated matrix.
+
+13. DLAED9
+
+    - Description: Finds the roots of the secular equation and updates the eigenvectors. This function computes updated eigenvalues and eigenvectors for a rank-one modification of a diagonal matrix.
+    - When it's called: Invoked by `dlaed7` during the last stages of the divide and conquer algorithm to compute the final eigenvectors that will be combined to form the solution to the original problem.
+
+14. DLAEDA
+
+    - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
+    - When it's called: Used within `dlaed0` during the divide and conquer process to set up vectors necessary for merging eigenvalues and eigenvectors from subproblems.
+
+15. DLASCL
+
+    - Description: Scales a matrix by a real scalar factor defined as `cto/cfrom`, adjusting the matrix elements to prevent overflow or underflow during computations.
+    - When it's called: Employed in various routines like `dsteqr` and `dsbevd` to rescale matrices or vectors when their norms are outside the safe range for numerical stability.
+
+16. DLASR
+
+    - Description: Applies a sequence of plane rotations to a general rectangular matrix. This function can apply rotations from the left or the right, in forward or backward order, and with different pivot strategies.
+    - When it's called: Used in `dsteqr` to apply accumulated rotations to eigenvectors during the QR iteration process for computing eigenvalues and eigenvectors of a tridiagonal matrix.
+
+17. DSWAP
+
+    - Description: Interchanges two vectors, swapping their elements. This operation is essential in sorting procedures and when rearranging data for computational efficiency.
+    - When it's called: Called in routines like `dsteqr` to swap eigenvalues and corresponding eigenvectors when sorting them into ascending order after computation.
+
+*/
