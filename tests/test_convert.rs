@@ -198,15 +198,15 @@ mod tests {
         writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
         writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
         writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
-        // Output file for adjacency matrix
-        let output_gam = NamedTempFile::new()?;
+        // Create output directory first
+        let output_dir = tempdir()?;
+        // Output file for adjacency matrix in the output directory
+        let output_gam = output_dir.path().join("test.gam");
         // Run the conversion
-        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+        convert_gfa_to_edge_list(gfa_file.path(), &output_gam)?;
         // Define a partial range (nodes 2 to 3)
         let start_node = 1;
         let end_node = 2;
-        // Output file base path for analysis
-        let output_dir = tempdir()?;
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
