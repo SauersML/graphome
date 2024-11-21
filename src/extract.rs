@@ -1,5 +1,5 @@
-use graphome::extract::*;
-use graphome::eigen::{
+use crate::extract::*;
+use crate::eigen::{
     adjacency_matrix_to_ndarray,
     call_eigendecomp,
     compute_ngec,
@@ -15,12 +15,12 @@ use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::collections::HashSet;
 
-use graphome::convert::convert_gfa_to_edge_list;
+use crate::convert::convert_gfa_to_edge_list;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use graphome::extract;
+    use crate::extract;
     use std::fs::File;
     use std::io::Read;
     use std::cmp::min;
