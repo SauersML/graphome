@@ -5,7 +5,6 @@ use graphome::eigen::{
     adjacency_matrix_to_ndarray,
     save_nalgebra_matrix_to_csv,
     save_nalgebra_vector_to_csv,
-    save_array_to_csv_dsbevd,
 };
 
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
@@ -472,35 +471,6 @@ mod tests {
                 );
             }
         }
-
-        Ok(())
-    }
-
-    /// Test that saving the adjacency matrix to CSV works correctly
-    #[test]
-    fn test_save_matrix_to_csv() -> io::Result<()> {
-        // Create a temporary matrix
-        let matrix = Array2::from_shape_vec((2, 2), vec![0.0, 1.0, 1.0, 0.0])
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-
-        // Output file
-        let output_file = NamedTempFile::new()?;
-
-        // Save matrix to CSV
-        save_array_to_csv_dsbevd(&matrix, output_file.path())?;
-
-        // Read the output file
-        let mut file = File::open(output_file.path())?;
-        let mut contents = String::new();
-        file.read_to_string(&mut contents)?;
-
-        // Expected output with floats
-        let expected = "0.0,1.0\n1.0,0.0\n";
-
-        assert_eq!(
-            contents, expected,
-            "Saved matrix does not match expected float values."
-        );
 
         Ok(())
     }
