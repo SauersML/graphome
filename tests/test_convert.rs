@@ -119,13 +119,14 @@ mod tests {
         let end_node = 2;
 
         // Output file base path for analysis
-        let output_analysis = NamedTempFile::new()?;
+        let output_dir = tempdir()?;
 
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
             start_node,
             end_node,
+            output_dir.path(),
         )?;
 
         // Define expected edges within the range as a Vec
@@ -139,7 +140,7 @@ mod tests {
         ];
 
         // Load the Laplacian matrix from CSV
-        let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
+        let laplacian_csv = output_dir.path().join("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
 
         // Verify the Laplacian matrix
@@ -160,7 +161,7 @@ mod tests {
         );
 
         // Load eigenvalues
-        let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
+        let eigenvalues_csv = output_dir.path().join("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
 
         // Expected eigenvalues
@@ -218,12 +219,13 @@ mod tests {
         let start_node = 1;
         let end_node = 2;
         // Output file base path for analysis
-        let output_analysis = NamedTempFile::new()?;
+        let output_dir = tempdir()?;
         // Run the extraction
         extract::extract_and_analyze_submatrix(
             output_gam.path(),
             start_node,
             end_node,
+            output_dir.path(),
         )?;
         // Define expected edges within the range as a Vec
         let _expected_edges: Vec<(u32, u32)> = vec![
@@ -249,7 +251,7 @@ mod tests {
             "Laplacian matrix does not match expected values for partial range extraction."
         );
         // Load the eigenvalues from CSV
-        let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
+        let eigenvalues_csv = output_dir.path().join("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
         // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0.0, 2.0]
         let expected_eigenvalues = vec![0.0, 2.0];
