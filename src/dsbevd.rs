@@ -1374,8 +1374,6 @@ fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],
 }
 
 
-
-
 fn dsteqr(
     compz: char,
     n: usize,
@@ -1468,9 +1466,9 @@ fn dsteqr(
                 jtot += 1;
 
                 // Form shift
-                let g = (d[l - 1] - d[l]) / (TWO * e[l - 1]);
-                let r = dlapy2(g, ONE);
-                let g = d[l] - d[l - 1] + e[l - 1] / (g + r.copysign(g));
+                let mut g = (d[l - 1] - d[l]) / (TWO * e[l - 1]);
+                let mut r = dlapy2(g, ONE);
+                g = d[l] - d[l - 1] + e[l - 1] / (g + r.copysign(g));
                 let mut s = ONE;
                 let mut c = ONE;
                 let mut p = ZERO;
@@ -1527,9 +1525,9 @@ fn dsteqr(
                 jtot += 1;
 
                 // Form shift
-                let g = (d[l + 1] - d[l]) / (TWO * e[l]);
-                let r = dlapy2(g, ONE);
-                let g = d[l] - d[l + 1] + e[l] / (g + r.copysign(g));
+                let mut g = (d[l + 1] - d[l]) / (TWO * e[l]);
+                let mut r = dlapy2(g, ONE);
+                g = d[l] - d[l + 1] + e[l] / (g + r.copysign(g));
                 let mut s = ONE;
                 let mut c = ONE;
                 let mut p = ZERO;
@@ -1590,7 +1588,7 @@ fn dsteqr(
         d.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     } else {
         let mut idx: Vec<usize> = (0..n).collect();
-        idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap_or(std::cmp::Ordering::Equal));  // Fixed extra parenthesis
+        idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap_or(std::cmp::Ordering::Equal));
 
         let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
         let sorted_z = idx
@@ -1612,8 +1610,6 @@ fn dsteqr(
         Ok(())
     }
 }
-
-
 
 
 /// Scales a matrix by cto/cfrom without over/underflow.
