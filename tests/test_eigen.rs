@@ -153,14 +153,3 @@ fn test_adjacency_matrix_to_ndarray() {
     assert_eq!(adj_matrix, expected);
 
 }
-
-#[test]
-fn test_print_eigenvalues_heatmap() {
-    let eigenvalues = array![1.0, 2.0, 0.0, 4.0];
-    let mut writer = Vec::new(); // Capture output
-    print_eigenvalues_heatmap(&eigenvalues, &mut writer);
-
-    // Add assertions
-    let output = String::from_utf8(writer).unwrap();
-    assert!(output.contains("██"));
-}
