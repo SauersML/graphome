@@ -142,7 +142,6 @@ mod tests {
             output_gam.path(),
             start_node,
             end_node,
-            output_analysis.path(),
         )?;
 
         // Define expected edges within the range as a Vec
