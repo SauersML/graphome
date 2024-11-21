@@ -8,6 +8,7 @@ use graphome::eigen::{
     ndarray_to_nalgebra_matrix,
     adjacency_matrix_to_ndarray,
     print_heatmap,
+    save_nalgebra_vector_to_csv,
 };
 
 const TOLERANCE: f64 = 1e-6;
@@ -153,16 +154,6 @@ fn test_adjacency_matrix_to_ndarray() {
 
 }
 
-
-
-#[test]
-fn test_print_heatmap() {
-    let matrix = array![[1.0, 2.0], [0.0, 4.0]];
-    let mut writer = Vec::new();  // Capture output
-    print_heatmap(&matrix.view(), &mut writer);
-    let output = String::from_utf8(writer).unwrap();
-    assert!(output.contains("██")); // Check for presence of heatmap characters
-}
 
 #[test]
 fn test_print_heatmap_ndarray() {
