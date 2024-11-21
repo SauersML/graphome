@@ -3,6 +3,7 @@
 // We ONLY care about large matrices, and we ALWAYS want both eigenvectors and eigenvalues
 
 use rayon::prelude::*;
+use std::cmp::{max, min};
 
 /// Represents a real symmetric banded matrix.
 #[derive(Clone)]
@@ -1031,25 +1032,6 @@ fn dlapy2(x: f64, y: f64) -> f64 {
     }
 }
 
-/// Scale and sum of squares calculation
-fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
-    if n == 0 {
-        return;
-    }
-
-    for i in (0..n*incx).step_by(incx) {
-        if x[i] != 0.0 {
-            let abs_x = x[i].abs();
-            if *scale < abs_x {
-                *sumsq = 1.0_f64 + *sumsq * (*scale / abs_x).powi(2);
-                *scale = abs_x;
-            } else {
-                *sumsq += (abs_x / *scale).powi(2);
-            }
-        }
-    }
-}
-
 /// Initialize a matrix with diagonal and off-diagonal values
 fn dlaset(uplo: char, m: usize, n: usize, alpha: f64, beta: f64, a: &mut [Vec<f64>]) {
     match uplo {
@@ -1458,48 +1440,6 @@ fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
    }
 }
 
-
-// Implementations of the missing functions translated from LAPACK to Rust
-
-use std::cmp::{max, min};
-
-/// Merges two sorted arrays into a single sorted array.
-/// Translated from LAPACK's DLAMRG
-fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
-    let mut n1sv = n1 as isize;
-    let mut n2sv = n2 as isize;
-    let mut ind1 = if dtrd1 > 0 { 0 } else { (n1 - 1) as isize };
-    let mut ind2 = if dtrd2 > 0 { n1 as isize } else { (n1 + n2 - 1) as isize };
-    let mut i = 0;
-
-    while n1sv > 0 && n2sv > 0 {
-        if a[ind1 as usize] <= a[ind2 as usize] {
-            index[i] = ind1 as usize;
-            i += 1;
-            ind1 += dtrd1 as isize;
-            n1sv -= 1;
-        } else {
-            index[i] = ind2 as usize;
-            i += 1;
-            ind2 += dtrd2 as isize;
-            n2sv -= 1;
-        }
-    }
-
-    if n1sv == 0 {
-        for _ in 0..n2sv {
-            index[i] = ind2 as usize;
-            i += 1;
-            ind2 += dtrd2 as isize;
-        }
-    } else {
-        for _ in 0..n1sv {
-            index[i] = ind1 as usize;
-            i += 1;
-            ind1 += dtrd1 as isize;
-        }
-    }
-}
 
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
