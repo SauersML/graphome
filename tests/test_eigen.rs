@@ -6,11 +6,7 @@ use ndarray::array;
 use graphome::eigen::{
     call_eigendecomp,
     compute_eigenvalues_and_vectors_sym,
-    compute_eigenvalues_and_vectors_sym_band,
     compute_ngec,
-    max_band,
-    save_array_to_csv_dsbevd,
-    to_banded_format,
 };
 use std::fs;
 use std::fs::File;
@@ -267,38 +263,6 @@ fn test_compute_ngec_with_empty_eigenvalues() {
             e
         );
     }
-}
-
-/// Test the `save_array_to_csv_dsbevd` function by saving and reading back a known array.
-#[test]
-fn test_save_array_to_csv_dsbevd() {
-    // Create a small array to save
-    let array = array![[1.0, 2.0], [3.0, 4.0]];
-    let output_path = Path::new("test_output_dsbevd.csv");
-
-    // Save the array to a CSV file
-    save_array_to_csv_dsbevd(&array, &output_path)
-        .expect("Failed to save array to CSV using dsbevd");
-
-    // Read back the file contents
-    let mut file = File::open(&output_path)
-        .expect("Failed to open CSV file saved by dsbevd");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("Failed to read CSV file saved by dsbevd");
-
-    // Define the expected CSV content
-    let expected_contents = "1.0,2.0\n3.0,4.0";
-
-    assert_eq!(
-        contents.trim(),
-        expected_contents,
-        "CSV contents do not match expected output."
-    );
-
-    // Clean up the test output file
-    fs::remove_file(output_path)
-        .expect("Failed to delete test output CSV file saved by dsbevd");
 }
 
 /// Test the `call_eigendecomp` function with a small symmetric matrix.
