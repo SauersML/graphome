@@ -67,14 +67,11 @@ impl SymmetricBandedMatrix {
         dstedc(&mut d, &mut e, &mut z)?;
         
         // Convert results to required format
-        let eigenvalues = d;
-        let eigenvectors = z;
+        let eigenvalues = d.clone();
+        let eigenvectors = z.clone(); // Clone z here
         
-        // Transform eigenvectors back
-        let eigenvectors = dgemm(&q, &z);
-    
         // Rescale eigenvalues
-        let mut eigenvalues = d;
+        let mut eigenvalues = eigenvalues; // Use the cloned eigenvalues
         if scale != 1.0 {
             for eigenval in &mut eigenvalues {
                 *eigenval /= scale;
