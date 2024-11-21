@@ -68,7 +68,7 @@ impl SymmetricBandedMatrix {
         
         // Convert results to required format
         let eigenvalues = d;
-        let eigenvectors = dgemm(&q, &eigenvectors); // Use the cloned value
+        let eigenvectors = z;
         
         // Transform eigenvectors back
         let eigenvectors = dgemm(&q, &z);
