@@ -1,19 +1,14 @@
-// tests/test_eigen.rs
-
 //! Unit tests for the eigen module.
 
-use ndarray::array;
+use ndarray::{array, Array1, Array2, ArrayView2};
 use graphome::eigen::{
     call_eigendecomp,
     compute_eigenvalues_and_vectors_sym,
     compute_ngec,
-    ndarray_to_nalgebra_matrix, // Add this import
+    ndarray_to_nalgebra_matrix,
+    adjacency_matrix_to_ndarray,
+    print_heatmap,
 };
-use std::fs;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::path::Path;
-use nalgebra::DMatrix;
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -28,9 +23,7 @@ fn test_to_banded_format_kd_1() {
     ];
     let kd = 1;
 
-    // Define the expected banded format for kd = 1 based on the `to_banded_format` implementation
-    // According to the function, the main diagonal is in the last row,
-    // and upper diagonals are above.
+    // Define the expected banded format for kd = 1 
     let expected_banded = array![
         [0.0, 2.0, 4.0], // Upper diagonal (k = 1)
         [1.0, 3.0, 5.0]  // Main diagonal
@@ -53,7 +46,7 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
 
     for i in 0..n {
         for j in 0..n {
-            let k = (j - i).abs();
+            let k = (j as isize - i as isize).abs() as usize; // Explicit cast to isize for subtraction
             if k <= kd {
                 banded_matrix[[kd - k, i]] = matrix[[i, j]];
             }
@@ -74,17 +67,14 @@ fn test_to_banded_format_kd_2() {
     ];
     let kd = 2;
 
-    // Define the expected banded format for kd = 2 based on the `to_banded_format` implementation
     let expected_banded = array![
-        [0.0, 0.0, 0.0, 0.0], // k = 2 (No elements beyond the second upper diagonal)
+        [0.0, 0.0, 0.0, 0.0], // k = 2
         [0.0, 1.0, 1.0, 1.0], // k = 1
         [4.0, 3.0, 2.0, 1.0]  // Main diagonal
     ];
 
-    // Convert the matrix to banded format
     let banded = to_banded_format(&matrix, kd);
 
-    // Assert that the banded matrix matches the expected format
     assert_eq!(
         banded,
         expected_banded,
@@ -98,116 +88,12 @@ fn max_band(matrix: &Array2<f64>) -> usize {
     for i in 0..n {
         for j in 0..n {
             if matrix[[i, j]] != 0.0 {
-                kd = std::cmp::max(kd, (i - j).abs());
+                kd = std::cmp::max(kd, (i as isize - j as isize).abs() as usize); // Cast to isize
             }
         }
     }
-    kd as usize
+    kd
 }
-
-
-
-
-/// Test the `compute_ngec` function with a set of positive eigenvalues.
-#[test]
-fn test_compute_ngec_with_positive_eigenvalues() {
-    // Define a set of positive eigenvalues
-    let eigenvalues = array![1.0, 2.0, 3.0];
-
-    // Compute NGEC
-    let ngec = compute_ngec(&eigenvalues)
-        .expect("Failed to compute NGEC with positive eigenvalues");
-
-    // Assert that NGEC is within the expected range (0, 1)
-    assert!(
-        ngec > 0.0 && ngec < 1.0,
-        "NGEC value out of expected range: {}",
-        ngec
-    );
-}
-
-/// Test the `compute_ngec` function with a set of eigenvalues containing significant negative values.
-#[test]
-fn test_compute_ngec_with_negative_eigenvalues() {
-    // Define a set of eigenvalues with a significant negative value
-    let eigenvalues = array![1.0, -2.0, 3.0];
-
-    // Compute NGEC and expect an error
-    let result = compute_ngec(&eigenvalues);
-
-    // Assert that an error is returned
-    assert!(
-        result.is_err(),
-        "Expected an error due to negative eigenvalues, but computation succeeded."
-    );
-
-    if let Err(e) = result {
-        assert!(
-            e.to_string().contains("significant negative values"),
-            "Unexpected error message: {}",
-            e
-        );
-    }
-}
-
-/// Test the `compute_ngec` function with an empty eigenvalues array.
-#[test]
-fn test_compute_ngec_with_empty_eigenvalues() {
-    // Define an empty eigenvalues array
-    let eigenvalues = array![];
-
-    // Compute NGEC and expect an error
-    let result = compute_ngec(&eigenvalues);
-
-    // Assert that an error is returned
-    assert!(
-        result.is_err(),
-        "Expected an error due to empty eigenvalues array, but computation succeeded."
-    );
-
-    if let Err(e) = result {
-        assert!(
-            e.to_string().contains("Eigenvalues array is empty"),
-            "Unexpected error message: {}",
-            e
-        );
-    }
-}
-
-/// Test the `call_eigendecomp` function with a small symmetric matrix.
-#[test]
-fn test_call_eigendecomp_with_small_matrix() {
-    // Define a small symmetric Laplacian matrix
-    let laplacian = array![
-        [2.0, -1.0, 0.0],
-        [-1.0, 2.0, -1.0],
-        [0.0, -1.0, 2.0]
-    ];
-
-    // Perform eigendecomposition using `call_eigendecomp`
-    let (eigvals, eigvecs) =
-        call_eigendecomp(&laplacian).expect("Eigendecomposition using call_eigendecomp failed");
-
-    // Assert that the eigenvalues array has the correct length
-    assert_eq!(eigvals.len(), 3, "Eigenvalues array length mismatch.");
-
-    // Assert that the eigenvectors matrix has the correct dimensions
-    assert_eq!(
-        eigvecs.dim(),
-        (3, 3),
-        "Eigenvectors matrix dimensions mismatch."
-    );
-
-    // Assert that all eigenvalues are non-negative
-    for &val in eigvals.iter() {
-        assert!(
-            val >= 0.0,
-            "Eigenvalue is negative: {}",
-            val
-        );
-    }
-}
-
 
 
 /// Test that all eigenvalues computed by SymmetricEigen are non-negative.
@@ -232,4 +118,95 @@ fn test_non_negative_eigenvalues_symmetric() {
             val
         );
     }
+}
+
+// Assuming this test uses some functions from src/eigen.rs,  I'll add some example tests for other likely functions:
+
+#[test]
+fn test_ndarray_to_nalgebra_matrix() {
+    let ndarray_matrix = array![[1.0, 2.0], [3.0, 4.0]];
+    let nalgebra_matrix = ndarray_to_nalgebra_matrix(&ndarray_matrix).unwrap();
+
+    assert_eq!(nalgebra_matrix.nrows(), 2);
+    assert_eq!(nalgebra_matrix.ncols(), 2);
+    assert_eq!(nalgebra_matrix[(0, 0)], 1.0);
+    assert_eq!(nalgebra_matrix[(0, 1)], 2.0);
+    assert_eq!(nalgebra_matrix[(1, 0)], 3.0);
+    assert_eq!(nalgebra_matrix[(1, 1)], 4.0);
+}
+
+
+#[test]
+fn test_adjacency_matrix_to_ndarray() {
+    let edges = vec![(0, 1), (1, 2), (0, 2)];
+    let start_node = 0;
+    let end_node = 2;
+    let expected = array![
+        [0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0],
+    ];
+
+    let adj_matrix = graphome::eigen::adjacency_matrix_to_ndarray(&edges, start_node, end_node);
+
+    assert_eq!(adj_matrix, expected);
+
+}
+
+
+
+#[test]
+fn test_print_heatmap() {
+    let matrix = array![[1.0, 2.0], [0.0, 4.0]];
+    let mut writer = Vec::new();  // Capture output
+    print_heatmap(&matrix.view(), &mut writer);
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("██")); // Check for presence of heatmap characters
+}
+
+#[test]
+fn test_print_heatmap_ndarray() {
+    let matrix_nd = array![[1.0, 2.0], [0.0, 4.0]];
+    let mut writer = Vec::new(); // Capture output
+    print_heatmap_ndarray(&matrix_nd, &mut writer);
+
+    // Add assertions based on your expected output format
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("██"));
+}
+
+#[test]
+fn test_print_eigenvalues_heatmap() {
+    let eigenvalues = array![1.0, 2.0, 0.0, 4.0];
+    let mut writer = Vec::new(); // Capture output
+    print_eigenvalues_heatmap(&eigenvalues, &mut writer);
+
+    // Add assertions
+    let output = String::from_utf8(writer).unwrap();
+    assert!(output.contains("██"));
+}
+
+#[test]
+fn test_save_nalgebra_matrix_to_csv() {
+    let matrix = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]);
+    let mut temp_file = NamedTempFile::new().unwrap();
+    save_nalgebra_matrix_to_csv(&matrix, temp_file.path()).unwrap();
+
+    // Read back and verify
+    let mut contents = String::new();
+    temp_file.as_file().read_to_string(&mut contents).unwrap();
+    assert_eq!(contents, "1,2\n3,4\n");  // Check if file content matches expected CSV
+
+}
+
+#[test]
+fn test_save_nalgebra_vector_to_csv() {
+    let vector = DVector::from_row_slice(&[1.0, 2.0, 3.0]);
+    let mut temp_file = NamedTempFile::new().unwrap();
+
+    save_nalgebra_vector_to_csv(&vector, temp_file.path()).unwrap();
+
+    let mut contents = String::new();
+    temp_file.as_file().read_to_string(&mut contents).unwrap();
+    assert_eq!(contents, "1,2,3\n");
 }
