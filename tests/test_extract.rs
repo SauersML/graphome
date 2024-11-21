@@ -16,8 +16,6 @@ use std::collections::HashSet;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
-
-use super::*;
 use graphome::extract;
 use std::fs::File;
 use std::io::Read;
