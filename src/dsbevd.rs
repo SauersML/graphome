@@ -1818,6 +1818,17 @@ fn dlamrg(
     }
 }
 
+/// Query function for machine-dependent parameters
+fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
+    // - For ispec = 9 (used in DLAED0), return the block size for the D&C algorithm.
+    // In LAPACK, ILAENV(9, ...) returns the value of SMLSIZ, is always 25.
+    if ispec == 9 {
+        25
+    } else {
+        1
+    }
+}
+
 
 /*
 Not yet implemented functions:
