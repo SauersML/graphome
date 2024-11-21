@@ -436,25 +436,6 @@ fn drot(dx: &mut [f64], dy: &mut [f64], c: f64, s: f64) {
 }
 
 
-/// Generate plane rotation
-fn dlartg(f: f64, g: f64) -> (f64, f64) {  // Changed to return just (c, s)
-    if g == 0.0 {
-        (1.0, 0.0)
-    } else if f == 0.0 {
-        (0.0, 1.0)
-    } else {
-        let abs_f = f.abs();
-        let abs_g = g.abs();
-        let scale = abs_f.max(abs_g);
-        let fs = f / scale;
-        let gs = g / scale;
-        let norm = (fs * fs + gs * gs).sqrt();
-        let c = fs / norm;
-        let s = gs / norm;
-        (c, s)
-    }
-}
-
 fn dlar2v(
     n: usize,
     x: &mut [f64],
@@ -849,101 +830,6 @@ fn dlaed4(
     0 // Return 0 to indicate success
 }
 
-/// Tridiagonal QR algorithm for small matrices.
-/// `d`: Diagonal elements
-/// `e`: Off-diagonal elements
-/// `z`: Eigenvectors (output)
-fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
-    let n = d.len();
-    let mut e_ext = vec![0.0; n];
-    e_ext[..(n - 1)].copy_from_slice(e);
-
-    // Initialize z to identity matrix
-    for i in 0..n {
-        for j in 0..n {
-            z[i][j] = if i == j { 1.0 } else { 0.0 };
-        }
-    }
-
-    for l in 0..n {
-        let mut iter = 0;
-        loop {
-            let mut m = l;
-            while m < n - 1 {
-                let dd = d[m].abs() + d[m + 1].abs();
-                if e_ext[m].abs() <= f64::EPSILON * dd {
-                    break;
-                }
-                m += 1;
-            }
-
-            if m == l {
-                break;
-            }
-
-            iter += 1;
-            if iter > 1000 {
-                panic!("Too many iterations in dsteqr");
-            }
-
-            // Compute shift (Wilkinson's shift)
-            let delta = (d[m - 1] - d[m]).abs() / 2.0;
-            let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
-            let t = mu;
-
-
-            for i in l..n {
-                d[i] -= t;
-            }
-
-            let mut s = 0.0;
-            let mut c = 1.0;
-
-            for i in l..m {
-                let f = s * e_ext[i];
-                let b = c * e_ext[i];
-                let (r, cs, sn) = dlartg(d[i] - t, f);
-                e_ext[i] = r;
-                s = sn;
-                c = cs;
-                let temp = c * d[i] - s * e_ext[i + 1];
-                e_ext[i + 1] = s * d[i] + c * e_ext[i + 1];
-                d[i] = temp;
-
-                // Apply rotation to eigenvectors
-                if i + 1 < n {
-                    for k in 0..n {
-                        let temp = c * z[k][i] - s * z[k][i + 1];
-                        z[k][i + 1] = s * z[k][i] + c * z[k][i + 1];
-                        z[k][i] = temp;
-                    }
-                }
-            }
-
-            let temp = c * d[m] - s * e_ext[m];
-            e_ext[m] = s * d[m] + c * e_ext[m];
-            d[m] = temp;
-        }
-    }
-
-    // Sort eigenvalues and eigenvectors
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
-
-    let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
-    let sorted_z = idx
-        .iter()
-        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
-        .collect::<Vec<Vec<f64>>>();
-
-    // Copy back sorted eigenvalues and eigenvectors
-    d.copy_from_slice(&sorted_d);
-    for i in 0..n {
-        for j in 0..n {
-            z[i][j] = sorted_z[j][i];
-        }
-    }
-}
 
 /// Computes the Givens rotation coefficients c and s such that
 /// [c -s; s c]^T * [a; b] = [r; 0]
@@ -1296,119 +1182,6 @@ pub fn idamax(n: usize, x: &[f64], incx: usize) -> usize {
     max_idx
 }
 
-/// Reduce a symmetric band matrix to tridiagonal form
-pub fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64], 
-              e: &mut [f64], q: &mut [Vec<f64>]) {
-    // Initialize Q to identity if we're computing eigenvectors
-    dlaset('F', n, n, 0.0, 1.0, q);
-
-    let kd1 = kd + 1;
-    let kdm1 = kd - 1;
-    let mut nr: usize = 0;
-    let mut j1: usize = kd1;
-    let mut j2: usize = 1;
-
-    let mut work = vec![0.0; n];
-    
-    if uplo == 'U' {
-        // Upper triangular storage
-        for j in 0..n-2 {
-            // Reduce jth column of matrix to tridiagonal form
-            for k in (0..kd-1).rev() {
-                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
-                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
-                
-                if nr > 0 {
-                    // Create slices for rotations
-                    let j_start = j1.saturating_sub(1);
-                    let len = nr.min(ab[0].len() - j_start);
-                    
-                    // Get mutable slices for the bands we need to modify
-                    let (upper, lower) = get_mut_bands(ab, k, j_start, len);
-                    let work_slice = &mut work[j_start..j_start+len];
-                    
-                    dlargv(len, upper, 1, lower, 1, work_slice, 1);
-
-                    // Apply rotations
-                    for l in 0..k {
-                        let (band1, band2) = get_mut_bands(ab, l, j_start, len);
-                        dlartv(len, band1, 1, band2, 1, 
-                              &work[j_start..j_start+len], 
-                              &ab[k][j_start..j_start+len], 1);
-                    }
-                }
-
-                if k < kdm1 {
-                    // Generate rotation
-                    let (cs, sn) = dlartg(ab[kd-k][j+k], ab[kd-k-1][j+k+1]);
-                    
-                    // Get slices for the rotation
-                    let len = k.min(n - (j+k) - 1);
-                    let slice1 = &mut ab[kd-k][j+k..j+k+len];
-                    let slice2 = &mut ab[kd-k-1][j+k+1..j+k+1+len];
-                    
-                    drot(slice1, slice2, cs, sn);
-                    ab[kd-k-1][j+k+1] = 0.0;
-                }
-
-                nr += 1;
-            }
-
-            // Update diagonal and subdiagonal elements
-            if j < n-1 {
-                d[j] = ab[kd][j];
-                e[j] = ab[kdm1][j+1];
-            }
-        }
-        d[n-1] = ab[kd][n-1];
-
-    } else {
-        // Lower triangular storage - similar structure to upper case
-        for j in 0..n-2 {
-            for k in (0..kd-1).rev() {
-                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
-                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
-                
-                if nr > 0 {
-                    let j_start = j1;
-                    let len = nr.min(ab[0].len() - j_start);
-                    
-                    let (lower, upper) = get_mut_bands(ab, k, j_start, len);
-                    let work_slice = &mut work[j_start..j_start+len];
-                    
-                    dlargv(len, lower, kd1, upper, kd1, work_slice, 1);
-
-                    for l in 0..k {
-                        let (band1, band2) = get_mut_bands(ab, l, j_start, len);
-                        dlartv(len, band1, kd1, band2, kd1,
-                              &work[j_start..j_start+len],
-                              &ab[k+1][j_start..j_start+len], 1);
-                    }
-                }
-
-                if k < kdm1 {
-                    let (cs, sn) = dlartg(ab[k+1][j], ab[k+2][j]);
-                    
-                    let len = k.min(n - j - 1);
-                    let slice1 = &mut ab[k+2][j..j+len];
-                    let slice2 = &mut ab[k+1][j+1..j+1+len];
-                    
-                    drot(slice1, slice2, cs, sn);
-                    ab[k+2][j] = 0.0;
-                }
-
-                nr += 1;
-            }
-
-            if j < n-1 {
-                d[j] = ab[0][j];
-                e[j] = ab[1][j];
-            }
-        }
-        d[n-1] = ab[0][n-1];
-    }
-}
-
 // Helper function to pass workspace arrays and handle error conditions safely
 pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>]) 
     -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) 
@@ -1427,10 +1200,260 @@ pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>])
     (d, e, q)
 }
 
-// Helper function to get mutable slices of two different bands
-fn get_mut_bands<'a>(ab: &'a mut [Vec<f64>], k: usize, start: usize, len: usize) 
-    -> (&'a mut [f64], &'a mut [f64]) 
+// Helper function for safe mutable band access
+fn get_mut_bands(ab: &mut [Vec<f64>], k1: usize, k2: usize, start: usize, len: usize) 
+   -> (&mut [f64], &mut [f64]) 
 {
-    let (part1, part2) = ab.split_at_mut(k + 1);
-    (&mut part1[k][start..start+len], &mut part2[0][start..start+len])
+   assert!(k1 != k2, "Cannot borrow same band twice");
+   let (min_k, max_k) = if k1 < k2 { (k1, k2) } else { (k2, k1) };
+   let (lower, upper) = ab.split_at_mut(max_k);
+   if k1 < k2 {
+       (&mut lower[k1][start..start+len], &mut upper[0][start..start+len])
+   } else {
+       (&mut upper[0][start..start+len], &mut lower[k2][start..start+len])
+   }
+}
+
+fn dlartg(f: f64, g: f64) -> (f64, f64) {
+   if g == 0.0 {
+       (1.0, 0.0)
+   } else if f == 0.0 {
+       (0.0, 1.0)
+   } else {
+       let abs_f = f.abs();
+       let abs_g = g.abs();
+       let scale = abs_f.max(abs_g);
+       let fs = f / scale;
+       let gs = g / scale;
+       let norm = (fs * fs + gs * gs).sqrt();
+       let c = fs / norm;
+       let s = gs / norm;
+       (c, s)
+   }
+}
+
+fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64], 
+         e: &mut [f64], q: &mut [Vec<f64>]) {
+   let kd1 = kd + 1;
+   let kdm1 = kd - 1;
+   let mut nr: usize = 0;
+   let mut j1: usize = kd1;
+   let mut j2: usize = 1;
+   let mut work = vec![0.0; n];
+   let mut rotations = Vec::new();
+
+   // Initialize Q to identity
+   dlaset('F', n, n, 0.0, 1.0, q);
+
+   if uplo == 'U' {
+       for j in 0..n-2 {
+           for k in (0..kd-1).rev() {
+               j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+               j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
+
+               if nr > 0 {
+                   let j_start = j1.saturating_sub(1);
+                   let len = nr.min(ab[0].len() - j_start);
+
+                   // Store rotations
+                   rotations.clear();
+                   for idx in 0..nr {
+                       let j = j1 - kd - 1 + idx * kd;
+                       if j < ab[kd].len() {
+                           rotations.push((ab[kd][j], ab[kd-1][j]));
+                       }
+                   }
+
+                   // Apply stored rotations
+                   for (idx, &(x, y)) in rotations.iter().enumerate() {
+                       let (cs, sn) = dlartg(x, y);
+                       let start = j_start + idx;
+                       if start + 1 < ab[0].len() {
+                           let (band1, band2) = get_mut_bands(ab, k, k+1, start, 1);
+                           band1[0] = cs * x + sn * y;
+                           band2[0] = -sn * x + cs * y;
+                       }
+                   }
+
+                   for l in 0..k {
+                       let mut v1 = Vec::new();
+                       let mut v2 = Vec::new();
+                       for idx in 0..len {
+                           let j = j_start + idx;
+                           if j < ab[0].len() {
+                               v1.push(ab[kd-l][j]);
+                               v2.push(ab[kd-l+1][j]);
+                           }
+                       }
+                       
+                       for i in 0..v1.len() {
+                           let (cs, sn) = dlartg(v1[i], v2[i]);
+                           let j = j_start + i;
+                           if j < ab[0].len() {
+                               ab[kd-l][j] = cs * v1[i] + sn * v2[i];
+                               ab[kd-l+1][j] = -sn * v1[i] + cs * v2[i];
+                           }
+                       }
+                   }
+               }
+
+               if k < kdm1 {
+                   let x = ab[kd-k][j+k];
+                   let y = ab[kd-k-1][j+k+1];
+                   let (cs, sn) = dlartg(x, y);
+                   
+                   // Apply rotation
+                   let len = k.min(n - (j+k) - 1);
+                   let mut temp_row1 = Vec::new();
+                   let mut temp_row2 = Vec::new();
+                   
+                   for i in 0..len {
+                       temp_row1.push(ab[kd-k][j+k+i]);
+                       temp_row2.push(ab[kd-k-1][j+k+1+i]);
+                   }
+                   
+                   for i in 0..len {
+                       ab[kd-k][j+k+i] = cs * temp_row1[i] + sn * temp_row2[i];
+                       ab[kd-k-1][j+k+1+i] = -sn * temp_row1[i] + cs * temp_row2[i];
+                   }
+                   
+                   ab[kd-k-1][j+k+1] = 0.0;
+               }
+
+               nr += 1;
+           }
+
+           if j < n-1 {
+               d[j] = ab[kd][j];
+               e[j] = ab[kdm1][j+1];
+           }
+       }
+       d[n-1] = ab[kd][n-1];
+   } else {
+       for j in 0..n-2 {
+           for k in (0..kd-1).rev() {
+               j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+               j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
+
+               if nr > 0 {
+                   let j_start = j1;
+                   let len = nr.min(ab[0].len() - j_start);
+                   
+                   let mut temp_bands = Vec::new();
+                   for l in 0..=k {
+                       let mut band = Vec::new();
+                       for idx in 0..len {
+                           band.push(ab[l][j_start+idx]);
+                       }
+                       temp_bands.push(band);
+                   }
+
+                   for l in 0..k {
+                       for i in 0..len {
+                           let (cs, sn) = dlartg(temp_bands[l][i], temp_bands[l+1][i]);
+                           if j_start + i < ab[0].len() {
+                               ab[l][j_start+i] = cs * temp_bands[l][i] + sn * temp_bands[l+1][i];
+                               ab[l+1][j_start+i] = -sn * temp_bands[l][i] + cs * temp_bands[l+1][i];
+                           }
+                       }
+                   }
+               }
+
+               if k < kdm1 {
+                   let (cs, sn) = dlartg(ab[k+1][j], ab[k+2][j]);
+                   
+                   let len = k.min(n - j - 1);
+                   let mut temp1 = Vec::new();
+                   let mut temp2 = Vec::new();
+                   
+                   for i in 0..len {
+                       temp1.push(ab[k+2][j+i]);
+                       temp2.push(ab[k+1][j+1+i]);
+                   }
+                   
+                   for i in 0..len {
+                       ab[k+2][j+i] = cs * temp1[i] + sn * temp2[i];
+                       ab[k+1][j+1+i] = -sn * temp1[i] + cs * temp2[i];
+                   }
+                   
+                   ab[k+2][j] = 0.0;
+               }
+
+               nr += 1;
+           }
+
+           if j < n-1 {
+               d[j] = ab[0][j];
+               e[j] = ab[1][j];
+           }
+       }
+       d[n-1] = ab[0][n-1];
+   }
+}
+
+fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
+   let n = d.len();
+   let mut e_ext = vec![0.0; n];
+   e_ext[..n-1].copy_from_slice(e);
+
+   for l in 0..n {
+       let mut iter = 0;
+       loop {
+           let mut m = l;
+           while m < n - 1 {
+               let dd = d[m].abs() + d[m + 1].abs();
+               if e_ext[m].abs() <= f64::EPSILON * dd {
+                   break;
+               }
+               m += 1;
+           }
+
+           if m == l {
+               break;
+           }
+
+           iter += 1;
+           if iter > 1000 {
+               panic!("Too many iterations in dsteqr");
+           }
+
+           let delta = (d[m - 1] - d[m]).abs() / 2.0;
+           let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
+
+           for i in l..n {
+               d[i] -= mu;
+           }
+
+           for i in l..m {
+               let (cs, sn) = dlartg(d[i], e_ext[i]);
+               
+               let temp = cs * d[i] - sn * e_ext[i];
+               e_ext[i] = sn * d[i] + cs * e_ext[i];
+               d[i] = temp;
+
+               if i + 1 < n {
+                   for k in 0..n {
+                       let temp = cs * z[k][i] - sn * z[k][i + 1];
+                       z[k][i + 1] = sn * z[k][i] + cs * z[k][i + 1];
+                       z[k][i] = temp;
+                   }
+               }
+           }
+       }
+   }
+
+   let mut idx: Vec<usize> = (0..n).collect();
+   idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
+
+   let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
+   let sorted_z = idx.iter()
+       .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
+       .collect::<Vec<Vec<f64>>>();
+
+   d.copy_from_slice(&sorted_d);
+   for i in 0..n {
+       for j in 0..n {
+           z[i][j] = sorted_z[j][i];
+       }
+   }
 }
