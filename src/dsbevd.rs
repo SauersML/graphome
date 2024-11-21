@@ -1586,9 +1586,36 @@ fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
     }
 }
 
+
 /// Computes all eigenvalues and corresponding eigenvectors of an unreduced
 /// symmetric tridiagonal matrix using the divide and conquer method.
-/// This is a recursive function corresponding to LAPACK's DLAED0 subroutine.
+/// This function corresponds to LAPACK's DLAED0 subroutine.
+///
+/// Parameters:
+/// - `icompq`: Specifies whether to compute eigenvectors. NOT NEEDED. We always compute BOTH eigenvectors and eigenvalues.
+///     - 0: Compute eigenvalues only.
+///     - 1: Compute eigenvectors of the original symmetric matrix.
+///     - 2: Compute eigenvectors of the tridiagonal matrix.
+/// - `n`: The order of the matrix.
+/// - `qsiz`: The dimension of the orthogonal matrix used to reduce
+///           the full matrix to tridiagonal form.
+/// - `tlvls`: The total number of merging levels in the overall divide and conquer tree.
+/// - `curlvl`: The current level in the overall merge routine.
+/// - `curpbm`: The current problem in the current level.
+/// - `d`: On entry, the diagonal elements of the tridiagonal matrix.
+///        On exit, contains the eigenvalues.
+/// - `e`: On entry, the off-diagonal elements of the tridiagonal matrix.
+///        On exit, it is destroyed.
+/// - `q`: On entry, if `icompq = 1`, the orthogonal matrix used to reduce the original matrix
+///        to tridiagonal form. If `icompq = 2`, it is initialized to the identity matrix.
+///        On exit, if `icompq > 0`, contains the eigenvectors.
+/// - `qstore`: Workspace array to store intermediate eigenvectors.
+/// - `qptr`, `prmptr`, `perm`, `givptr`, `givcol`, `givnum`: Workspace arrays for DLAED0.
+/// - `work`: Workspace array.
+/// - `iwork`: Integer workspace array.
+///
+/// Returns:
+/// - `Result<(), &'static str>` indicating success or an error message.
 fn dlaed0(
     icompq: i32,
     n: usize,
@@ -1611,10 +1638,10 @@ fn dlaed0(
 ) -> Result<(), &'static str> {
     // Test the input parameters.
     if icompq < 0 || icompq > 2 {
-        return Err("Invalid value for ICOMPQ");
+        return Err("Invalid value for icompq");
     }
     if icompq == 1 && qsiz < n {
-        return Err("QSIZ must be at least N when ICOMPQ == 1");
+        return Err("QSIZ must be at least N when icompq == 1");
     }
     if n < 0 {
         return Err("N must be non-negative");
@@ -1633,9 +1660,28 @@ fn dlaed0(
 
     let smlsiz = ilaenv(9, "DLAED0", " ", 0, 0, 0, 0) as usize;
 
-    if n <= 1 {
-        if icompq == 1 {
-            q[0][0] = 1.0;
+    if n <= smlsiz {
+        // Use dsteqr to compute the eigenvalues and eigenvectors.
+        let compz = match icompq {
+            0 => 'N',
+            1 => 'V',
+            2 => 'I',
+            _ => return Err("Invalid value for icompq"),
+        };
+        // Initialize q if necessary
+        if compz == 'I' {
+            for i in 0..n {
+                for j in 0..n {
+                    q[i][j] = if i == j { 1.0 } else { 0.0 };
+                }
+            }
+        }
+        // Prepare work array
+        let mut work_dsteqr = vec![0.0; max(1, 2 * n - 2)];
+        // Call dsteqr
+        let result = dsteqr(compz, n, d, e, q, &mut work_dsteqr);
+        if let Err(err) = result {
+            return Err(err);
         }
         return Ok(());
     }
@@ -1661,51 +1707,60 @@ fn dlaed0(
     }
 
     // Divide the matrix into submatrices of size at most smlsiz+1
-    let mut submat: usize = 0;
-    let mut info = 0;
+    let mut submat: usize;
 
     // Recursively solve each submatrix eigenproblem
     for i in 0..total_problems {
-        let smm1: usize;
-        if i == 0 {
-            submat = 0;
-            smm1 = 0;
+        let matsiz = if i == 0 {
+            iwork[0]
         } else {
-            submat = iwork[i - 1];
-            smm1 = submat - 1;
-        }
-        let matsiz = iwork[i] - submat;
+            iwork[i] - iwork[i - 1]
+        };
+        submat = if i == 0 {
+            0
+        } else {
+            iwork[i - 1]
+        };
+
         if curlvl == tlvls {
-            // Solve the submatrix eigenproblem
-            // Base case: use DSTEQR or similar
-            let mut d_sub = d[submat..(submat + matsiz)].to_vec();
-            let mut e_sub = e[submat..(submat + matsiz - 1)].to_vec();
+            // Use dsteqr to compute the eigenvalues and eigenvectors
+            let mut d_sub = d[submat..submat + matsiz].to_vec();
+            let mut e_sub = e[submat..submat + matsiz - 1].to_vec();
+
+            // Initialize q_sub
             let mut q_sub = vec![vec![0.0; matsiz]; matsiz];
             for j in 0..matsiz {
                 q_sub[j][j] = 1.0;
             }
-            let result = dsteqr(icompq, matsiz, &mut d_sub, &mut e_sub, &mut q_sub);
+
+            let compz = match icompq {
+                0 => 'N',
+                1 => 'V',
+                2 => 'I',
+                _ => return Err("Invalid value for icompq"),
+            };
+            let mut work_dsteqr = vec![0.0; max(1, 2 * matsiz - 2)];
+            let result = dsteqr(compz, matsiz, &mut d_sub, &mut e_sub, &mut q_sub, &mut work_dsteqr);
 
             if let Err(_err) = result {
-                info = submat * (n + 1) + submat + matsiz - 1;
-                return Err("Error in DSTEQR");
+                let info = submat * (n + 1) + submat + matsiz - 1;
+                return Err("Error in dsteqr");
             }
 
             // Copy back results
-            d[submat..(submat + matsiz)].copy_from_slice(&d_sub);
-            for j in 0..matsiz {
-                for k in 0..matsiz {
-                    q[submat + j][submat + k] = q_sub[j][k];
+            d[submat..submat + matsiz].copy_from_slice(&d_sub);
+            for i in 0..matsiz {
+                for j in 0..matsiz {
+                    q[submat + i][submat + j] = q_sub[i][j];
                 }
             }
         } else {
-            // Recursive call for larger submatrices
-            // Prepare parameters for the recursive call
+            // Recursion to lower levels
             let new_curlvl = curlvl + 1;
             let new_tlvls = tlvls;
             let new_curpbm = 2 * curpbm - 1 + i;
 
-            // Call dlaed0 recursively
+            // Recursive call
             dlaed0(
                 icompq,
                 matsiz,
@@ -1713,8 +1768,8 @@ fn dlaed0(
                 new_tlvls,
                 new_curlvl,
                 new_curpbm,
-                &mut d[submat..(submat + matsiz)],
-                &mut e[submat..(submat + matsiz - 1)],
+                &mut d[submat..submat + matsiz],
+                &mut e[submat..submat + matsiz - 1],
                 q,
                 qstore,
                 qptr,
@@ -1729,47 +1784,11 @@ fn dlaed0(
         }
     }
 
-    // Merge back the subproblems
-    for lvl in (0..tlvls).rev() {
-        let num_merge = 1 << lvl;
-        for idx in 0..num_merge {
-            let k = idx * (n / num_merge);
-            let k1 = k;
-            let k2 = k + (n / num_merge) - 1;
-
-            // Merge the two subproblems from k1 to k2
-            let n1 = (k2 - k1 + 1) / 2;
-            let n2 = k2 - k1 + 1 - n1;
-            let mut idxq = vec![0_usize; n1 + n2];
-
-            // Merge the eigenvalues
-            dlamrg(
-                n1,
-                n2,
-                &d[k1..=k2],
-                1,
-                1,
-                &mut idxq,
-            );
-
-            // Apply permutations to eigenvalues and eigenvectors
-            let mut d_temp = vec![0.0; k2 - k1 + 1];
-            let mut q_temp = vec![vec![0.0; k2 - k1 + 1]; n];
-            for i in 0..(k2 - k1 + 1) {
-                d_temp[i] = d[k1 + idxq[i]];
-                for j in 0..n {
-                    q_temp[j][i] = q[j][k1 + idxq[i]];
-                }
-            }
-            d[k1..=k2].copy_from_slice(&d_temp);
-            for i in 0..n {
-                q[i][k1..=k2].copy_from_slice(&q_temp[i]);
-            }
-        }
-    }
+    // WE MUST MERGE BACK THE SUBPROBLEMS.
 
     Ok(())
 }
+
 
 /// Merges two sorted lists of numbers into a single sorted list with a permutation index.
 /// This function corresponds to LAPACK's DLAMRG subroutine.
