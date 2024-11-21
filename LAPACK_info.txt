@@ -1,8 +1,6 @@
 *> \brief <b> DSBEVD computes the eigenvalues and, optionally, the left and/or right eigenvectors for OTHER matrices</b>
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -17,8 +15,6 @@
 *       INTEGER            IWORK( * )
 *       DOUBLE PRECISION   AB( LDAB, * ), W( * ), WORK( * ), Z( LDZ, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -164,8 +160,6 @@
 *>                off-diagonal elements of an intermediate tridiagonal
 *>                form did not converge to zero.
 *> \endverbatim
-*
-*
 *> \ingroup doubleOTHEReigen
 *
 ===============================
@@ -337,8 +331,6 @@
 *> \brief \b DLAMCH
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -353,8 +345,6 @@
 *       DOUBLE PRECISION   AB( LDAB, * ), D( * ), E( * ), Q( LDQ, * ),
 *      $                   WORK( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -588,8 +578,6 @@
      $                            KD1, D( J1 ), KD1 )
 *
 *                    apply rotations from the right
-*
-*
 *                    Dependent on the the number of diagonals either
 *                    DLARTV or DROT is used
 *
@@ -609,8 +597,6 @@
    20                   CONTINUE
                      END IF
                   END IF
-*
-*
                   IF( K.GT.2 ) THEN
                      IF( K.LE.N-I+1 ) THEN
 *
@@ -780,8 +766,6 @@
      $                            WORK( J1 ), KD1, D( J1 ), KD1 )
 *
 *                    apply plane rotations from one side
-*
-*
 *                    Dependent on the the number of diagonals either
 *                    DLARTV or DROT is used
 *
@@ -831,8 +815,6 @@
      $                            WORK( J1 ), KD1 )
 *
 *                 apply plane rotations from the right
-*
-*
 *                    Dependent on the the number of diagonals either
 *                    DLARTV or DROT is used
 *
@@ -866,8 +848,6 @@
      $                                WORK( LAST ) )
                      END IF
                   END IF
-*
-*
 *
                   IF( WANTQ ) THEN
 *
@@ -953,8 +933,6 @@
 *> \brief \b DSTEDC
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -969,8 +947,6 @@
 *       INTEGER            IWORK( * )
 *       DOUBLE PRECISION   D( * ), E( * ), WORK( * ), Z( LDZ, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -1106,7 +1082,6 @@
 *> \endverbatim
 *
 *> \ingroup auxOTHERcomputational
-
 *>
 *>
 ===============================
@@ -1405,8 +1380,6 @@
 *> \brief \b DLASET initializes the off-diagonal elements and the diagonal elements of a matrix to given values.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -1420,8 +1393,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   A( LDA, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -1486,8 +1457,6 @@
 *>          LDA is INTEGER
 *>          The leading dimension of the array A.  LDA >= max(1,M).
 *> \endverbatim
-*
-*
 *
 *> \ingroup OTHERauxiliary
 *
@@ -1566,8 +1535,6 @@
 *> \brief \b DLARTG generates a plane rotation with real cosine and real sine.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -1576,8 +1543,6 @@
 *       .. Scalar Arguments ..
 *       DOUBLE PRECISION   CS, F, G, R, SN
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -1634,8 +1599,6 @@
 *>  This version has a few statements commented out for thread safety
 *>  (machine parameters are computed on each entry). 10 feb 03, SJH.
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -1747,8 +1710,6 @@
 *> \brief \b DROT
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -1760,8 +1721,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   C( * ), S( * ), X( * ), Y( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -1826,8 +1785,6 @@
 *>          INCC is INTEGER
 *>          The increment between elements of C and S. INCC > 0.
 *> \endverbatim
-*
-*
 **
 *> \ingroup doubleOTHERauxiliary
 *
@@ -1871,8 +1828,6 @@
 *> \brief \b DLARGV generates a vector of plane rotations with real cosines and real sines.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -1884,8 +1839,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   C( * ), X( * ), Y( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -1946,8 +1899,6 @@
 *>          INCC is INTEGER
 *>          The increment between elements of C. INCC > 0.
 *> \endverbatim
-*
-*
 **
 *> \ingroup doubleOTHERauxiliary
 *
@@ -2015,8 +1966,6 @@
 *> \brief \b DLAR2V applies a vector of plane rotations with real cosines and real sines from both sides to a sequence of 2-by-2 symmetric/Hermitian matrices.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -2028,8 +1977,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   C( * ), S( * ), X( * ), Y( * ), Z( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -2096,8 +2043,6 @@
 *>          INCC is INTEGER
 *>          The increment between elements of C and S. INCC > 0.
 *> \endverbatim
-*
-*
 **
 *> \ingroup doubleOTHERauxiliary
 *
@@ -2149,8 +2094,6 @@
 *> \brief \b DLANST returns the value of the 1-norm, or the Frobenius norm, or the infinity norm, or the element of largest absolute value of a real symmetric tridiagonal matrix.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -2163,8 +2106,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   D( * ), E( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -2220,8 +2161,6 @@
 *>          E is DOUBLE PRECISION array, dimension (N-1)
 *>          The (n-1) sub-diagonal or super-diagonal elements of A.
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -2312,8 +2251,6 @@
 *> \brief \b DLASSQ updates a sum of squares represented in scaled form.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -2326,8 +2263,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   X( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -2386,8 +2321,6 @@
 *>          On exit, SUMSQ is overwritten with  smsq , the basic sum of
 *>          squares from which  scl  has been factored out.
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -2444,8 +2377,6 @@
 *> \brief \b DLAED0 used by sstedc. Computes all eigenvalues and corresponding eigenvectors of an unreduced symmetric tridiagonal matrix using the divide and conquer method.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -2460,8 +2391,6 @@
 *       DOUBLE PRECISION   D( * ), E( * ), Q( LDQ, * ), QSTORE( LDQS, * ),
 *      $                   WORK( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -2580,11 +2509,8 @@
 *>                working on the submatrix lying in rows and columns
 *>                INFO/(N+1) through mod(INFO,N+1).
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *
 ===============================
@@ -2851,8 +2777,6 @@
 *> \brief \b DCOPY
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -2865,8 +2789,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   A( LDA, * ), B( LDB, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -2925,8 +2847,6 @@
 *>          LDB is INTEGER
 *>          The leading dimension of the array B.  LDB >= max(1,M).
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -2984,8 +2904,6 @@
 *> \brief \b DLAED1 used by sstedc. Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix. Used when the original matrix is tridiagonal.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -3000,8 +2918,6 @@
 *       INTEGER            INDXQ( * ), IWORK( * )
 *       DOUBLE PRECISION   D( * ), Q( LDQ, * ), WORK( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -3110,11 +3026,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *>
 ===============================
@@ -3180,8 +3093,6 @@
       INDXC = INDX + N
       COLTYP = INDXC + N
       INDXP = COLTYP + N
-*
-*
 *     Form the z-vector which consists of the last row of Q_1 and the
 *     first row of Q_2.
 *
@@ -3230,8 +3141,6 @@
 *> \brief \b DLAED2 used by sstedc. Merges eigenvalues and deflates secular equation. Used when the original matrix is tridiagonal.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -3248,8 +3157,6 @@
 *       DOUBLE PRECISION   D( * ), DLAMDA( * ), Q( LDQ, * ), Q2( * ),
 *      $                   W( * ), Z( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -3405,11 +3312,8 @@
 *>          = 0:  successful exit.
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *> \n*>
 ===============================
       SUBROUTINE DLAED2( K, N, N1, D, Q, LDQ, INDXQ, RHO, Z, DLAMDA, W,
@@ -3547,8 +3451,6 @@
       DO 60 I = N1P1, N
          COLTYP( I ) = 3
    60 CONTINUE
-*
-*
       K = 0
       K2 = N + 1
       DO 70 J = 1, N
@@ -3740,8 +3642,6 @@
 *> \brief \b DLAED3 used by sstedc. Finds the roots of the secular equation and updates the eigenvectors. Used when the original matrix is tridiagonal.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -3757,8 +3657,6 @@
 *       DOUBLE PRECISION   D( * ), DLAMDA( * ), Q( LDQ, * ), Q2( * ),
 *      $                   S( * ), W( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -3889,12 +3787,9 @@
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
 *
-*
-*
 *> \date June 2017
 *
 *> \ingroup auxOTHERcomputational
-
 *> \n*>
 ===============================
       SUBROUTINE DLAED3( K, N, N1, D, Q, LDQ, RHO, DLAMDA, Q2, INDX,
@@ -4055,8 +3950,6 @@
       ELSE
          CALL DLASET( 'A', N1, K, ZERO, ZERO, Q( 1, 1 ), LDQ )
       END IF
-*
-*
   120 CONTINUE
       RETURN
 *
@@ -4066,8 +3959,6 @@
 *> \brief \b DLAED4 used by sstedc. Finds a single root of the secular equation.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -4080,8 +3971,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   D( * ), DELTA( * ), Z( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -4176,11 +4065,8 @@
 *>   MAXIT is the maximum number of iterations allowed for each
 *>   eigenvalue.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *>     *>
 ===============================
@@ -4956,8 +4842,6 @@
 *> \brief \b DLAED5 used by sstedc. Solves the 2-by-2 secular equation.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -4970,8 +4854,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   D( 2 ), DELTA( 2 ), Z( 2 )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -5029,11 +4911,8 @@
 *>          DLAM is DOUBLE PRECISION
 *>         The computed lambda_I, the I-th updated eigenvalue.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *>     
 *>
@@ -5119,8 +4998,6 @@
 *> \brief \b DLAED6 used by sstedc. Computes one Newton step in solution of the secular equation.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -5134,8 +5011,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   D( 3 ), Z( 3 )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -5212,8 +5087,6 @@
 *>               = 0: successful exit
 *>               > 0: if INFO = 1, failure to converge
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
 *
@@ -5228,7 +5101,6 @@
 *>  05/10/06: Modified from a new version of Ren-Cang Li, use
 *>     Gragg-Thornton-Warner cubic convergent scheme for better stability.
 *> \endverbatim
-
 *>
 *>     *>
 ===============================
@@ -5502,8 +5374,6 @@
 *> \brief \b DLAED7 used by sstedc. Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix. Used when the original matrix is dense.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -5523,8 +5393,6 @@
 *       DOUBLE PRECISION   D( * ), GIVNUM( 2, * ), Q( LDQ, * ),
 *      $                   QSTORE( * ), WORK( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -5724,11 +5592,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *
 ===============================
@@ -5882,8 +5747,6 @@
 *> \brief \b DLAED8 used by sstedc. Merges eigenvalues and deflates secular equation. Used when the original matrix is dense.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -5902,8 +5765,6 @@
 *       DOUBLE PRECISION   D( * ), DLAMDA( * ), GIVNUM( 2, * ),
 *      $                   Q( LDQ, * ), Q2( LDQ2, * ), W( * ), Z( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -6088,11 +5949,8 @@
 *>          = 0:  successful exit.
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *
 ===============================
@@ -6379,8 +6237,6 @@
 *> \brief \b DLAED9 used by sstedc. Finds the roots of the secular equation and updates the eigenvectors. Used when the original matrix is dense.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -6395,8 +6251,6 @@
 *       DOUBLE PRECISION   D( * ), DLAMDA( * ), Q( LDQ, * ), S( LDS, * ),
 *      $                   W( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -6499,11 +6353,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *
 ===============================
@@ -6646,8 +6497,6 @@
 *> \brief \b DLAEDA used by sstedc. Computes the Z vector determining the rank-one modification of the diagonal matrix. Used when the original matrix is dense.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -6662,8 +6511,6 @@
 *      $                   PRMPTR( * ), QPTR( * )
 *       DOUBLE PRECISION   GIVNUM( 2, * ), Q( * ), Z( * ), ZTEMP( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -6776,11 +6623,8 @@
 *>          = 0:  successful exit.
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
-
 *>
 *
 ===============================
@@ -6927,8 +6771,6 @@
 *> \brief \b IDAMAX
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -6937,8 +6779,6 @@
 *       .. Scalar Arguments ..
 *       DOUBLE PRECISION   X, Y
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -6961,8 +6801,6 @@
 *>          Y is DOUBLE PRECISION
 *>          X and Y specify the values x and y.
 *> \endverbatim
-*
-*
 *
 *> \date June 2017
 *
@@ -7022,8 +6860,6 @@
 *> \brief \b DLAMRG creates a permutation list to merge the entries of two independently sorted sets into a single set sorted in ascending order.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -7036,8 +6872,6 @@
 *       INTEGER            INDEX( * )
 *       DOUBLE PRECISION   A( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -7092,8 +6926,6 @@
 *>         if B( I ) = A( INDEX( I ) ) for I=1,N1+N2, then B will be
 *>         sorted in ascending order.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
 *
@@ -7170,8 +7002,6 @@
 *> \brief \b DSCAL
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -7184,8 +7014,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   D( * ), E( * ), WORK( * ), Z( LDZ, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -7272,8 +7100,6 @@
 *>                matrix which is orthogonally similar to the original
 *>                matrix.
 *> \endverbatim
-*
-*
 **
 *> \ingroup auxOTHERcomputational
 *
@@ -7719,8 +7545,6 @@
 *> \brief \b DLASCL multiplies a general rectangular matrix by a real scalar defined as cto/cfrom.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -7734,8 +7558,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   A( LDA, * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -7833,8 +7655,6 @@
 *>          0  - successful exit
 *>          <0 - if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -8064,8 +7884,6 @@
 *> \brief \b DLAEV2 computes the eigenvalues and eigenvectors of a 2-by-2 symmetric/Hermitian matrix.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -8074,8 +7892,6 @@
 *       .. Scalar Arguments ..
 *       DOUBLE PRECISION   A, B, C, CS1, RT1, RT2, SN1
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -8136,8 +7952,6 @@
 *>          SN1 is DOUBLE PRECISION
 *>          The vector (CS1, SN1) is a unit right eigenvector for RT1.
 *> \endverbatim
-*
-*
 **
 *> \ingroup OTHERauxiliary
 *
@@ -8279,8 +8093,6 @@
 *> \brief \b DLASR applies a sequence of plane rotations to a general rectangular matrix.
 *
 == DOCUMENTATION ======
-*
-*
 *  Definition:
 ==
 *
@@ -8293,8 +8105,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION   A( LDA, * ), C( * ), S( * )
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -8449,8 +8259,6 @@
 *>          LDA is INTEGER
 *>          The leading dimension of the array A.  LDA >= max(1,M).
 *> \endverbatim
-*
-*
 ===============================
       SUBROUTINE DLASR( SIDE, PIVOT, DIRECT, M, N, C, S, A, LDA )
 *
@@ -8701,8 +8509,6 @@
 *       .. Array Arguments ..
 *       DOUBLE PRECISION DX(*),DY(*)
 *       ..
-*
-*
 *> \par Purpose:
 ===
 *>
@@ -8742,8 +8548,6 @@
 *>          INCY is INTEGER
 *>         storage spacing between elements of DY
 *> \endverbatim
-*
-*
 *> \ingroup double_blas_level1
 *
 ===============================
@@ -8773,8 +8577,6 @@
       IF (INCX.EQ.1 .AND. INCY.EQ.1) THEN
 *
 *       code for both increments equal to 1
-*
-*
 *       clean-up loop
 *
          M = MOD(N,3)
