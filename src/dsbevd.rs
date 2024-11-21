@@ -996,3 +996,38 @@ fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
 
     result
 }
+
+/// Safe computation of sqrt(x*x + y*y)
+fn dlapy2(x: f64, y: f64) -> f64 {
+    let x_abs = x.abs();
+    let y_abs = y.abs();
+    
+    if x_abs > y_abs {
+        let temp = y_abs / x_abs;
+        x_abs * (1.0_f64 + temp * temp).sqrt()
+    } else if y_abs > x_abs {
+        let temp = x_abs / y_abs;
+        y_abs * (1.0_f64 + temp * temp).sqrt()
+    } else {
+        x_abs * (2.0_f64).sqrt()
+    }
+}
+
+/// Scale and sum of squares calculation
+fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
+    if n == 0 {
+        return;
+    }
+
+    for i in (0..n*incx).step_by(incx) {
+        if x[i] != 0.0 {
+            let abs_x = x[i].abs();
+            if *scale < abs_x {
+                *sumsq = 1.0_f64 + *sumsq * (*scale / abs_x).powi(2);
+                *scale = abs_x;
+            } else {
+                *sumsq += (abs_x / *scale).powi(2);
+            }
+        }
+    }
+}
