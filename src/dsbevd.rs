@@ -481,186 +481,141 @@ fn dlar2v(
     }
 }
 
-/// Computes the eigenvalues and eigenvectors of a symmetric tridiagonal matrix using the divide and conquer algorithm.
-/// `d`: diagonal elements
-/// `e`: off-diagonal elements
-/// Returns the eigenvalues and the eigenvectors.
-fn dstedc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let n = d.len();
-    let mut diag = d.to_vec();
-    let mut off_diag = e.to_vec();
 
-    // Initialize eigenvector matrix as identity
-    let mut z = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        z[i][i] = 1.0;
+
+/// Computes all eigenvalues and eigenvectors of a symmetric tridiagonal matrix using divide and conquer.
+/// 
+/// # Arguments
+/// * `d` - On entry, the diagonal elements. On exit, the eigenvalues in ascending order.
+/// * `e` - On entry, the subdiagonal elements. On exit, destroyed.
+/// * `z` - On entry (when computing eigenvectors), the identity matrix.
+///        On exit, the orthonormal eigenvectors of the tridiagonal matrix.
+/// 
+/// # Returns
+/// * `Ok(())` on successful computation
+/// * `Err(i)` if the algorithm failed to compute eigenvalue i
+pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i32> {
+    let n = d.len();
+    if n == 0 {
+        return Ok(());
     }
-
-    // Call the divide and conquer algorithm
-    dstedc(&mut diag, &mut off_diag, &mut z);
-
-    // The eigenvalues are in diag
-    // The eigenvectors are in z
-
-    // Sort the eigenvalues and eigenvectors
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|&i, &j| diag[i].partial_cmp(&diag[j]).unwrap());
-
-    let eigenvalues = idx.iter().map(|&i| diag[i]).collect::<Vec<f64>>();
-    let eigenvectors = idx
-        .iter()
-        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
-        .collect::<Vec<Vec<f64>>>();
-
-    (eigenvalues, eigenvectors)
-}
-
-/// Divide and conquer algorithm for symmetric tridiagonal eigenproblem.
-/// Modifies `d`, `e`, and `z` in place to compute eigenvalues and eigenvectors.
-/// This function corresponds to LAPACK's DSTEDC subroutine.
-fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
-    let n = d.len();
     if n == 1 {
-        // Trivial case: the eigenvalue is d[0], and the eigenvector is [1]
         z[0][0] = 1.0;
-        return;
+        return Ok(());
     }
 
     // Parameters
-    let smlsiz = 25; // Minimum size to use divide and conquer. We don't care about small input matrices but we need this for a base case.
+    let smlsiz = 25; // Minimum size for divide-conquer. Use STEQR for smaller.
     let eps = f64::EPSILON;
-
-    // We always compute eigenvectors
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
-        let n = d.len();
-        let mut work = vec![0.0; 2*n-2];  // Work array needs to be 2*n-2 size
-        let result = dsteqr('I', n, d, e, z, &mut work);
-        if let Err(err) = result {
-            // Handle error
-            panic!("Error in dsteqr: {}", err);  
-        }
-        return;
+        let mut work = vec![0.0; 2*n-2];
+        return dsteqr('I', n, d, e, z, &mut work);
     }
 
     // Scale the matrix if necessary
-    let orgnrm = d.iter().map(|&x| x.abs()).chain(e.iter().map(|&x| x.abs())).fold(0.0_f64, f64::max);
+    let orgnrm = d.iter().map(|&x| x.abs())
+                  .chain(e.iter().map(|&x| x.abs()))
+                  .fold(0.0_f64, f64::max);
     if orgnrm == 0.0 {
-        // The matrix is zero; all eigenvalues are zero
-        return;
+        // Zero matrix, eigenvalues all zero, z stays identity
+        return Ok(());
     }
 
-    // Compute splitting points
-    let mut submat_start = 0;
-    while submat_start < n {
-        // Find the end of the current submatrix
-        let mut submat_end = submat_start;
-        while submat_end < n - 1 {
-            let tiny = eps * (d[submat_end].abs().sqrt() * d[submat_end + 1].abs().sqrt());
-            if e[submat_end].abs() <= tiny {
-                e[submat_end] = 0.0; // Deflate
+    let mut info = 0;
+    let mut start = 0;
+
+    // Main divide and conquer loop
+    while start < n {
+        // Find the end of the current submatrix (look for small subdiagonal)
+        let mut finish = start;
+        while finish < n - 1 {
+            let tiny = eps * (d[finish].abs().sqrt() * d[finish + 1].abs().sqrt());
+            if e[finish].abs() <= tiny {
+                e[finish] = 0.0; // Deflate
                 break;
             }
-            submat_end += 1;
+            finish += 1;
         }
 
-        let m = submat_end - submat_start + 1;
+        // Process submatrix from start to finish
+        let m = finish - start + 1;
+
+        if m == 1 {
+            // 1x1 block, already diagonal
+            start = finish + 1;
+            continue;
+        }
 
         if m <= smlsiz {
-            // Use QR algorithm for small submatrices
-            let mut d_sub = d[submat_start..=submat_end].to_vec();
-            let mut e_sub = e[submat_start..submat_end].to_vec();
+            // Small subproblem - use STEQR
+            let mut d_sub = d[start..=finish].to_vec();
+            let mut e_sub = e[start..finish].to_vec();
             let mut z_sub = vec![vec![0.0; m]; m];
             for i in 0..m {
                 z_sub[i][i] = 1.0;
             }
-            let n = d_sub.len();
-            let mut work = vec![0.0; 2*n-2];
-            let result = dsteqr('I', n, &mut d_sub, &mut e_sub, &mut z_sub, &mut work);
-            if let Err(err) = result {
-                // Handle error
-                panic!("Error in dsteqr: {}", err);
+            let mut work = vec![0.0; 2*m-2];
+            if let Err(err) = dsteqr('I', m, &mut d_sub, &mut e_sub, &mut z_sub, &mut work) {
+                info = (start + 1) * (n + 1) + finish;
+                break;
             }
 
-            // Copy back results
+            // Copy results back
             for i in 0..m {
-                d[submat_start + i] = d_sub[i];
+                d[start + i] = d_sub[i];
                 for j in 0..m {
-                    z[submat_start + i][submat_start + j] = z_sub[i][j];
+                    z[start + i][start + j] = z_sub[i][j];
                 }
             }
         } else {
-            // Recursive divide and conquer
-            // Divide the matrix into two submatrices
-            let mid = submat_start + m / 2 - 1;
+            // Large subproblem - use divide and conquer
+            let mid = start + m/2 - 1;
             let rho = e[mid];
-            e[mid] = 0.0; // Split the matrix
+            e[mid] = 0.0; // Split matrix
 
-            // Left subproblem
-            let left_size = mid - submat_start + 1;
-            let mut d_left = d[submat_start..=mid].to_vec();
-            let mut e_left = e[submat_start..mid].to_vec();
+            // Solve left subproblem
+            let left_size = mid - start + 1;
+            let mut d_left = d[start..=mid].to_vec();
+            let mut e_left = e[start..mid].to_vec();
             let mut z_left = vec![vec![0.0; left_size]; left_size];
             for i in 0..left_size {
                 z_left[i][i] = 1.0;
             }
-            dstedc(&mut d_left, &mut e_left, &mut z_left);
+            dstedc(&mut d_left, &mut e_left, &mut z_left)?;
 
-            // Right subproblem
-            let right_size = submat_end - mid;
-            let mut d_right = d[(mid + 1)..=submat_end].to_vec();
-            let mut e_right = e[(mid + 1)..submat_end].to_vec();
+            // Solve right subproblem
+            let right_size = finish - mid;
+            let mut d_right = d[mid+1..=finish].to_vec();
+            let mut e_right = e[mid+1..finish].to_vec();
             let mut z_right = vec![vec![0.0; right_size]; right_size];
             for i in 0..right_size {
                 z_right[i][i] = 1.0;
             }
-            dstedc(&mut d_right, &mut e_right, &mut z_right);
+            dstedc(&mut d_right, &mut e_right, &mut z_right)?;
 
-            // Merge the two subproblems
+            // Merge solutions
             let mut d_merged = vec![0.0; m];
             let mut z_merged = vec![vec![0.0; m]; m];
 
-            // Copy eigenvalues
+            // Form rank-one modification
+            let mut z_vec = vec![0.0; m];
             for i in 0..left_size {
-                d_merged[i] = d_left[i];
+                z_vec[i] = z_left[i][left_size - 1];
             }
             for i in 0..right_size {
-                d_merged[left_size + i] = d_right[i];
+                z_vec[left_size + i] = z_right[i][0];
             }
 
-            // Form the z vector for the rank-one update
-            let mut z_vector = vec![0.0; m];
-            for i in 0..left_size {
-                z_vector[i] = z_left[i][left_size - 1];
-            }
-            for i in 0..right_size {
-                z_vector[left_size + i] = z_right[i][0];
+            // Solve secular equation
+            if let Err(err) = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged) {
+                info = (start + err) * (n + 1);
+                break;
             }
 
-            // Initialize z_out for dlaed4
+            // Update eigenvectors
             let mut z_out = vec![vec![0.0; m]; m];
-
-            // Solve the secular equation
-            let info = dlaed4(
-                &d_left,
-                &d_right,
-                &z_vector,
-                rho,
-                &mut d_merged,
-                &mut z_out,
-            );
-            if info != 0 {
-                panic!("Error in dlaed4: info = {}", info);
-            }
-
-            // Copy eigenvalues back
-            for i in 0..m {
-                d[submat_start + i] = d_merged[i];
-            }
-
-            // Compute the updated eigenvectors
-            // Multiply the eigenvectors of the left and right subproblems with z_out
             for i in 0..m {
                 for j in 0..m {
                     let mut sum = 0.0;
@@ -677,35 +632,48 @@ fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 }
             }
 
-            // Copy back eigenvectors
+            // Copy back results
             for i in 0..m {
+                d[start + i] = d_merged[i];
                 for j in 0..m {
-                    z[submat_start + i][submat_start + j] = z_merged[i][j];
+                    z[start + i][start + j] = z_merged[i][j];
                 }
             }
         }
 
-        submat_start = submat_end + 1;
+        start = finish + 1;
     }
 
-    // Sort the eigenvalues and eigenvectors
-    let mut idx: Vec<usize> = (0..n).collect();
-    idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
+    if info != 0 {
+        return Err(info);
+    }
 
-    let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
-    let sorted_z = idx
-        .iter()
-        .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
-        .collect::<Vec<Vec<f64>>>();
-
-    // Copy back sorted eigenvalues and eigenvectors
-    d.copy_from_slice(&sorted_d);
-    for i in 0..n {
-        for j in 0..n {
-            z[i][j] = sorted_z[j][i];
+    // Final eigenvalue sort using selection sort to minimize eigenvector swaps
+    for ii in 1..n {
+        let i = ii - 1;
+        let mut k = i;
+        let p = d[i];
+        
+        for j in ii..n {
+            if d[j] < p {
+                k = j;
+            }
+        }
+        
+        if k != i {
+            // Swap eigenvalues and eigenvectors
+            d.swap(k, i);
+            for row in z.iter_mut() {
+                row.swap(k, i);
+            }
         }
     }
+
+    Ok(())
 }
+
+
+
 
 /// Solves the secular equation in the divide and conquer algorithm.
 /// `d1`, `d2`: Eigenvalues from the left and right subproblems.
