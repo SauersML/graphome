@@ -126,7 +126,6 @@ mod tests {
             output_gam.path(),
             start_node,
             end_node,
-            output_analysis.path(),
         )?;
 
         // Define expected edges within the range as a Vec
@@ -225,7 +224,6 @@ mod tests {
             output_gam.path(),
             start_node,
             end_node,
-            output_analysis.path(),
         )?;
         // Define expected edges within the range as a Vec
         let _expected_edges: Vec<(u32, u32)> = vec![
