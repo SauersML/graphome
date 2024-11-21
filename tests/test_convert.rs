@@ -209,7 +209,7 @@ mod tests {
         let end_node = 2;
         // Run the extraction
         extract::extract_and_analyze_submatrix(
-            output_gam.path(),
+            output_gam.as_path(),
             start_node,
             end_node,
         )?;
