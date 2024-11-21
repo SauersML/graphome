@@ -1,4 +1,3 @@
-use crate::extract::*;
 use crate::eigen::{
     adjacency_matrix_to_ndarray,
     call_eigendecomp,
