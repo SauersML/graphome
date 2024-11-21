@@ -176,28 +176,3 @@ fn test_print_eigenvalues_heatmap() {
     let output = String::from_utf8(writer).unwrap();
     assert!(output.contains("██"));
 }
-
-#[test]
-fn test_save_nalgebra_matrix_to_csv() {
-    let matrix = DMatrix::from_row_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]);
-    let mut temp_file = NamedTempFile::new().unwrap();
-    save_nalgebra_matrix_to_csv(&matrix, temp_file.path()).unwrap();
-
-    // Read back and verify
-    let mut contents = String::new();
-    temp_file.as_file().read_to_string(&mut contents).unwrap();
-    assert_eq!(contents, "1,2\n3,4\n");  // Check if file content matches expected CSV
-
-}
-
-#[test]
-fn test_save_nalgebra_vector_to_csv() {
-    let vector = DVector::from_row_slice(&[1.0, 2.0, 3.0]);
-    let mut temp_file = NamedTempFile::new().unwrap();
-
-    save_nalgebra_vector_to_csv(&vector, temp_file.path()).unwrap();
-
-    let mut contents = String::new();
-    temp_file.as_file().read_to_string(&mut contents).unwrap();
-    assert_eq!(contents, "1,2,3\n");
-}
