@@ -314,7 +314,7 @@ mod tests {
         ];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
-        let degree_matrix = Array2::<f64>::from_diag(°rees);
+        let degree_matrix = Array2::<f64>::from_diag(degrees);
 
         let expected_degrees = array![1.0, 3.0, 2.0, 2.0];
         let expected_degree_matrix = array![
@@ -339,8 +339,8 @@ mod tests {
         ];
 
         let degrees = adj_matrix.sum_axis(Axis(1));
-        let degree_matrix = Array2::<f64>::from_diag(°rees);
-        let laplacian = °ree_matrix - &adj_matrix;
+        let degree_matrix = Array2::<f64>::from_diag(degrees);
+        let laplacian = degree_matrix - &adj_matrix;
 
         let expected_laplacian = array![
             [1.0, -1.0, 0.0, 0.0],
