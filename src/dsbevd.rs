@@ -523,7 +523,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
     if n <= smlsiz {
         // Use QR algorithm for small matrices
         let mut work = vec![0.0; 2*n-2];
-        return dsteqr('I', n, d, e, z, &mut work);
+        return dsteqr('I', n, d, e, z, &mut work).map_err(|_| 1);
     }
 
     // Scale the matrix if necessary
