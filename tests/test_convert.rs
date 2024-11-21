@@ -212,7 +212,6 @@ mod tests {
             output_gam.path(),
             start_node,
             end_node,
-            output_dir.path(),
         )?;
         // Define expected edges within the range as a Vec
         let _expected_edges: Vec<(u32, u32)> = vec![
@@ -220,7 +219,8 @@ mod tests {
             (2, 1), // From node 3 to node 2
         ];
         // Load the Laplacian matrix from CSV
-        let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
+        let laplacian_csv = output_dir.path().join("laplacian.csv");
+        
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
         // Verify the Laplacian matrix
         // For nodes 2 and 3, the adjacency is:
@@ -259,7 +259,7 @@ mod tests {
             );
         }
         // Load eigenvectors
-        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
+        let eigenvectors_csv = output_dir.path().join("eigenvectors.csv");
         let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
         // Since eigenvectors can vary in sign and orientation, we'll focus on verifying the eigenvalues' correctness
         // Alternatively, you can implement additional checks for eigenvectors if necessary
