@@ -1373,73 +1373,244 @@ fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],
    }
 }
 
-fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
-   let n = d.len();
-   let mut e_ext = vec![0.0; n];
-   e_ext[..n-1].copy_from_slice(e);
+fn dsteqr(
+    compz: char,
+    n: usize,
+    d: &mut [f64],
+    e: &mut [f64],
+    z: &mut [Vec<f64>],
+    work: &mut [f64],
+) -> Result<(), &'static str> {
+    // Constants
+    const MAXIT: usize = 30;
+    const ZERO: f64 = 0.0;
+    const ONE: f64 = 1.0;
+    const TWO: f64 = 2.0;
+    const THREE: f64 = 3.0;
 
-   for l in 0..n {
-       let mut iter = 0;
-       loop {
-           let mut m = l;
-           while m < n - 1 {
-               let dd = d[m].abs() + d[m + 1].abs();
-               if e_ext[m].abs() <= f64::EPSILON * dd {
-                   break;
-               }
-               m += 1;
-           }
+    // Check input parameters
+    let icompz = match compz {
+        'N' | 'n' => 0,
+        'V' | 'v' => 1,
+        'I' | 'i' => 2,
+        _ => {
+            return Err("Invalid value for compz in dsteqr");
+        }
+    };
 
-           if m == l {
-               break;
-           }
+    if n == 0 {
+        return Ok(());
+    }
 
-           iter += 1;
-           if iter > 1000 {
-               panic!("Too many iterations in dsteqr");
-           }
+    if icompz == 1 && (z.len() < n || z[0].len() < n) {
+        return Err("Dimension of z is too small");
+    }
 
-           let delta = (d[m - 1] - d[m]).abs() / 2.0;
-           let mu = d[m] - (e_ext[m - 1].powi(2)) / (delta + (delta.powi(2) + e_ext[m - 1].powi(2)).sqrt());
+    if icompz == 2 {
+        // Initialize z to identity matrix
+        for i in 0..n {
+            for j in 0..n {
+                z[i][j] = if i == j { ONE } else { ZERO };
+            }
+        }
+    }
 
-           for i in l..n {
-               d[i] -= mu;
-           }
+    let mut info = 0;
+    let mut nm1 = n.saturating_sub(1);
 
-           for i in l..m {
-               let (cs, sn) = dlartg(d[i], e_ext[i]);
-               
-               let temp = cs * d[i] - sn * e_ext[i];
-               e_ext[i] = sn * d[i] + cs * e_ext[i];
-               d[i] = temp;
+    if n == 1 {
+        return Ok(());
+    }
 
-               if i + 1 < n {
-                   for k in 0..n {
-                       let temp = cs * z[k][i] - sn * z[k][i + 1];
-                       z[k][i + 1] = sn * z[k][i] + cs * z[k][i + 1];
-                       z[k][i] = temp;
-                   }
-               }
-           }
-       }
-   }
+    // Machine constants
+    let eps = f64::EPSILON;
+    let eps2 = eps * eps;
+    let safmin = f64::MIN_POSITIVE;
+    let safmax = ONE / safmin;
+    let ssfmax = (safmax.sqrt()) / THREE;
+    let ssfmin = (safmin.sqrt()) / eps2;
 
-   let mut idx: Vec<usize> = (0..n).collect();
-   idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap());
+    // Initialize work arrays
+    let mut work_c = vec![0.0; n];
+    let mut work_s = vec![0.0; n];
 
-   let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
-   let sorted_z = idx.iter()
-       .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
-       .collect::<Vec<Vec<f64>>>();
+    // Main loop variables
+    let mut l1 = 0;
+    let mut jtot = 0;
+    let nmaxit = n * MAXIT;
 
-   d.copy_from_slice(&sorted_d);
-   for i in 0..n {
-       for j in 0..n {
-           z[i][j] = sorted_z[j][i];
-       }
-   }
+    while l1 < n {
+        let mut m = l1;
+        // Find small subdiagonal element
+        while m < nm1 {
+            let tst = e[m].abs().powi(2);
+            if tst <= (eps2 * d[m].abs() * d[m + 1].abs() + safmin) {
+                break;
+            }
+            m += 1;
+        }
+
+        let mut l = l1;
+        let lend = m;
+        if m < nm1 {
+            e[m] = ZERO;
+        }
+        l1 = m + 1;
+
+        if l > lend {
+            // QR iteration
+            while l > lend {
+                if jtot >= nmaxit {
+                    info += l;
+                    break;
+                }
+                jtot += 1;
+
+                // Form shift
+                let g = (d[l - 1] - d[l]) / (TWO * e[l - 1]);
+                let r = dlapy2(g, ONE);
+                let g = d[l] - d[l - 1] + e[l - 1] / (g + r.copysign(g));
+                let mut s = ONE;
+                let mut c = ONE;
+                let mut p = ZERO;
+
+                for i in (lend..l).rev() {
+                    let f = s * e[i];
+                    let b = c * e[i];
+                    let (c_temp, s_temp) = dlartg(g, f);
+                    if i < l - 1 {
+                        e[i + 1] = r;
+                    }
+                    g = d[i + 1] - p;
+                    r = (d[i] - g) * s_temp + TWO * c_temp * b;
+                    p = s_temp * r;
+                    d[i + 1] = g + p;
+                    g = c_temp * r - b;
+
+                    // Save rotations
+                    if icompz > 0 {
+                        work_c[i] = c_temp;
+                        work_s[i] = s_temp;
+                    }
+                }
+                d[l] = d[l] - p;
+                e[l - 1] = g;
+
+                // Apply rotations
+                if icompz > 0 {
+                    let mm = l - lend + 1;
+                    for j in 0..z.len() {
+                        let mut k = l - mm + 1;
+                        while k <= l {
+                            let temp = work_c[k - 1] * z[j][k - 1] - work_s[k - 1] * z[j][k];
+                            z[j][k] = work_s[k - 1] * z[j][k - 1] + work_c[k - 1] * z[j][k];
+                            z[j][k - 1] = temp;
+                            k += 1;
+                        }
+                    }
+                }
+
+                if e[l - 1].abs() <= eps2 * (d[l - 1].abs() + d[l].abs()) {
+                    e[l - 1] = ZERO;
+                }
+
+                l -= 1;
+            }
+        } else if l < lend {
+            // QL iteration
+            while l < lend {
+                if jtot >= nmaxit {
+                    info += l;
+                    break;
+                }
+                jtot += 1;
+
+                // Form shift
+                let g = (d[l + 1] - d[l]) / (TWO * e[l]);
+                let r = dlapy2(g, ONE);
+                let g = d[l] - d[l + 1] + e[l] / (g + r.copysign(g));
+                let mut s = ONE;
+                let mut c = ONE;
+                let mut p = ZERO;
+
+                for i in l..lend {
+                    let f = s * e[i];
+                    let b = c * e[i];
+                    let (c_temp, s_temp) = dlartg(g, f);
+                    if i > l {
+                        e[i - 1] = r;
+                    }
+                    g = d[i] - p;
+                    r = (d[i + 1] - g) * s_temp + TWO * c_temp * b;
+                    p = s_temp * r;
+                    d[i] = g + p;
+                    g = c_temp * r - b;
+
+                    // Save rotations
+                    if icompz > 0 {
+                        work_c[i] = c_temp;
+                        work_s[i] = s_temp;
+                    }
+                }
+                d[lend] = d[lend] - p;
+                e[lend - 1] = g;
+
+                // Apply rotations
+                if icompz > 0 {
+                    let mm = lend - l;
+                    for j in 0..z.len() {
+                        let mut k = l;
+                        while k < lend {
+                            let temp = work_c[k] * z[j][k] - work_s[k] * z[j][k + 1];
+                            z[j][k + 1] = work_s[k] * z[j][k] + work_c[k] * z[j][k + 1];
+                            z[j][k] = temp;
+                            k += 1;
+                        }
+                    }
+                }
+
+                if e[l].abs() <= eps2 * (d[l].abs() + d[l + 1].abs()) {
+                    e[l] = ZERO;
+                }
+
+                l += 1;
+            }
+        } else {
+            // Diagonal element
+            if d[l].is_nan() {
+                return Err("NaN encountered");
+            }
+            l += 1;
+        }
+    }
+
+    // Order eigenvalues and eigenvectors
+    if icompz == 0 {
+        d.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    } else {
+        let mut idx: Vec<usize> = (0..n).collect();
+        idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap_or(std::cmp::Ordering::Equal)));
+
+        let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
+        let sorted_z = idx
+            .iter()
+            .map(|&i| z.iter().map(|row| row[i]).collect::<Vec<f64>>())
+            .collect::<Vec<Vec<f64>>>();
+
+        d.copy_from_slice(&sorted_d);
+        for i in 0..n {
+            for j in 0..n {
+                z[i][j] = sorted_z[j][i];
+            }
+        }
+    }
+
+    if info > 0 {
+        return Err("Failed to compute all eigenvalues");
+    } else {
+        return Ok(());
+    }
 }
-
 
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
