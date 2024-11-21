@@ -534,7 +534,13 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
-        dsteqr(d, e, z);
+        let n = d.len();
+        let mut work = vec![0.0; 2*n-2];  // Work array needs to be 2*n-2 size
+        let result = dsteqr('I', n, d, e, z, &mut work);
+        if let Err(err) = result {
+            // Handle error
+            panic!("Error in dsteqr: {}", err);  
+        }
         return;
     }
 
@@ -569,7 +575,13 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in 0..m {
                 z_sub[i][i] = 1.0;
             }
-            dsteqr(&mut d_sub, &mut e_sub, &mut z_sub);
+            let n = d_sub.len();
+            let mut work = vec![0.0; 2*n-2];
+            let result = dsteqr('I', n, &mut d_sub, &mut e_sub, &mut z_sub, &mut work);
+            if let Err(err) = result {
+                // Handle error
+                panic!("Error in dsteqr: {}", err);
+            }
 
             // Copy back results
             for i in 0..m {
