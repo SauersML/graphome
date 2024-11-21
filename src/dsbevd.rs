@@ -81,10 +81,10 @@ impl SymmetricBandedMatrix {
             }
         }
     
-        EigenResults {
+        Ok(EigenResults {
             eigenvalues,
             eigenvectors,
-        }
+        })
     }
 
     fn dsbtrd(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
@@ -624,7 +624,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
             let mut z_out = vec![vec![0.0; m]; m];
             let err = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged, &mut z_out);
             if err != 0 {
-                info = (start + err) * (n + 1);
+                info = (start + err as usize) * (n + 1);
                 break;
             }
 
