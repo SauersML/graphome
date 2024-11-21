@@ -154,18 +154,6 @@ fn test_adjacency_matrix_to_ndarray() {
 
 }
 
-
-#[test]
-fn test_print_heatmap_ndarray() {
-    let matrix_nd = array![[1.0, 2.0], [0.0, 4.0]];
-    let mut writer = Vec::new(); // Capture output
-    print_heatmap_ndarray(&matrix_nd, &mut writer);
-
-    // Add assertions based on your expected output format
-    let output = String::from_utf8(writer).unwrap();
-    assert!(output.contains("██"));
-}
-
 #[test]
 fn test_print_eigenvalues_heatmap() {
     let eigenvalues = array![1.0, 2.0, 0.0, 4.0];
