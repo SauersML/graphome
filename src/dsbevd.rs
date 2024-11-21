@@ -948,20 +948,6 @@ fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     }
 }
 
-/// Compute plane rotation parameters
-fn dlartg(f: f64, g: f64) -> (f64, f64, f64) {
-    if g == 0.0 {
-        (f.abs(), f.signum(), 0.0)
-    } else if f == 0.0 {
-        (g.abs(), 0.0, g.signum())
-    } else {
-        let r = f.hypot(g);
-        let cs = f / r;
-        let sn = g / r;
-        (r, cs, sn)
-    }
-}
-
 /// Computes the Givens rotation coefficients c and s such that
 /// [c -s; s c]^T * [a; b] = [r; 0]
 fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
