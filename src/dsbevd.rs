@@ -1686,16 +1686,6 @@ fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
 /// # Note
 ///
 /// This function corresponds to the LAPACK routine DLASSQ.
-///
-/// # Example
-///
-/// ```
-/// let mut x = vec![2.0, 3.0];
-/// let mut scale = 1.0;
-/// let mut sumsq = 1.0;
-/// dlassq(x.len(), &x, 1, &mut scale, &mut sumsq);
-/// // Now, scale and sumsq contain the updated values.
-/// ```
 fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
     if n == 0 {
         return;
