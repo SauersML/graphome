@@ -1781,11 +1781,11 @@ fn dlamrg(
     dtrd2: i32,
     index: &mut [usize],
 ) {
-    let mut n1sv = n1 as isize;
-    let mut n2sv = n2 as isize;
     let mut ind1: isize = if dtrd1 > 0 { 0 } else { n1 as isize - 1 };
     let mut ind2: isize = if dtrd2 > 0 { n1 as isize } else { (n1 + n2) as isize - 1 };
     let mut i: usize = 0;
+    let mut n1sv = n1 as isize;
+    let mut n2sv = n2 as isize;
 
     while n1sv > 0 && n2sv > 0 {
         let a_ind1 = a[ind1 as usize];
