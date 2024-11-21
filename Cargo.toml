@@ -31,12 +31,16 @@ libc = "0.2"
 
 [[test]]
 name = "test_convert"
+path = "tests/test_convert.rs"
 
 [[test]]
 name = "test_dsbevd"
+path = "tests/test_dsbevd.rs"
 
 [[test]]
 name = "test_eigen"
+path = "tests/test_eigen.rs"
 
 [[test]]
 name = "test_extract"
+path = "tests/test_extract.rs"
