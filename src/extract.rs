@@ -9,8 +9,26 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::cmp::min;
+use nalgebra::DMatrix;
+use crate::eigen::{
+    call_eigendecomp, 
+    adjacency_matrix_to_ndarray, 
+    compute_ngec, 
+    print_heatmap, 
+    print_heatmap_ndarray, 
+    print_eigenvalues_heatmap,
+    save_nalgebra_matrix_to_csv,
+    save_nalgebra_vector_to_csv,
+};
 
-use crate::eigen::{call_eigendecomp, adjacency_matrix_to_ndarray, compute_ngec, print_heatmap, print_heatmap_ndarray, print_eigenvalues_heatmap};
+fn save_ndarray_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, path: P) -> io::Result<()> {
+    let nalgebra_matrix = DMatrix::from_iterator(
+        matrix.nrows(),
+        matrix.ncols(),
+        matrix.iter().cloned()
+    );
+    save_nalgebra_matrix_to_csv(&nalgebra_matrix, path)
+}
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
