@@ -1731,15 +1731,15 @@ fn dlaed0(
     // Determine the size and placement of the submatrices, and save in IWORK.
     let mut subpbs = 1;
     iwork[0] = n;
-    let mut tlvls = 0;
+    let mut tlvls_local = 0;
     while iwork[subpbs - 1] > smlsiz {
         for j in (0..subpbs).rev() {
             let i1 = iwork[j] / 2;
             let i2 = iwork[j] - i1;
-            iwork[2 * j + 1] = i2;
             iwork[2 * j] = i1;
+            iwork[2 * j + 1] = i2;
         }
-        tlvls += 1;
+        tlvls_local += 1;
         subpbs *= 2;
     }
 
@@ -1753,7 +1753,7 @@ fn dlaed0(
     let mut info = 0;
 
     // Recursively solve each submatrix eigenproblem
-    for i = 0; i < total_problems; i += 1 {
+    for i in 0..total_problems {
         let smm1: usize;
         if i == 0 {
             submat = 0;
@@ -1774,7 +1774,7 @@ fn dlaed0(
             }
             let result = dsteqr(icompq, matsiz, &mut d_sub, &mut e_sub, &mut q_sub);
 
-            if let Err(err) = result {
+            if let Err(_err) = result {
                 info = submat * (n + 1) + submat + matsiz - 1;
                 return Err("Error in DSTEQR");
             }
