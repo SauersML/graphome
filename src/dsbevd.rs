@@ -1210,3 +1210,259 @@ const BASE: f64 = 2.0_f64;
 const PRECISION: f64 = f64::EPSILON;
 const RMAX: f64 = f64::MAX;
 const RMIN: f64 = f64::MIN_POSITIVE;
+
+/// Matrix-vector multiplication
+/// Computes y := alpha*A*x + beta*y or y := alpha*A^T*x + beta*y
+pub fn dgemv(trans: bool, m: usize, n: usize, alpha: f64, a: &[Vec<f64>], 
+             x: &[f64], beta: f64, y: &mut [f64]) {
+    if !trans {
+        // y := alpha*A*x + beta*y
+        for i in 0..m {
+            let mut temp = 0.0;
+            for j in 0..n {
+                temp += alpha * a[i][j] * x[j];
+            }
+            y[i] = temp + beta * y[i];
+        }
+    } else {
+        // y := alpha*A^T*x + beta*y
+        for i in 0..n {
+            y[i] *= beta;
+        }
+        for i in 0..m {
+            let temp = alpha * x[i];
+            for j in 0..n {
+                y[j] += temp * a[i][j];
+            }
+        }
+    }
+}
+
+/// Euclidean norm of a vector
+pub fn dnrm2(n: usize, x: &[f64], incx: usize) -> f64 {
+    if n < 1 || incx < 1 {
+        return 0.0;
+    }
+    if n == 1 {
+        return x[0].abs();
+    }
+
+    let mut scale = 0.0;
+    let mut ssq = 1.0;
+    
+    // Computing the scaled sum of squares
+    for i in (0..n*incx).step_by(incx) {
+        if x[i] != 0.0 {
+            let absxi = x[i].abs();
+            if scale < absxi {
+                let temp = scale / absxi;
+                ssq = 1.0 + ssq * temp * temp;
+                scale = absxi;
+            } else {
+                let temp = absxi / scale;
+                ssq += temp * temp;
+            }
+        }
+    }
+    scale * ssq.sqrt()
+}
+
+/// Scale a vector by a constant
+pub fn dscal(n: usize, alpha: f64, x: &mut [f64], incx: usize) {
+    if n < 1 || incx < 1 {
+        return;
+    }
+    for i in (0..n*incx).step_by(incx) {
+        x[i] *= alpha;
+    }
+}
+
+/// Find index of element with maximum absolute value
+pub fn idamax(n: usize, x: &[f64], incx: usize) -> usize {
+    if n < 1 || incx < 1 {
+        return 0;
+    }
+    if n == 1 {
+        return 0;
+    }
+
+    let mut max_idx = 0;
+    let mut max_val = x[0].abs();
+
+    for i in (incx..n*incx).step_by(incx) {
+        let abs_val = x[i].abs();
+        if abs_val > max_val {
+            max_idx = i/incx;
+            max_val = abs_val;
+        }
+    }
+    max_idx
+}
+
+/// Reduce a symmetric band matrix to tridiagonal form
+pub fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64], 
+              e: &mut [f64], q: &mut [Vec<f64>]) {
+    // Initialize Q to identity if we're computing eigenvectors
+    dlaset('F', n, n, 0.0, 1.0, q);
+
+    let kd1 = kd + 1;
+    let kdm1 = kd - 1;
+    let ncc = 0; // Number of columns of Q to update
+    let mut nr = 0;
+    let mut j1 = kd1;
+    let mut j2 = 1;
+
+    let mut work = vec![0.0; n];
+    
+    if uplo == 'U' {
+        // Upper triangular storage
+        for j in 0..n-2 {
+            // Reduce jth column of matrix to tridiagonal form
+            for k in kd-1..0 {
+                j1 = j1.saturating_sub(kd1);
+                j2 = j2.saturating_sub(kd1);
+                
+                if nr > 0 {
+                    // Generate rotations to annihilate nonzero elements
+                    dlargv(nr, &mut ab[k+1][j1-1], kd1, 
+                          &mut ab[k][j1], kd1,
+                          &mut work[j1], 1);
+
+                    // Apply rotations from the right
+                    for l in 0..k {
+                        dlartv(nr, &mut ab[l+1][j1-1], kd1,
+                              &mut ab[l][j1], kd1,
+                              &work[j1], &ab[k][j1], 1);
+                    }
+                }
+
+                if k < kd-1 {
+                    // Generate rotation to annihilate a(j,j+k) within the band
+                    let (cs, sn) = dlartg(ab[kd-k][j+k], ab[kd-k-1][j+k+1]);
+                    
+                    // Apply rotation from the right
+                    drot(k, &mut ab[kd-k][j+k..], 1, 
+                         &mut ab[kd-k-1][j+k+1..], 1,
+                         cs, sn);
+                         
+                    ab[kd-k-1][j+k+1] = 0.0;
+                }
+
+                nr += 1;
+            }
+
+            // Copy superdiagonal elements back into A
+            for i in 0..kd-1 {
+                if j+i+1 < n {
+                    ab[i][j+i+1] = ab[kd][j+i];
+                }
+            }
+
+            // Update diagonal and subdiagonal elements
+            if j < n-1 {
+                d[j] = ab[kd][j];
+                e[j] = ab[kdm1][j+1];
+            }
+        }
+        // Handle last diagonal element
+        d[n-1] = ab[kd][n-1];
+
+    } else {
+        // Lower triangular storage
+        for j in 0..n-2 {
+            // Reduce jth row of matrix to tridiagonal form
+            for k in kd-1..0 {
+                j1 = j1.saturating_sub(kd1);
+                j2 = j2.saturating_sub(kd1);
+                
+                if nr > 0 {
+                    // Generate rotations to annihilate nonzero elements
+                    dlargv(nr, &mut ab[kd1-k-1][j1], kd1,
+                          &mut ab[kd1-k][j1], kd1,
+                          &mut work[j1], 1);
+
+                    // Apply rotations from the left
+                    for l in 0..k {
+                        dlartv(nr, &mut ab[kd1-l-1][j1], kd1,
+                              &mut ab[kd1-l][j1], kd1,
+                              &work[j1], &ab[kd1-k][j1], 1);
+                    }
+                }
+
+                if k < kd-1 {
+                    // Generate rotation to annihilate a(j+k,j) within the band
+                    let (cs, sn) = dlartg(ab[k+1][j], ab[k+2][j]);
+                    
+                    // Apply rotation from the left
+                    drot(k, &mut ab[k+2][j..], kd1,
+                         &mut ab[k+1][j+1..], kd1,
+                         cs, sn);
+                         
+                    ab[k+2][j] = 0.0;
+                }
+
+                nr += 1;
+            }
+
+            // Copy subdiagonal elements back into A
+            for i in 0..kd-1 {
+                if j+i+1 < n {
+                    ab[i+1][j] = ab[0][j+i+1];
+                }
+            }
+
+            // Update diagonal and subdiagonal elements
+            if j < n-1 {
+                d[j] = ab[0][j];
+                e[j] = ab[1][j];
+            }
+        }
+        // Handle last diagonal element
+        d[n-1] = ab[0][n-1];
+    }
+    
+    // If we're computing eigenvectors, update Q
+    if ncc > 0 {
+        if uplo == 'U' {
+            // Update Q for upper storage
+            for j in 0..n-1 {
+                for k in 0..kd-1 {
+                    if j+k+1 < n {
+                        drot(ncc, &mut q[j][..], 1,
+                             &mut q[j+k+1][..], 1,
+                             work[j], ab[k][j+k+1]);
+                    }
+                }
+            }
+        } else {
+            // Update Q for lower storage
+            for j in 0..n-1 {
+                for k in 0..kd-1 {
+                    if j+k+1 < n {
+                        drot(ncc, &mut q[j][..], 1,
+                             &mut q[j+k+1][..], 1,
+                             work[j], ab[k+1][j]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper function to pass workspace arrays and handle error conditions safely
+pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>]) 
+    -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) 
+{
+    assert!(n > 0, "Matrix dimension must be positive");
+    assert!(kd >= 0 && kd < n, "Band width must be valid");
+    assert!(ab.len() >= kd + 1, "Invalid array dimension for ab");
+    assert!(ab[0].len() >= n, "Invalid array dimension for ab");
+
+    let mut d = vec![0.0; n];
+    let mut e = vec![0.0; n-1];
+    let mut q = vec![vec![0.0; n]; n];
+
+    dsbtrd(uplo, n, kd, ab, &mut d, &mut e, &mut q);
+
+    (d, e, q)
+}
