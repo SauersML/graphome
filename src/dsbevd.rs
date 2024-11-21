@@ -35,7 +35,7 @@ impl SymmetricBandedMatrix {
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
     
-        let anrm = self.matrix_norm();
+        let anrm = self.dlanst();
         let mut scale = 1.0;
         let mut iscale = 0;
         
@@ -48,12 +48,12 @@ impl SymmetricBandedMatrix {
         }
     
         let working_matrix = if scale != 1.0 {
-            self.scaled_copy(scale)
+            self.dlascl(scale)
         } else {
             self.clone()
         };
     
-        let (mut d, mut e, mut q) = working_matrix.reduce_to_tridiagonal();
+        let (mut d, mut e, mut q) = working_matrix.dsbtrd();
     
         // Use reliable tridiagonal solver
         let (eigenvals, eigenvecs) = dstedc(&d, &e);
@@ -75,7 +75,7 @@ impl SymmetricBandedMatrix {
         }
     }
 
-    fn reduce_to_tridiagonal(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
+    fn dsbtrd(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
@@ -267,7 +267,7 @@ impl SymmetricBandedMatrix {
                     if kd - 2 < ab.len() && i < ab[kd - 2].len() {
                         let f = ab[kd - 2][i];
                         let g = ab[kd - 1][i];
-                        let (cs, sn) = givens_rotation(f, g);
+                        let (cs, sn) = dlartg(f, g);
                         ab[kd - 2][i] = cs * f + sn * g;
     
                         // Apply from the left
@@ -308,7 +308,7 @@ impl SymmetricBandedMatrix {
     
         
 
-    fn matrix_norm(&self) -> f64 {
+    fn dlanst(&self) -> f64 {
         let mut value: f64 = 0.0;
         if self.kd == 0 {
             // Diagonal case
@@ -333,7 +333,7 @@ impl SymmetricBandedMatrix {
     
 
     
-    fn scaled_copy(&self, scale: f64) -> Self {
+    fn dlascl(&self, scale: f64) -> Self {
         let mut scaled = (*self).clone();
         for row in &mut scaled.ab {
             for val in row {
@@ -497,7 +497,7 @@ fn dstedc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
     }
 
     // Call the divide and conquer algorithm
-    divide_and_conquer(&mut diag, &mut off_diag, &mut z);
+    dstedc(&mut diag, &mut off_diag, &mut z);
 
     // The eigenvalues are in diag
     // The eigenvectors are in z
@@ -518,7 +518,7 @@ fn dstedc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
 /// Divide and conquer algorithm for symmetric tridiagonal eigenproblem.
 /// Modifies `d`, `e`, and `z` in place to compute eigenvalues and eigenvectors.
 /// This function corresponds to LAPACK's DSTEDC subroutine.
-fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
+fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
     if n == 1 {
         // Trivial case: the eigenvalue is d[0], and the eigenvector is [1]
@@ -605,7 +605,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in 0..left_size {
                 z_left[i][i] = 1.0;
             }
-            divide_and_conquer(&mut d_left, &mut e_left, &mut z_left);
+            dstedc(&mut d_left, &mut e_left, &mut z_left);
 
             // Right subproblem
             let right_size = submat_end - mid;
@@ -615,7 +615,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in 0..right_size {
                 z_right[i][i] = 1.0;
             }
-            divide_and_conquer(&mut d_right, &mut e_right, &mut z_right);
+            dstedc(&mut d_right, &mut e_right, &mut z_right);
 
             // Merge the two subproblems
             let mut d_merged = vec![0.0; m];
@@ -846,7 +846,7 @@ fn dlaed4(
 
 /// Computes the Givens rotation coefficients c and s such that
 /// [c -s; s c]^T * [a; b] = [r; 0]
-fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
+fn dlartg(a: f64, b: f64) -> (f64, f64) {
     let eps = f64::EPSILON;
     let safmin = f64::MIN_POSITIVE;
     
