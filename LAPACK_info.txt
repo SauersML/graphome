@@ -173,8 +173,6 @@
      $                   LWORK, IWORK, LIWORK, INFO )
 *
 *  -- LAPACK driver routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          JOBZ, UPLO
@@ -480,8 +478,6 @@
      $                   WORK, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          UPLO, VECT
@@ -1119,9 +1115,7 @@
       SUBROUTINE DSTEDC( COMPZ, N, D, E, Z, LDZ, WORK, LWORK, IWORK,
      $                   LIWORK, INFO )
 *
-*  -- LAPACK computational routine (version 3.7.1) --
-
-*     June 2017
+*  -- LAPACK computational routine (version 3.7.1) --*     June 2017
 *
 *     .. Scalar Arguments ..
       CHARACTER          COMPZ
@@ -1495,8 +1489,6 @@
 *>          The leading dimension of the array A.  LDA >= max(1,M).
 *> \endverbatim
 *
-
-
 *
 *
 *> \ingroup OTHERauxiliary
@@ -1505,8 +1497,6 @@
       SUBROUTINE DLASET( UPLO, M, N, ALPHA, BETA, A, LDA )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          UPLO
@@ -1647,24 +1637,14 @@
 *>  (machine parameters are computed on each entry). 10 feb 03, SJH.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLARTG( F, G, CS, SN, R )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       DOUBLE PRECISION   CS, F, G, R, SN
@@ -1849,24 +1829,14 @@
 *>          The increment between elements of C and S. INCC > 0.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup doubleOTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLARTV( N, X, INCX, Y, INCY, C, S, INCC )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INCC, INCX, INCY, N
@@ -1979,24 +1949,14 @@
 *>          The increment between elements of C. INCC > 0.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup doubleOTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLARGV( N, X, INCX, Y, INCY, C, INCC )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INCC, INCX, INCY, N
@@ -2139,24 +2099,14 @@
 *>          The increment between elements of C and S. INCC > 0.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup doubleOTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLAR2V( N, X, Y, Z, INCX, C, S, INCC )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INCC, INCX, N
@@ -2273,24 +2223,14 @@
 *>          The (n-1) sub-diagonal or super-diagonal elements of A.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 =============================================================
       DOUBLE PRECISION FUNCTION DLANST( NORM, N, D, E )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          NORM
@@ -2449,24 +2389,14 @@
 *>          squares from which  scl  has been factored out.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLASSQ( N, X, INCX, SCALE, SUMSQ )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INCX, N
@@ -2653,16 +2583,8 @@
 *>                INFO/(N+1) through mod(INFO,N+1).
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -2676,8 +2598,6 @@
      $                   WORK, IWORK, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            ICOMPQ, INFO, LDQ, LDQS, N, QSIZ
@@ -3012,24 +2932,14 @@
 *>          The leading dimension of the array B.  LDB >= max(1,M).
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLACPY( UPLO, M, N, A, LDA, B, LDB )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          UPLO
@@ -3207,16 +3117,8 @@
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -3230,9 +3132,7 @@
       SUBROUTINE DLAED1( N, D, Q, LDQ, INDXQ, RHO, CUTPNT, WORK, IWORK,
      $                   INFO )
 *
-*  -- LAPACK computational routine (version 3.7.0) --
-
-*     June 2016
+*  -- LAPACK computational routine (version 3.7.0) --*     June 2016
 *
 *     .. Scalar Arguments ..
       INTEGER            CUTPNT, INFO, LDQ, N
@@ -3517,16 +3417,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -3541,8 +3433,6 @@
      $                   Q2, INDX, INDXC, INDXP, COLTYP, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INFO, K, LDQ, N, N1
@@ -4016,13 +3906,7 @@
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
 *
-
-
 *
-
-
-
-
 *
 *> \date June 2017
 *
@@ -4039,9 +3923,7 @@
       SUBROUTINE DLAED3( K, N, N1, D, Q, LDQ, RHO, DLAMDA, Q2, INDX,
      $                   CTOT, W, S, INFO )
 *
-*  -- LAPACK computational routine (version 3.7.1) --
-
-*     June 2017
+*  -- LAPACK computational routine (version 3.7.1) --*     June 2017
 *
 *     .. Scalar Arguments ..
       INTEGER            INFO, K, LDQ, N, N1
@@ -4318,16 +4200,8 @@
 *>   eigenvalue.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -4340,8 +4214,6 @@
       SUBROUTINE DLAED4( N, I, D, Z, DELTA, RHO, DLAM, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            I, INFO, N
@@ -5185,16 +5057,8 @@
 *>         The computed lambda_I, the I-th updated eigenvalue.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -5207,8 +5071,6 @@
       SUBROUTINE DLAED5( I, D, Z, DELTA, RHO, DLAM )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            I
@@ -5381,16 +5243,8 @@
 *>               > 0: if INFO = 1, failure to converge
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Further Details:
@@ -5415,8 +5269,6 @@
       SUBROUTINE DLAED6( KNITER, ORGATI, RHO, D, Z, FINIT, TAU, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       LOGICAL            ORGATI
@@ -5907,16 +5759,8 @@
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -5931,9 +5775,7 @@
      $                   PERM, GIVPTR, GIVCOL, GIVNUM, WORK, IWORK,
      $                   INFO )
 *
-*  -- LAPACK computational routine (version 3.7.0) --
-
-*     June 2016
+*  -- LAPACK computational routine (version 3.7.0) --*     June 2016
 *
 *     .. Scalar Arguments ..
       INTEGER            CURLVL, CURPBM, CUTPNT, ICOMPQ, INFO, LDQ, N,
@@ -6285,16 +6127,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -6309,8 +6143,6 @@
      $                   GIVCOL, GIVNUM, INDXP, INDX, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            CUTPNT, GIVPTR, ICOMPQ, INFO, K, LDQ, LDQ2, N,
@@ -6710,16 +6542,8 @@
 *>          > 0:  if INFO = 1, an eigenvalue did not converge
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -6733,8 +6557,6 @@
      $                   S, LDS, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            INFO, K, KSTART, KSTOP, LDQ, LDS, N
@@ -7001,16 +6823,8 @@
 *>          < 0:  if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 *> \par Contributors:
@@ -7024,8 +6838,6 @@
      $                   GIVCOL, GIVNUM, Q, QPTR, Z, ZTEMP, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       INTEGER            CURLVL, CURPBM, INFO, N, TLVLS
@@ -7200,13 +7012,7 @@
 *>          X and Y specify the values x and y.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
 *
 *> \date June 2017
 *
@@ -7215,9 +7021,7 @@
 =============================================================
       DOUBLE PRECISION FUNCTION DLAPY2( X, Y )
 *
-*  -- LAPACK auxiliary routine (version 3.7.1) --
-
-*     June 2017
+*  -- LAPACK auxiliary routine (version 3.7.1) --*     June 2017
 *
 *     .. Scalar Arguments ..
       DOUBLE PRECISION   X, Y
@@ -7339,24 +7143,14 @@
 *>         sorted in ascending order.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 =============================================================
       SUBROUTINE DLAMRG( N1, N2, A, DTRD1, DTRD2, INDEX )
 *
-*  -- LAPACK computational routine (version 3.7.0) --
-
-*     June 2016
+*  -- LAPACK computational routine (version 3.7.0) --*     June 2016
 *
 *     .. Scalar Arguments ..
       INTEGER            DTRD1, DTRD2, N1, N2
@@ -7529,24 +7323,14 @@
 *>                matrix.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup auxOTHERcomputational
 *
 =============================================================
       SUBROUTINE DSTEQR( COMPZ, N, D, E, Z, LDZ, WORK, INFO )
 *
 *  -- LAPACK computational routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          COMPZ
@@ -8100,24 +7884,14 @@
 *>          <0 - if INFO = -i, the i-th argument had an illegal value.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 =============================================================
       SUBROUTINE DLASCL( TYPE, KL, KU, CFROM, CTO, M, N, A, LDA, INFO )
 *
-*  -- LAPACK auxiliary routine (version 3.7.0) --
-
-*     June 2016
+*  -- LAPACK auxiliary routine (version 3.7.0) --*     June 2016
 *
 *     .. Scalar Arguments ..
       CHARACTER          TYPE
@@ -8413,16 +8187,8 @@
 *>          The vector (CS1, SN1) is a unit right eigenvector for RT1.
 *> \endverbatim
 *
-
-
 *
-
-
-
-
-*
-
-*
+**
 *> \ingroup OTHERauxiliary
 *
 *> \par Further Details:
@@ -8448,8 +8214,6 @@
       SUBROUTINE DLAEV2( A, B, C, RT1, RT2, CS1, SN1 )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       DOUBLE PRECISION   A, B, C, CS1, RT1, RT2, SN1
@@ -8741,8 +8505,6 @@
       SUBROUTINE DLASR( SIDE, PIVOT, DIRECT, M, N, C, S, A, LDA )
 *
 *  -- LAPACK auxiliary routine (version 3.7.0) --
-
-
 *
 *     .. Scalar Arguments ..
       CHARACTER          DIRECT, PIVOT, SIDE
