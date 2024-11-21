@@ -50,9 +50,20 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save Laplacian matrix to CSV
 
+    // Save Laplacian matrix to CSV
+    let output_dir = edge_list_path.as_ref().parent().unwrap_or(Path::new("."));
+    let laplacian_csv = output_dir.join("laplacian.csv");
+    save_ndarray_to_csv(&laplacian, &laplacian_csv)?;
+    
     // Compute eigenvalues and eigenvectors
     println!("🔬 Performing eigendecomposition...");
     let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
+    
+    // Save eigenvectors and eigenvalues
+    let eigenvalues_csv = output_dir.join("eigenvalues.csv");
+    let eigenvectors_csv = output_dir.join("eigenvectors.csv");
+    save_nalgebra_vector_to_csv(&eigvals, &eigenvalues_csv)?;
+    save_nalgebra_matrix_to_csv(&eigvecs, &eigenvectors_csv)?;
     
     // Save eigenvectors to CSV
     
