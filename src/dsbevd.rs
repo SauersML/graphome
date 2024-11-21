@@ -621,7 +621,8 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
             }
 
             // Solve secular equation
-            if let Err(err) = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged) {
+            let mut z_out = vec![vec![0.0; m]; m];
+            if let Err(err) = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged, &mut z_out) {
                 info = (start + err) * (n + 1);
                 break;
             }
@@ -657,7 +658,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
     }
 
     if info != 0 {
-        return Err(info);
+        return Err(info.try_into().unwrap());
     }
 
     // Final eigenvalue sort using selection sort to minimize eigenvector swaps
