@@ -71,10 +71,10 @@ impl SymmetricBandedMatrix {
         let eigenvectors = z;
         
         // Transform eigenvectors back
-        let eigenvectors = dgemm(&q, &eigenvecs);
+        let eigenvectors = dgemm(&q, &z);
     
         // Rescale eigenvalues
-        let mut eigenvalues = eigenvals;
+        let mut eigenvalues = d;
         if scale != 1.0 {
             for eigenval in &mut eigenvalues {
                 *eigenval /= scale;
@@ -622,7 +622,8 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
 
             // Solve secular equation
             let mut z_out = vec![vec![0.0; m]; m];
-            if let Err(err) = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged, &mut z_out) {
+            let err = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged, &mut z_out)
+            if err != 0 {
                 info = (start + err) * (n + 1);
                 break;
             }
