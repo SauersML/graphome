@@ -2027,11 +2027,6 @@ Not yet implemented functions:
   - Description: Determines double-precision real machine parameters, such as the machine precision (EPS), the safe minimum (SAFMIN), the base of the machine, the maximum and minimum exponents, etc. This function is essential for setting up constants used in scaling and convergence criteria in numerical algorithms.
   - When it's called: It's called during `dsbevd` to get machine constants like EPS (precision), SAFMIN (safe minimum), SMLNUM, BIGNUM, RMIN, RMAX. These constants are crucial for scaling decisions, convergence checks, and to avoid overflow or underflow during computations.
 
-- DLAED0
-  - Description: Computes all eigenvalues and corresponding eigenvectors of an unreduced symmetric tridiagonal matrix using the divide and conquer method. It serves as a high-level driver routine that orchestrates the divide and conquer process.
-  - When it's called: Within `dstedc` when dealing with larger matrices (size greater than a threshold `SMLSIZ`), `dlaed0` is called to compute the eigenvalues and eigenvectors using the divide and conquer strategy.
-  - Perhaps partially in divide_and_conquer function
-
 - DCOPY
   - Description: Copies the contents of one vector to another, i.e., performs the operation `y := x`. It handles copying vectors with specific increments between elements.
   - When it's called: Used throughout the algorithms to copy vectors or portions of vectors. In routines like `dlaed0`, `dlaed1`, and `dlaed2`, it is essential for duplicating data during the divide and conquer steps.
