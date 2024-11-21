@@ -1457,3 +1457,204 @@ fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
        }
    }
 }
+
+
+// Implementations of the missing functions translated from LAPACK to Rust
+
+use std::cmp::{max, min};
+
+/// Merges two sorted arrays into a single sorted array.
+/// Translated from LAPACK's DLAMRG
+fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
+    let mut n1sv = n1 as isize;
+    let mut n2sv = n2 as isize;
+    let mut ind1 = if dtrd1 > 0 { 0 } else { (n1 - 1) as isize };
+    let mut ind2 = if dtrd2 > 0 { n1 as isize } else { (n1 + n2 - 1) as isize };
+    let mut i = 0;
+
+    while n1sv > 0 && n2sv > 0 {
+        if a[ind1 as usize] <= a[ind2 as usize] {
+            index[i] = ind1 as usize;
+            i += 1;
+            ind1 += dtrd1 as isize;
+            n1sv -= 1;
+        } else {
+            index[i] = ind2 as usize;
+            i += 1;
+            ind2 += dtrd2 as isize;
+            n2sv -= 1;
+        }
+    }
+
+    if n1sv == 0 {
+        for _ in 0..n2sv {
+            index[i] = ind2 as usize;
+            i += 1;
+            ind2 += dtrd2 as isize;
+        }
+    } else {
+        for _ in 0..n1sv {
+            index[i] = ind1 as usize;
+            i += 1;
+            ind1 += dtrd1 as isize;
+        }
+    }
+}
+
+/// Scales a matrix by cto/cfrom without over/underflow.
+/// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
+fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), &'static str> {
+    if cfrom == 0.0 {
+        return Err("CFROM cannot be zero");
+    }
+    
+    let smlnum = f64::MIN_POSITIVE;
+    let bignum = 1.0 / smlnum;
+
+    let mut cfromc = cfrom;
+    let mut ctoc = cto;
+    let mut done = false;
+    let mut mul: f64;
+
+    while !done {
+        let cfrom1 = cfromc * smlnum;
+        let cto1 = ctoc / bignum;
+        if cfrom1 == cfromc {
+            // cfromc is an inf. Multiply by something to get a finite cto
+            mul = ctoc / cfromc;
+            done = true;
+        } else if cto1 == ctoc {
+            // ctoc is either 0 or an inf.
+            mul = ctoc;
+            done = true;
+        } else if cfrom1.abs() > ctoc.abs() && ctoc != 0.0 {
+            mul = smlnum;
+            done = false;
+            cfromc = cfrom1;
+        } else if ctoc.abs() > cfromc.abs() {
+            mul = bignum;
+            done = false;
+            ctoc = cto1;
+        } else {
+            mul = ctoc / cfromc;
+            done = true;
+        }
+
+        // Scale the matrix
+        for i in 0..a.len() {
+            for j in 0..a[0].len() {
+                a[i][j] *= mul;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Swaps two vectors.
+/// Translated from BLAS's DSWAP
+fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
+    if n == 0 {
+        return;
+    }
+    if incx == 1 && incy == 1 {
+        // Code for increments equal to 1
+        let m = n % 3;
+        if m != 0 {
+            for i in 0..m {
+                let temp = dx[i];
+                dx[i] = dy[i];
+                dy[i] = temp;
+            }
+            if n < 3 {
+                return;
+            }
+        }
+        for i in (m..n).step_by(3) {
+            let temp = dx[i];
+            dx[i] = dy[i];
+            dy[i] = temp;
+            let temp = dx[i + 1];
+            dx[i + 1] = dy[i + 1];
+            dy[i + 1] = temp;
+            let temp = dx[i + 2];
+            dx[i + 2] = dy[i + 2];
+            dy[i + 2] = temp;
+        }
+    } else {
+        // Code for unequal increments or increments not equal to 1
+        let mut ix = if incx > 0 { 0 } else { (n - 1) * incx };
+        let mut iy = if incy > 0 { 0 } else { (n - 1) * incy };
+        for _ in 0..n {
+            let temp = dx[ix];
+            dx[ix] = dy[iy];
+            dy[iy] = temp;
+            ix += incx;
+            iy += incy;
+        }
+    }
+}
+
+/// Computes all eigenvalues and corresponding eigenvectors of a symmetric tridiagonal matrix using the divide and conquer method.
+/// Translated from LAPACK's DLAED0
+fn dlaed0(icompq: i32, qsiz: usize, d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), &'static str> {
+    let n = d.len();
+    let smlsiz = ilaenv(9, "DLAED0", " ", 0, 0, 0, 0) as usize;
+
+    if n == 0 {
+        return Ok(());
+    }
+
+    if n == 1 {
+        if icompq == 1 {
+            z[0][0] = 1.0;
+        }
+        return Ok(());
+    }
+
+    // Determine the size and placement of the submatrices
+    let mut subpbs = 1;
+    let mut tlvls = 0;
+    let mut iwork = Vec::with_capacity(2 * n);
+    iwork.push(n as i32);
+    loop {
+        if iwork[subpbs - 1] > smlsiz as i32 {
+            for j in (1..=subpbs).rev() {
+                let i = iwork[j - 1] / 2;
+                iwork.insert(2 * (j - 1), iwork[j - 1] - i);
+                iwork[j - 1] = i;
+            }
+            tlvls += 1;
+            subpbs *= 2;
+        } else {
+            break;
+        }
+    }
+    for j in 1..subpbs {
+        iwork[j] += iwork[j - 1];
+    }
+
+    // Divide and conquer algorithm
+    let mut qstore = vec![vec![0.0; n]; n];
+    let mut qptr = vec![0; n + 2];
+    let mut prmptr = vec![0; n + 2];
+    let mut perm = vec![0; n * tlvls];
+    let mut givptr = vec![0; n + 2];
+    let mut givcol = vec![vec![0; n * tlvls]; 2];
+    let mut givnum = vec![vec![0.0; n * tlvls]; 2];
+    let mut work = vec![0.0; 4 * n + n * n];
+    let mut iwork2 = vec![0; 3 + 5 * n];
+
+    dlaed0_rec(icompq, n, qsiz, tlvls, 0, 0, d, e, z, &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+        &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork2)
+}
+
+/// Query function for machine-dependent parameters
+fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
+    // - For ispec = 9 (used in DLAED0), return the block size for the D&C algorithm.
+    // In LAPACK, ILAENV(9, ...) returns the value of SMLSIZ, is always 25.
+    if ispec == 9 {
+        25
+    } else {
+        1
+    }
+}
