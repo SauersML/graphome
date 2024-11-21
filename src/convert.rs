@@ -81,7 +81,13 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     
     let counters = (0..samples).into_par_iter().map(|i| {
         let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(i as u64));
-        let pos = rng.gen_range(0..file_size - 1000);
+
+        let pos = if file_size > 1000 {
+            rng.gen_range(0..file_size - 1000)
+        } else {
+            0
+        };
+
         let mut end = pos;
         
         while end < file_size && mmap[end as usize] != b'\n' {
