@@ -98,58 +98,48 @@ mod tests {
     /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
     #[test]
     fn test_full_range_extraction() -> io::Result<()> {
-        // Create a temporary GFA file with sample data
-        let mut gfa_file = NamedTempFile::new()?;
-        writeln!(gfa_file, "H\tVN:Z:1.0")?;
-        writeln!(gfa_file, "S\t1\t*")?;
-        writeln!(gfa_file, "S\t2\t*")?;
-        writeln!(gfa_file, "S\t3\t*")?;
-        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
-        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
-        writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
-
-        // Output file for adjacency matrix
-        let output_gam = NamedTempFile::new()?;
-
+        // Create a temporary directory for all test files
+        let test_dir = tempdir()?;
+    
+        // Create a temporary GFA file with sample data in the test directory
+        let gfa_path = test_dir.path().join("test.gfa");
+        {
+            let mut gfa_file = File::create(&gfa_path)?;
+            writeln!(gfa_file, "H\tVN:Z:1.0")?;
+            writeln!(gfa_file, "S\t1\t*")?;
+            writeln!(gfa_file, "S\t2\t*")?;
+            writeln!(gfa_file, "S\t3\t*")?;
+            writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+            writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
+            writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
+        }
+    
+        // Output file for adjacency matrix (the .gam file) in the test directory
+        let output_gam = test_dir.path().join("test.gam");
+    
         // Run the conversion
-        convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
-
+        convert_gfa_to_edge_list(&gfa_path, &output_gam)?;
+    
         // Define the full range (all nodes)
         let start_node = 0;
         let end_node = 2;
-
-        // Output file base path for analysis
-        let output_dir = tempdir()?;
-
+    
         // Run the extraction
         extract::extract_and_analyze_submatrix(
-            output_gam.path(),
+            &output_gam,
             start_node,
             end_node,
-            output_dir.path(),
         )?;
-
-        // Define expected edges within the range as a Vec
-        let _expected_edges: Vec<(u32, u32)> = vec![
-            (0, 1), // From node 1 to node 2
-            (1, 0), // From node 2 to node 1
-            (1, 2), // From node 2 to node 3
-            (2, 1), // From node 3 to node 2
-            (0, 2), // From node 1 to node 3
-            (2, 0), // From node 3 to node 1
-        ];
-
+    
+        // Build paths to the output files within the test_dir
+        let laplacian_csv = test_dir.path().join("laplacian.csv");
+        let eigenvalues_csv = test_dir.path().join("eigenvalues.csv");
+        let eigenvectors_csv = test_dir.path().join("eigenvectors.csv");
+    
         // Load the Laplacian matrix from CSV
-        let laplacian_csv = output_dir.path().join("laplacian.csv");
         let laplacian = load_csv_as_matrix(&laplacian_csv)?;
-
+    
         // Verify the Laplacian matrix
-        // For nodes 1, 2, 3 with all mutual connections:
-        // Degrees: 2, 2, 2
-        // Laplacian should be:
-        // [2, -1, -1]
-        // [-1, 2, -1]
-        // [-1, -1, 2]
         let expected_laplacian = array![
             [2.0, -1.0, -1.0],
             [-1.0, 2.0, -1.0],
@@ -159,24 +149,23 @@ mod tests {
             laplacian, expected_laplacian,
             "Laplacian matrix does not match expected values for full range extraction."
         );
-
+    
         // Load eigenvalues
-        let eigenvalues_csv = output_dir.path().join("eigenvalues.csv");
         let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
-
+    
         // Expected eigenvalues
         let expected_eigenvalues = vec![0.0, 3.0, 3.0];
-
+    
         // The order doesn't affect the comparison
         let mut sorted_eigenvalues = eigenvalues.clone();
         sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
+    
         let mut sorted_expected = expected_eigenvalues.clone();
         sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
+    
         // Define a tolerance for floating-point comparison
         let tolerance = 1e-6;
-
+    
         // Compare each eigenvalue within the tolerance
         for (computed, expected) in sorted_eigenvalues.iter().zip(sorted_expected.iter()) {
             assert!(
@@ -186,14 +175,12 @@ mod tests {
                 expected
             );
         }
-
-        // Load eigenvectors
-        let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
-        let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
-
-        // Since eigenvectors can vary in sign and orientation, we'll focus on verifying the eigenvalues' correctness
-        // Alternatively, you can implement additional checks for eigenvectors if necessary
-
+    
+        // Load eigenvectors if needed
+        let _eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    
+        // Clean up
+        test_dir.close()?;
         Ok(())
     }
 
