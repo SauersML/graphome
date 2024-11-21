@@ -9,7 +9,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::cmp::min;
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, DVector};
+
 use crate::eigen::{
     call_eigendecomp, 
     adjacency_matrix_to_ndarray, 
@@ -80,8 +81,20 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     // Save eigenvectors and eigenvalues
     let eigenvalues_csv = output_dir.join("eigenvalues.csv");
     let eigenvectors_csv = output_dir.join("eigenvectors.csv");
-    save_nalgebra_vector_to_csv(&eigvals, &eigenvalues_csv)?;
-    save_nalgebra_matrix_to_csv(&eigvecs, &eigenvectors_csv)?;
+    
+    // Convert ndarray types to nalgebra types for saving
+    let nalgebra_eigvals = DVector::from_iterator(
+        eigvals.len(),
+        eigvals.iter().cloned()
+    );
+    let nalgebra_eigvecs = DMatrix::from_iterator(
+        eigvecs.nrows(),
+        eigvecs.ncols(),
+        eigvecs.iter().cloned()
+    );
+    
+    save_nalgebra_vector_to_csv(&nalgebra_eigvals, &eigenvalues_csv)?;
+    save_nalgebra_matrix_to_csv(&nalgebra_eigvecs, &eigenvectors_csv)?;
     
     // Save eigenvectors to CSV
     
