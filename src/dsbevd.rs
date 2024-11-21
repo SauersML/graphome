@@ -1659,6 +1659,145 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
     }
 }
 
+// 1. DLASSQ
+
+/// Updates a sum of squares represented in scaled form.
+/// This function computes values `scale` and `sumsq` such that
+/// `(scale**2) * sumsq = x(1)**2 + x(2)**2 + ... + x(n)**2 + (scale_in**2)*sumsq_in`,
+/// where x is the slice of vector elements.
+///
+/// It's designed to prevent overflow or underflow during the accumulation of the sum of squares.
+///
+/// # Arguments
+///
+/// * `n` - The number of elements to be used from the vector x. n ≥ 0.
+/// * `x` - The vector for which a scaled sum of squares is computed.
+///         x[i] = x(1 + i*incx), for i = 0 to n-1.
+/// * `incx` - The increment between successive values of the vector x. incx > 0.
+/// * `scale` - On entry, the value `scale_in` in the equation above. On exit, `scale_out`.
+/// * `sumsq` - On entry, the value `sumsq_in` in the equation above. On exit, `sumsq_out`.
+///
+/// # Note
+///
+/// This function corresponds to the LAPACK routine DLASSQ.
+///
+/// # Example
+///
+/// ```
+/// let mut x = vec![2.0, 3.0];
+/// let mut scale = 1.0;
+/// let mut sumsq = 1.0;
+/// dlassq(x.len(), &x, 1, &mut scale, &mut sumsq);
+/// // Now, scale and sumsq contain the updated values.
+/// ```
+fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
+    if n == 0 {
+        return;
+    }
+
+    let mut ix = 0;
+    for _ in 0..n {
+        let absxi = x[ix].abs();
+        if absxi > 0.0 {
+            if *scale < absxi {
+                let temp = *scale / absxi;
+                *sumsq = 1.0 + *sumsq * temp * temp;
+                *scale = absxi;
+            } else {
+                let temp = absxi / *scale;
+                *sumsq += temp * temp;
+            }
+        }
+        ix += incx;
+    }
+}
+
+/// Merges two sorted lists of numbers into a single sorted list with a permutation index.
+/// DLAMRG creates a permutation list which will merge the elements
+/// of A (which is composed of two independently sorted sets) into a
+/// single set which is sorted in ascending order.
+///
+/// # Arguments
+///
+/// * `n1` - The number of elements in the first sorted list. n1 >= 0.
+/// * `n2` - The number of elements in the second sorted list. n2 >= 0.
+/// * `a` - The array containing the two sorted lists. The first n1 elements are the first list,
+///          and the next n2 elements are the second list.
+/// * `dtrd1` - The stride direction for the first list.
+///             +1 if the list is sorted in ascending order,
+///             -1 if the list is sorted in descending order.
+/// * `dtrd2` - The stride direction for the second list.
+///             +1 if the list is sorted in ascending order,
+///             -1 if the list is sorted in descending order.
+/// * `index` - On exit, contains the permutation indices such that
+///             if B(i) = a(index(i)), for i = 0 to n1 + n2 - 1, then B will be sorted in ascending order.
+///
+/// # Note
+///
+/// This function corresponds to the LAPACK routine DLAMRG.
+///
+/// # Example
+///
+/// ```
+/// let n1 = 3;
+/// let n2 = 3;
+/// let a = vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0];
+/// let mut index = vec![0; n1 + n2];
+/// dlamrg(n1, n2, &a, 1, 1, &mut index);
+/// // Now, index contains the permutation indices to merge the two lists.
+/// ```
+fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
+    let mut n1sv = n1;
+    let mut n2sv = n2;
+    let mut i = 0;
+    let mut ind1 = if dtrd1 > 0 { 0 } else { n1.saturating_sub(1) };
+    let mut ind2 = if dtrd2 > 0 { n1 } else { n1 + n2.saturating_sub(1) };
+
+    while n1sv > 0 && n2sv > 0 {
+        if a[ind1] <= a[ind2] {
+            index[i] = ind1;
+            i += 1;
+            if dtrd1 > 0 {
+                ind1 += 1;
+            } else {
+                if ind1 > 0 { ind1 -= 1; } else { ind1 = 0; }
+            }
+            n1sv -= 1;
+        } else {
+            index[i] = ind2;
+            i += 1;
+            if dtrd2 > 0 {
+                ind2 += 1;
+            } else {
+                if ind2 > n1 { ind2 -= 1; } else { ind2 = n1; }
+            }
+            n2sv -= 1;
+        }
+    }
+
+    while n1sv > 0 {
+        index[i] = ind1;
+        i += 1;
+        if dtrd1 > 0 {
+            ind1 += 1;
+        } else {
+            if ind1 > 0 { ind1 -= 1; } else { ind1 = 0; }
+        }
+        n1sv -= 1;
+    }
+
+    while n2sv > 0 {
+        index[i] = ind2;
+        i += 1;
+        if dtrd2 > 0 {
+            ind2 += 1;
+        } else {
+            if ind2 > n1 { ind2 -= 1; } else { ind2 = n1; }
+        }
+        n2sv -= 1;
+    }
+}
+
 
 /*
 Not yet implemented functions:
@@ -1667,11 +1806,6 @@ Not yet implemented functions:
 
    - Description: Determines double-precision real machine parameters, such as the machine precision (EPS), the safe minimum (SAFMIN), the base of the machine, the maximum and minimum exponents, etc. This function is essential for setting up constants used in scaling and convergence criteria in numerical algorithms.
    - When it's called: It's called during `dsbevd` to get machine constants like EPS (precision), SAFMIN (safe minimum), SMLNUM, BIGNUM, RMIN, RMAX. These constants are crucial for scaling decisions, convergence checks, and to avoid overflow or underflow during computations.
-
-2. DLASSQ
-
-   - Description: Updates a sum of squares represented in scaled form. It efficiently computes the values `scale` and `sumsq` such that `(scale2) * sumsq` equals the sum of squares of the given vector elements, preventing overflow or underflow during the computation.
-   - When it's called: It's used within functions like `dlanst` and other norm computations to accumulate sums of squares safely. In the context of `dstedc`, it's called in `dlanst` for matrix norm calculations during the scaling process.
 
 3. DLAED0
 
@@ -1697,11 +1831,6 @@ Not yet implemented functions:
 
    - Description: Merges eigenvalues and deflates the secular equation, reducing the problem size when possible. It handles cases with multiple eigenvalues or negligible entries in the updating vector.
    - When it's called: Called by `dlaed1` to perform deflation during the divide and conquer process, optimizing the computation by exploiting the structure of the problem.
-
-8. DLAMRG
-
-   - Description: Merges two sorted arrays into a single sorted array, creating a permutation list that can be used to rearrange data. It efficiently handles the merging of the eigenvalues from two subproblems.
-   - When it's called: Used in `dlaed1`, `dlaed3`, and other routines when the eigenvalues from subproblems need to be merged in sorted order during the divide and conquer algorithm.
 
 9. DLAED5
 
