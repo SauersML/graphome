@@ -56,8 +56,20 @@ impl SymmetricBandedMatrix {
         let (mut d, mut e, mut q) = working_matrix.dsbtrd();
     
         // Use reliable tridiagonal solver
-        let (eigenvals, eigenvecs) = dstedc(&d, &e);
-    
+        let mut d = d.to_vec();
+        let mut e = e.to_vec();
+        let mut z = vec![vec![0.0; self.n]; self.n];
+        for i in 0..self.n {
+            z[i][i] = 1.0;
+        }
+        
+        // Call dstedc with mutable references
+        dstedc(&mut d, &mut e, &mut z)?;
+        
+        // Convert results to required format
+        let eigenvalues = d;
+        let eigenvectors = z;
+        
         // Transform eigenvectors back
         let eigenvectors = dgemm(&q, &eigenvecs);
     
