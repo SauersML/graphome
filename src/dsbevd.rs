@@ -55,10 +55,10 @@ impl SymmetricBandedMatrix {
         let (mut d, mut e, mut q) = working_matrix.reduce_to_tridiagonal();
     
         // Use reliable tridiagonal solver
-        let (eigenvals, eigenvecs) = tridiagonal_eigen_dc(&d, &e);
+        let (eigenvals, eigenvecs) = dstedc(&d, &e);
     
         // Transform eigenvectors back
-        let eigenvectors = multiply_q(&q, &eigenvecs);
+        let eigenvectors = dgemm(&q, &eigenvecs);
     
         // Rescale eigenvalues
         let mut eigenvalues = eigenvals;
@@ -506,7 +506,7 @@ fn dlar2v(
 /// `d`: diagonal elements
 /// `e`: off-diagonal elements
 /// Returns the eigenvalues and the eigenvectors.
-fn tridiagonal_eigen_dc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
+fn dstedc(d: &[f64], e: &[f64]) -> (Vec<f64>, Vec<Vec<f64>>) {
     let n = d.len();
     let mut diag = d.to_vec();
     let mut off_diag = e.to_vec();
@@ -555,7 +555,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
-        tridiagonal_qr(d, e, z);
+        dsteqr(d, e, z);
         return;
     }
 
@@ -590,7 +590,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in 0..m {
                 z_sub[i][i] = 1.0;
             }
-            tridiagonal_qr(&mut d_sub, &mut e_sub, &mut z_sub);
+            dsteqr(&mut d_sub, &mut e_sub, &mut z_sub);
 
             // Copy back results
             for i in 0..m {
@@ -647,11 +647,11 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 z_vector[left_size + i] = z_right[i][0];
             }
 
-            // Initialize z_out for solve_secular_equation
+            // Initialize z_out for dlaed4
             let mut z_out = vec![vec![0.0; m]; m];
 
             // Solve the secular equation
-            let info = solve_secular_equation(
+            let info = dlaed4(
                 &d_left,
                 &d_right,
                 &z_vector,
@@ -660,7 +660,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
                 &mut z_out,
             );
             if info != 0 {
-                panic!("Error in solve_secular_equation: info = {}", info);
+                panic!("Error in dlaed4: info = {}", info);
             }
 
             // Copy eigenvalues back
@@ -722,7 +722,7 @@ fn divide_and_conquer(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 /// `rho`: The rank-one update scalar.
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
-fn solve_secular_equation(
+fn dlaed4(
     d1: &[f64],
     d2: &[f64],
     z: &[f64],
@@ -856,7 +856,7 @@ fn solve_secular_equation(
 /// `d`: Diagonal elements
 /// `e`: Off-diagonal elements
 /// `z`: Eigenvectors (output)
-fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
+fn dsteqr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
     let n = d.len();
     let mut e_ext = vec![0.0; n];
     e_ext[..(n - 1)].copy_from_slice(e);
@@ -886,7 +886,7 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 
             iter += 1;
             if iter > 1000 {
-                panic!("Too many iterations in tridiagonal_qr");
+                panic!("Too many iterations in dsteqr");
             }
 
             // Compute shift (Wilkinson's shift)
@@ -905,7 +905,7 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
             for i in l..m {
                 let f = s * e_ext[i];
                 let b = c * e_ext[i];
-                let (r, cs, sn) = plane_rotation(d[i] - t, f);
+                let (r, cs, sn) = dlartg(d[i] - t, f);
                 e_ext[i] = r;
                 s = sn;
                 c = cs;
@@ -949,7 +949,7 @@ fn tridiagonal_qr(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) {
 }
 
 /// Compute plane rotation parameters
-fn plane_rotation(f: f64, g: f64) -> (f64, f64, f64) {
+fn dlartg(f: f64, g: f64) -> (f64, f64, f64) {
     if g == 0.0 {
         (f.abs(), f.signum(), 0.0)
     } else if f == 0.0 {
@@ -994,7 +994,7 @@ fn givens_rotation(a: f64, b: f64) -> (f64, f64) {
 }
 
 /// Multiplies q and z matrices to get the eigenvectors of the original matrix.
-fn multiply_q(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
+fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = q.len();
     let mut result = vec![vec![0.0; n]; n];
 
