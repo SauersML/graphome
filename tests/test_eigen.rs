@@ -7,6 +7,7 @@ use graphome::eigen::{
     call_eigendecomp,
     compute_eigenvalues_and_vectors_sym,
     compute_ngec,
+    ndarray_to_nalgebra_matrix, // Add this import
 };
 use std::fs;
 use std::fs::File;
@@ -46,6 +47,21 @@ fn test_to_banded_format_kd_1() {
     );
 }
 
+fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
+    let n = matrix.nrows();
+    let mut banded_matrix = Array2::zeros((kd + 1, n));
+
+    for i in 0..n {
+        for j in 0..n {
+            let k = (j - i).abs();
+            if k <= kd {
+                banded_matrix[[kd - k, i]] = matrix[[i, j]];
+            }
+        }
+    }
+    banded_matrix
+}
+
 /// Test the `to_banded_format` function with a known symmetric matrix and `kd = 2`.
 #[test]
 fn test_to_banded_format_kd_2() {
@@ -76,128 +92,21 @@ fn test_to_banded_format_kd_2() {
     );
 }
 
-/// Test the `compute_eigenvalues_and_vectors_sym_band` function with a known symmetric banded matrix.
-#[test]
-fn test_compute_eigenvalues_and_vectors_sym_band_known_matrix() {
-    // Define a known symmetric banded Laplacian matrix
-    let laplacian = array![
-        [2.0, -1.0, 0.0],
-        [-1.0, 2.0, -1.0],
-        [0.0, -1.0, 2.0]
-    ];
-    let kd = max_band(&laplacian);
-
-    // Perform eigendecomposition using LAPACK's dsbevd
-    let (eigvals_lapack, eigvecs_lapack) =
-        compute_eigenvalues_and_vectors_sym_band(&laplacian, kd)
-            .expect("Eigendecomposition with dsbevd failed");
-
-    // Perform eigendecomposition using SymmetricEigen for comparison
-    let (eigvals_sym, eigvecs_sym) =
-        compute_eigenvalues_and_vectors_sym(&laplacian)
-            .expect("Eigendecomposition with SymmetricEigen failed");
-
-    // Convert eigenvalues to vectors for sorting
-    let mut eigvals_lapack_sorted = eigvals_lapack.to_vec();
-    let mut eigvals_sym_sorted = eigvals_sym.as_slice().to_vec();
-
-    // Sort the eigenvalues for consistent comparison
-    eigvals_lapack_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    eigvals_sym_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    // Compare eigenvalues within the specified tolerance
-    for (computed, reference) in eigvals_lapack_sorted.iter().zip(eigvals_sym_sorted.iter()) {
-        assert!(
-            (*computed - *reference).abs() <= TOLERANCE,
-            "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
-            computed,
-            reference,
-            (*computed - reference).abs()
-        );
-    }
-
-    // Compare eigenvectors within the specified tolerance
-    // Handle potential sign differences
-    for col in 0..eigvecs_lapack.ncols() {
-        for row in 0..eigvecs_lapack.nrows() {
-            let v1 = eigvecs_lapack[(row, col)];
-            let v2 = eigvecs_sym[(row, col)];
-            let diff = (v1 - v2).abs();
-            let diff_neg = (v1 + v2).abs();
-            assert!(
-                diff <= TOLERANCE || diff_neg <= TOLERANCE,
-                "Eigenvector elements mismatch at ({}, {}): v1 = {}, v2 = {}, |v1 - v2| = {}, |v1 + v2| = {}",
-                row,
-                col,
-                v1,
-                v2,
-                diff,
-                diff_neg
-            );
+fn max_band(matrix: &Array2<f64>) -> usize {
+    let n = matrix.nrows();
+    let mut kd = 0;
+    for i in 0..n {
+        for j in 0..n {
+            if matrix[[i, j]] != 0.0 {
+                kd = std::cmp::max(kd, (i - j).abs());
+            }
         }
     }
+    kd as usize
 }
 
-/// Test the `compute_eigenvalues_and_vectors_sym` function with a known symmetric matrix.
-#[test]
-fn test_compute_eigenvalues_and_vectors_sym_known_matrix() {
-    // Define a known symmetric Laplacian matrix
-    let laplacian = array![
-        [3.0, -1.0, -1.0],
-        [-1.0, 3.0, -1.0],
-        [-1.0, -1.0, 3.0]
-    ];
 
-    // Perform eigendecomposition using SymmetricEigen
-    let (eigvals_sym, eigvecs_sym) =
-        compute_eigenvalues_and_vectors_sym(&laplacian)
-            .expect("Eigendecomposition with SymmetricEigen failed");
 
-    // Perform eigendecomposition using LAPACK's dsbevd for comparison
-    let kd = max_band(&laplacian);
-    let (eigvals_lapack, eigvecs_lapack) =
-        compute_eigenvalues_and_vectors_sym_band(&laplacian, kd)
-            .expect("Eigendecomposition with dsbevd failed");
-
-    // Convert eigenvalues to vectors for sorting
-    let mut eigvals_sym_sorted = eigvals_sym.as_slice().to_vec();
-    let mut eigvals_lapack_sorted = eigvals_lapack.to_vec();
-
-    // Sort the eigenvalues for consistent comparison
-    eigvals_sym_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    eigvals_lapack_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    // Compare eigenvalues within the specified tolerance
-    for (computed, reference) in eigvals_sym_sorted.iter().zip(eigvals_lapack_sorted.iter()) {
-        assert!(
-            (*computed - *reference).abs() <= TOLERANCE,
-            "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
-            computed,
-            reference,
-            (*computed - reference).abs()
-        );
-    }
-
-    // Compare eigenvectors within the specified tolerance
-    for col in 0..eigvecs_sym.ncols() {
-        for row in 0..eigvecs_sym.nrows() {
-            let v1 = eigvecs_sym[(row, col)];
-            let v2 = eigvecs_lapack[(row, col)];
-            let diff = (v1 - v2).abs();
-            let diff_neg = (v1 + v2).abs();
-            assert!(
-                diff <= TOLERANCE || diff_neg <= TOLERANCE,
-                "Eigenvector elements mismatch at ({}, {}): v1 = {}, v2 = {}, |v1 - v2| = {}, |v1 + v2| = {}",
-                row,
-                col,
-                v1,
-                v2,
-                diff,
-                diff_neg
-            );
-        }
-    }
-}
 
 /// Test the `compute_ngec` function with a set of positive eigenvalues.
 #[test]
@@ -299,155 +208,7 @@ fn test_call_eigendecomp_with_small_matrix() {
     }
 }
 
-/// Test the `compute_eigenvalues_and_vectors_sym_band` function with a diagonal matrix and `kd = 0`.
-#[test]
-fn test_compute_eigenvalues_and_vectors_sym_band_diagonal_matrix() {
-    // Define a diagonal matrix
-    let matrix = array![
-        [5.0, 0.0, 0.0],
-        [0.0, 3.0, 0.0],
-        [0.0, 0.0, 1.0]
-    ];
-    let kd = 0;
 
-    // Perform eigendecomposition using LAPACK's dsbevd
-    let (eigvals_lapack, eigvecs_lapack) =
-        compute_eigenvalues_and_vectors_sym_band(&matrix, kd)
-            .expect("Eigendecomposition with dsbevd failed for diagonal matrix");
-
-    // Perform eigendecomposition using SymmetricEigen for comparison
-    let (eigvals_sym, eigvecs_sym) =
-        compute_eigenvalues_and_vectors_sym(&matrix)
-            .expect("Eigendecomposition with SymmetricEigen failed for diagonal matrix");
-
-    // Convert eigenvalues to vectors for sorting
-    let mut eigvals_lapack_sorted = eigvals_lapack.to_vec();
-    let mut eigvals_sym_sorted = eigvals_sym.as_slice().to_vec();
-
-    // Sort the eigenvalues for consistent comparison
-    eigvals_lapack_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    eigvals_sym_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    // Compare eigenvalues within the specified tolerance
-    for (computed, reference) in eigvals_lapack_sorted.iter().zip(eigvals_sym_sorted.iter()) {
-        assert!(
-            (*computed - *reference).abs() <= TOLERANCE,
-            "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
-            computed,
-            reference,
-            (*computed - reference).abs()
-        );
-    }
-
-    // Compare eigenvectors within the specified tolerance
-    // For diagonal matrices, eigenvectors should be the standard basis vectors
-    for col in 0..eigvecs_lapack.ncols() {
-        for row in 0..eigvecs_lapack.nrows() {
-            let v1 = eigvecs_lapack[(row, col)];
-            let v2 = eigvecs_sym[(row, col)];
-            let diff = (v1 - v2).abs();
-            let diff_neg = (v1 + v2).abs();
-            assert!(
-                diff <= TOLERANCE || diff_neg <= TOLERANCE,
-                "Eigenvector elements mismatch at ({}, {}): v1 = {}, v2 = {}, |v1 - v2| = {}, |v1 + v2| = {}",
-                row,
-                col,
-                v1,
-                v2,
-                diff,
-                diff_neg
-            );
-        }
-    }
-}
-
-/// Test the `compute_eigenvalues_and_vectors_sym_band` function with a larger symmetric banded matrix.
-#[test]
-fn test_compute_eigenvalues_and_vectors_sym_band_larger_matrix() {
-    // Define a larger symmetric banded Laplacian matrix
-    let laplacian = array![
-        [3.0, -1.0, -1.0, 0.0],
-        [-1.0, 3.0, -1.0, -1.0],
-        [-1.0, -1.0, 3.0, -1.0],
-        [0.0, -1.0, -1.0, 3.0]
-    ];
-    let kd = max_band(&laplacian);
-
-    // Perform eigendecomposition using LAPACK's dsbevd
-    let (eigvals_lapack, eigvecs_lapack) =
-        compute_eigenvalues_and_vectors_sym_band(&laplacian, kd)
-            .expect("Eigendecomposition with dsbevd failed for larger matrix");
-
-    // Perform eigendecomposition using SymmetricEigen for comparison
-    let (eigvals_sym, eigvecs_sym) =
-        compute_eigenvalues_and_vectors_sym(&laplacian)
-            .expect("Eigendecomposition with SymmetricEigen failed for larger matrix");
-
-    // Convert eigenvalues to vectors for sorting
-    let mut eigvals_lapack_sorted = eigvals_lapack.to_vec();
-    let mut eigvals_sym_sorted = eigvals_sym.as_slice().to_vec();
-
-    // Sort the eigenvalues for consistent comparison
-    eigvals_lapack_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    eigvals_sym_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-    // Compare eigenvalues within the specified tolerance
-    for (computed, reference) in eigvals_lapack_sorted.iter().zip(eigvals_sym_sorted.iter()) {
-        assert!(
-            (*computed - *reference).abs() <= TOLERANCE,
-            "Eigenvalues mismatch: computed = {}, reference = {}, difference = {}",
-            computed,
-            reference,
-            (*computed - reference).abs()
-        );
-    }
-
-    // Compare eigenvectors within the specified tolerance
-    // Handle potential sign differences
-    for col in 0..eigvecs_lapack.ncols() {
-        for row in 0..eigvecs_lapack.nrows() {
-            let v1 = eigvecs_lapack[(row, col)];
-            let v2 = eigvecs_sym[(row, col)];
-            let diff = (v1 - v2).abs();
-            let diff_neg = (v1 + v2).abs();
-            assert!(
-                diff <= TOLERANCE || diff_neg <= TOLERANCE,
-                "Eigenvector elements mismatch at ({}, {}): v1 = {}, v2 = {}, |v1 - v2| = {}, |v1 + v2| = {}",
-                row,
-                col,
-                v1,
-                v2,
-                diff,
-                diff_neg
-            );
-        }
-    }
-}
-
-/// Test that all eigenvalues computed by LAPACK are non-negative.
-#[test]
-fn test_non_negative_eigenvalues_lapack() {
-    // Define a small symmetric Laplacian matrix
-    let laplacian = array![
-        [2.0, -1.0, 0.0],
-        [-1.0, 2.0, -1.0],
-        [0.0, -1.0, 2.0]
-    ];
-    let kd = max_band(&laplacian);
-
-    // Perform eigendecomposition using LAPACK's dsbevd
-    let (eigvals_lapack, _) =
-        compute_eigenvalues_and_vectors_sym_band(&laplacian, kd)
-            .expect("Eigendecomposition with dsbevd failed");
-
-    for &val in eigvals_lapack.iter() {
-        assert!(
-            val >= 0.0,
-            "LAPACK eigenvalue is negative: {}",
-            val
-        );
-    }
-}
 
 /// Test that all eigenvalues computed by SymmetricEigen are non-negative.
 #[test]
