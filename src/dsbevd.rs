@@ -844,36 +844,6 @@ fn dlaed4(
 }
 
 
-/// Computes the Givens rotation coefficients c and s such that
-/// [c -s; s c]^T * [a; b] = [r; 0]
-fn dlartg(a: f64, b: f64) -> (f64, f64) {
-    let eps = f64::EPSILON;
-    let safmin = f64::MIN_POSITIVE;
-    
-    if b == 0.0 {
-        (1.0, 0.0)
-    } else if a == 0.0 {
-        (0.0, 1.0)
-    } else {
-        let abs_a = a.abs();
-        let abs_b = b.abs();
-        if abs_b >= abs_a {
-            let t = a / b;
-            let t2 = t * t;
-            let u = (1.0 + t2).sqrt();
-            let s = if b > 0.0 { 1.0 / u } else { -1.0 / u };
-            let c = t * s;
-            (c, s)
-        } else {
-            let t = b / a;
-            let t2 = t * t;
-            let u = (1.0 + t2).sqrt();
-            let c = if a > 0.0 { 1.0 / u } else { -1.0 / u };
-            let s = t * c;
-            (c, s)
-        }
-    }
-}
 
 /// Multiplies q and z matrices to get the eigenvectors of the original matrix.
 fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
