@@ -1373,6 +1373,9 @@ fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],
    }
 }
 
+
+
+
 fn dsteqr(
     compz: char,
     n: usize,
@@ -1393,9 +1396,7 @@ fn dsteqr(
         'N' | 'n' => 0,
         'V' | 'v' => 1,
         'I' | 'i' => 2,
-        _ => {
-            return Err("Invalid value for compz in dsteqr");
-        }
+        _ => return Err("Invalid value for compz in dsteqr"),
     };
 
     if n == 0 {
@@ -1589,7 +1590,7 @@ fn dsteqr(
         d.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     } else {
         let mut idx: Vec<usize> = (0..n).collect();
-        idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap_or(std::cmp::Ordering::Equal)));
+        idx.sort_by(|&i, &j| d[i].partial_cmp(&d[j]).unwrap_or(std::cmp::Ordering::Equal));  // Fixed extra parenthesis
 
         let sorted_d = idx.iter().map(|&i| d[i]).collect::<Vec<f64>>();
         let sorted_z = idx
@@ -1606,11 +1607,14 @@ fn dsteqr(
     }
 
     if info > 0 {
-        return Err("Failed to compute all eigenvalues");
+        Err("Failed to compute all eigenvalues")
     } else {
-        return Ok(());
+        Ok(())
     }
 }
+
+
+
 
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
