@@ -523,7 +523,11 @@ fn dlar2v(
 /// # Returns
 /// * `Ok(())` on successful computation
 /// * `Err(Error)` if the algorithm failed to compute eigenvalues
-pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Error> {
+pub fn dstedc(
+    d: &mut [f64],
+    e: &mut [f64],
+    z: &mut [Vec<f64>],
+) -> Result<(), Error> {
     let n = d.len();
     if n == 0 {
         return Ok(());
@@ -552,29 +556,10 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     }
 
     // Variables needed for the algorithm
-    let mut info: i32 = 0;
     let mut subpbs = 1;
     let mut tlvls = 0;
-
-    // Determine the number of levels and subproblem sizes
-    let mut size = n;
-    let mut iwork = vec![0usize; (n as f64).log2().ceil() as usize * 4];
-    iwork[0] = n;
-    while iwork[subpbs - 1] > smlsiz {
-        // Divide each problem into 2 parts
-        for j in (0..subpbs).rev() {
-            let i1 = iwork[j] / 2;
-            let i2 = iwork[j] - i1;
-            iwork[2 * j + 1] = i2;
-            iwork[2 * j] = i1;
-        }
-        subpbs *= 2;
-        tlvls += 1;
-    }
-
-    // Allocate work arrays
-    let mut work = vec![0.0; 4 * n * n];
-    let mut iwork2 = vec![0usize; 3 * n];
+    let mut iwork = vec![0usize; 4 * n];
+    let mut work = vec![0.0; n * n];
 
     // Initialize z to identity
     for i in 0..n {
@@ -584,6 +569,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     }
 
     let mut start = 0;
+    let mut info = 0;
 
     // Main divide and conquer loop
     while start < n {
@@ -649,38 +635,24 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
             }
             dstedc(&mut d_right, &mut e_right, &mut z_right)?;
 
-            // Merge solutions
-            // Form the rank-one modification
-
+            // Merge solutions using dlaed1
             let k = m;
             let n1 = left_size;
             let n2 = right_size;
-
-            // Create work arrays
-            let mut d_work = vec![0.0; k];
-            let mut q_work = vec![vec![0.0; k]; k];
-            let mut indxq = vec![0usize; k];
-            let mut rho = 0.0;
             let cutpnt = n1;
 
             // Form z-vector
             let mut z_vector = vec![0.0; k];
-            for i in 0..n1 {
-                z_vector[i] = z_left[n1 - 1][i];
-            }
-            for i in 0..n2 {
-                z_vector[n1 + i] = z_right[0][i];
-            }
+            z_vector[..n1].clone_from_slice(&z_left[n1 - 1]);
+            z_vector[n1..].clone_from_slice(&z_right[0]);
 
             // Copy eigenvalues
-            for i in 0..n1 {
-                d_work[i] = d_left[i];
-            }
-            for i in 0..n2 {
-                d_work[n1 + i] = d_right[i];
-            }
+            let mut d_work = vec![0.0; k];
+            d_work[..n1].copy_from_slice(&d_left);
+            d_work[n1..].copy_from_slice(&d_right);
 
             // Initialize q_work
+            let mut q_work = vec![vec![0.0; k]; k];
             for i in 0..n1 {
                 for j in 0..n1 {
                     q_work[i][j] = z_left[i][j];
@@ -692,16 +664,20 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
                 }
             }
 
-            // Initialize indxq
+            // Prepare indxq
+            let mut indxq = vec![0usize; k];
             for i in 0..k {
                 indxq[i] = i;
             }
 
-            // Call dlaed1
-            // Allocate necessary arrays
+            // Workspace arrays
             let mut work_work = vec![0.0; 4 * k + k * k];
             let mut iwork_work = vec![0usize; 3 * k];
 
+            // Define rho (the subdiagonal element used to create the rank-one modification)
+            let mut rho = e[mid];
+
+            // Call dlaed1
             dlaed1(
                 k,
                 &mut d_work,
@@ -3194,13 +3170,13 @@ pub fn dlaed7(
     indxq: &mut [usize],
     rho: &mut f64,
     cutpnt: usize,
-    qstore: &mut [Vec<f64>],
+    qstore: &mut [f64],
     qptr: &mut [usize],
     prmptr: &mut [usize],
     perm: &mut [usize],
-    givptr: &mut usize, // Changed from &mut [usize] to &mut usize
-    givcol: &mut Vec<Vec<usize>>,
-    givnum: &mut Vec<Vec<f64>>,
+    givptr: &mut usize,
+    givcol: &mut [Vec<usize>],
+    givnum: &mut [Vec<f64>],
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), Error> {
@@ -3221,18 +3197,32 @@ pub fn dlaed7(
     }
 
     // Constants
-    const SMLSIZ: usize = 25; // Minimum size for divide-conquer
+    const ONE: f64 = 1.0;
+    const ZERO: f64 = 0.0;
 
-    // Workspace indices - adjust as needed based on your overall code
-    let z = &mut work[0..n];
-    let dlamda = &mut work[n..2*n];
-    let w = &mut work[2*n..3*n];
-    let s = &mut work[3*n..3*n + n*ldq]; // Adjusted size
+    // Workspace indices - adjust as per actual usage
+    let iz = 0;
+    let idlmda = iz + n;
+    let iw = idlmda + n;
+    let iq2 = iw + n;
+    let is = iq2 + n * n; // Adjusted size for q2
 
-    let indx = &mut iwork[0..n];
-    let indxc = &mut iwork[n..2*n];
-    let coltyp = &mut iwork[2*n..3*n];
-    let indxp = &mut iwork[3*n..4*n];
+    // Integer workspace indices
+    let indx = 0;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
+
+    // Extract slices from work arrays
+    let z = &mut work[iz..iz + n];
+    let dlamda = &mut work[idlmda..idlmda + n];
+    let w = &mut work[iw..iw + n];
+    let q2 = &mut work[iq2..iq2 + n * n];
+
+    let indxv = &mut iwork[indx..indx + n];
+    let indxcv = &mut iwork[indxc..indxc + n];
+    let coltypv = &mut iwork[coltyp..coltyp + n];
+    let indxpv = &mut iwork[indxp..indxp + n];
 
     // Initialize Givens rotation count
     *givptr = 0;
@@ -3240,11 +3230,18 @@ pub fn dlaed7(
     // Variables
     let n1 = cutpnt;
     let n2 = n - n1;
-    let n1p1 = n1 + 1;
+
+    // Form the z-vector which consists of the last row of Q_1 and the first row of Q_2
+    for i in 0..n {
+        z[i] = if i < n1 {
+            q[n1 - 1][i]
+        } else {
+            q[i][i]
+        };
+    }
 
     // Deflate eigenvalues
     let mut k = 0;
-    let mut rho_local = *rho; // Local mutable copy
     dlaed8(
         icompq,
         &mut k,
@@ -3254,52 +3251,65 @@ pub fn dlaed7(
         q,
         ldq,
         indxq,
-        &mut rho_local,
+        rho,
         cutpnt,
         z,
         dlamda,
-        qstore,
-        ldq, // Assuming qstore has same leading dimension
+        q2,
+        n,
         w,
         perm,
         givptr,
         givcol,
         givnum,
-        indxp,
-        indx,
+        indxpv,
+        indxv,
     )?;
 
-    // Update rho
-    *rho = rho_local;
+    if k != 0 {
+        // Solve the secular equation
+        let mut s = vec![vec![0.0; k]; k];
+        dlaed9(
+            k,
+            1, // kstart
+            k, // kstop
+            n,
+            d,
+            q,
+            ldq,
+            *rho,
+            dlamda,
+            w,
+            &mut s,
+            k,
+        )?;
 
-    // If eigenvalues were deflated, return
-    if k == 0 {
-        qptr[0] = 0; // Adjusted indexing
-        prmptr[0] = 0;
-        *givptr = 0; // Updated to match the new type
-        return Ok(());
+        if icompq == 1 {
+            // Multiply Q by the updated eigenvectors
+            let mut q2_mat = vec![vec![0.0; k]; qsiz];
+            for i in 0..qsiz {
+                for j in 0..k {
+                    q2_mat[i][j] = q[i][perm[j]];
+                }
+            }
+
+            let result = dgemm(&q2_mat, &s);
+            for i in 0..qsiz {
+                for j in 0..k {
+                    q[i][j] = result[i][j];
+                }
+            }
+        }
+
+        // Prepare the INDXQ sorting permutation
+        let n1 = k;
+        let n2 = n - k;
+        dlamrg(n1, n2, d, 1, -1, indxq);
+    } else {
+        for i in 0..n {
+            indxq[i] = i;
+        }
     }
-
-    // Solve the secular equation
-    dlaed9(
-        k,
-        1,          // kstart
-        k,          // kstop
-        n,
-        d,
-        q,          // Assuming q is n x k
-        ldq,
-        *rho,
-        dlamda,
-        w,
-        s,
-        k,          // lds
-    )?;
-
-    // Prepare the INDXQ sorting permutation
-    dlamrg(k, n - k, d, 1, -1, indxq);
-
-    // Update the pointers (if necessary)
 
     Ok(())
 }
