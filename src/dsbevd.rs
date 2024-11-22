@@ -2512,6 +2512,127 @@ pub fn dlaed6(
 }
 
 
+/// Finds the roots of the secular equation and updates the eigenvectors.
+/// This function corresponds to LAPACK's DLAED3 subroutine.  It's used when the original matrix is tridiagonal.
+pub fn dlaed3(
+    k: usize,
+    n: usize,
+    n1: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    rho: f64,
+    dlamda: &mut [f64],
+    q2: &[Vec<f64>],
+    indx: &[usize],
+    ctot: &[usize],
+    w: &mut [f64],
+    s: &mut [Vec<f64>],
+) -> i32 {
+    let mut info = 0;
+
+    if k == 0 {
+        return info;
+    }
+
+    // Adjust dlamda for better accuracy
+    for i in 0..k {
+        dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
+    }
+
+    for j in 0..k {
+        let mut info_dlaed4 = 0;  // Initialize info before calling dlaed4
+        dlaed4(k, j + 1, dlamda, w, &mut q[..k], rho, &mut d[j], &mut info_dlaed4);
+        
+        // If dlaed4 failed, set info and return
+        if info_dlaed4 != 0 {
+            info = 1; // Or potentially more specific error code
+            return info; 
+        }
+    }
+
+    if k == 1 {
+        // Return early for k=1 case
+        return info;
+    }
+
+    if k == 2 {
+        // Handle the 2x2 case by sorting eigenvectors
+        for j in 0..k {
+            let ii1 = indx[0]-1;
+            let ii2 = indx[1]-1;
+            let w1 = q[0][j];
+            let w2 = q[1][j];
+            q[0][j] = w1.min(w2); // Ascending order
+            q[1][j] = w1.max(w2);
+        }
+
+         return info;
+    }
+
+
+    // Update w
+    dcopy(k, w, 1, &mut s[0], 1);
+
+    for j in 0..k {
+        for i in 0..k {
+            if i != j {
+                w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
+            }
+        }
+    }
+
+    for i in 0..k {
+        w[i] = -w[i].sqrt().copysign(s[0][i]);
+    }
+
+
+    for j in 0..k {
+        for i in 0..k {
+            s[0][i] = w[i] / q[i][j];
+        }
+        let temp = dnrm2(k, &s[0], 1);
+        for i in 0..k {
+            let ii = indx[i] - 1;
+            q[i][j] = s[0][ii] / temp;
+        }
+    }
+
+
+    // Compute the updated eigenvectors
+    let n2 = n - n1;
+    let n12 = ctot[0] + ctot[1];
+    let n23 = ctot[1] + ctot[2];
+
+
+    dlacpy('A', n23, k, &q[ctot[0]..], ldq, &mut s[..n23], n23);
+
+
+    if n23 > 0 {
+        dgemm(
+            n2,
+            k,
+            n23,
+            1.0,
+            &q2[n1 * n12..],
+            ldq,
+            &s[..n23],
+            n23,
+            0.0,
+            &mut q[n1..],
+            ldq,
+        );
+    } else {
+        dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..]);
+    }
+
+    dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
+    dgemm(n1, k, n12, 1.0, q2, ldq, &mut s[..n12], n12, 0.0, q, ldq);
+
+    info
+}
+
+
 
 /*
 Not yet implemented functions:
