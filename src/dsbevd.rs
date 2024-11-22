@@ -22,13 +22,13 @@ pub struct EigenResults {
 pub struct Error(i32);
 
 impl From<&'static str> for Error {
-    pub fn from(_: &'static str) -> Error {
+    fn from(_: &'static str) -> Error {
         Error(-1) // Simple conversion of all string errors to Error(-1)
     }
 }
 
 impl From<i32> for Error {
-    pub fn from(e: i32) -> Error {
+    fn from(e: i32) -> Error {
         Error(e)
     }
 }
