@@ -3136,7 +3136,7 @@ pub fn dlaed7(
     givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
     iwork: &mut [usize],
-) -> Result<(), Error>
+) -> Result<(), Error> {
     // Test the input parameters
     if icompq < 0 || icompq > 1 {
         return Err(-1);
