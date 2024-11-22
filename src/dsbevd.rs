@@ -2422,6 +2422,7 @@ pub fn dlaed6(
 
     let mut dscale = d.to_vec();
     let mut zscale = z.to_vec();
+    let mut scalfac = 1.0;
     let mut scale = false;
 
     let temp = if orgati {
