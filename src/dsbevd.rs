@@ -83,7 +83,25 @@ impl SymmetricBandedMatrix {
             dlascl(&mut working_matrix.ab, anrm, scale)?;
         }
 
-        let (mut d, mut e, mut q) = working_matrix.dsbtrd();
+        // Call dsbtrd with explicit arguments
+        let mut d = vec![0.0; self.n];
+        let mut e = vec![0.0; self.n-1];
+        let mut q = vec![vec![0.0; self.n]; self.n];
+        
+        // Initialize Q to identity matrix before calling dsbtrd
+        for i in 0..self.n {
+            q[i][i] = 1.0;
+        }
+        
+        dsbtrd(
+            'U',
+            working_matrix.n,
+            working_matrix.kd,
+            &mut working_matrix.ab,
+            &mut d,
+            &mut e,
+            &mut q,
+        );
 
         // Use reliable tridiagonal solver
         let mut d = d.to_vec();
