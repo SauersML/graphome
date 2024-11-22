@@ -1196,8 +1196,7 @@ fn dlartg(f: f64, g: f64) -> (f64, f64) {
    }
 }
 
-fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64], 
-         e: &mut [f64], q: &mut [Vec<f64>]) {
+fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],  e: &mut [f64], q: &mut [Vec<f64>]) {
    let kd1 = kd + 1;
    let kdm1 = kd - 1;
    let mut nr: usize = 0;
