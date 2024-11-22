@@ -2543,7 +2543,12 @@ pub fn dlaed3(
 
     for j in 0..k {
         let mut info_dlaed4 = 0;  // Initialize info before calling dlaed4
-        info_dlaed4 = dlaed4(&dlamda[..k], &w[..k], &q[..k][j], rho, &mut d, &mut q[..k]);
+
+        let mut q_col = vec![0.0; k];
+        for i in 0..k {
+            q_col[i] = q[i][j];
+        }
+        info_dlaed4 = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q);
         
         // If dlaed4 failed, set info and return
         if info_dlaed4 != 0 {
