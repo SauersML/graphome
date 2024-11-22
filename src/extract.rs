@@ -74,6 +74,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     std::fs::create_dir_all(&output_dir)?;
 
     let laplacian_csv = output_dir.join("laplacian.csv");
+    println!("Saving Laplacian matrix to {:?}", laplacian_csv);
     save_ndarray_to_csv(&laplacian, &laplacian_csv)?;
     
     // Compute eigenvalues and eigenvectors
