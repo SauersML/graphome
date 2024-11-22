@@ -2047,7 +2047,7 @@ pub fn dlaed0(
                     &mut givptr,     // &mut usize
                     &mut givcol,     // &mut [Vec<usize>]
                     &mut givnum,     // &mut [Vec<f64>]
-                    &mut work,
+                    &mut work,       // &mut [f64]
                     &mut iwork,      // &mut [usize]
                 )?;
             }
@@ -2075,9 +2075,7 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
-            
-            let mut work = vec![vec![0.0; n]; n];
-            dlacpy('A', n, n, q, ldq, &mut work, n);
+            dlacpy('A', n, n, q, ldq, &mut work[n..], n);
         },
         _ => {
             for i in 0..n {
