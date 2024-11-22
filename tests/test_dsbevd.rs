@@ -10,6 +10,8 @@ use graphome::dsbevd::dgemm;
 use graphome::dsbevd::dgemv;
 use graphome::dsbevd::dlacpy;
 use graphome::dsbevd::dlaed0;
+use graphome::dsbevd::dlaeda;
+use graphome::dsbevd::dlaed6;
 use graphome::dsbevd::dlaed4;
 use graphome::dsbevd::dlaed5;
 use graphome::dsbevd::dlaev2;
