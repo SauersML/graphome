@@ -4,6 +4,7 @@ use nalgebra::{DMatrix, SymmetricEigen};
 use std::time::Instant;
 use std::f64::EPSILON;
 use std::f64;
+use super::*;
 
 // Helper function to convert banded storage to dense matrix
 fn banded_to_dense(n: usize, kd: usize, ab: &Vec<Vec<f64>>) -> DMatrix<f64> {
