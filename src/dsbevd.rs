@@ -1994,13 +1994,11 @@ pub fn dlaed0(
                     &mut iwork[subpbs..])?;
             } else {
                 dlaed7(
-                    icompq, matsiz, qsiz, tlvls, curlvl, curprb,
-                    &mut d[submat - 1..], &mut qstore[submat - 1..], ldq,
-                    &mut iwork[indxq + submat - 1..], &mut e[submat + msd2 - 2],
-                    &mut iwork[iprmpt..], &mut iwork[iperm..],
-                    &mut iwork[igivpt..], &mut iwork[igivcl..],
-                    &mut givcol, &mut givnum,
-                    &mut work[iwrem - 1..], &mut iwork[subpbs..]
+                    icompq, n, qsiz, tlvls, curlvl, curpbm,
+                    &mut d, &mut q, &mut indxq, &mut rho, cutpnt,
+                    &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+                    &mut givptr, &mut givcol, &mut givnum,
+                    &mut work, &mut iwork, &mut info,
                 )
             }
 
