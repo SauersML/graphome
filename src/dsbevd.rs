@@ -3044,10 +3044,9 @@ pub fn dlaed7(
         return Ok(());
     }
 
-    // Set up workspace pointers for current merge level
-    let mut ldq2 = if icompq == 1 { qsiz } else { n };
+    let ldq2 = if icompq == 1 { qsiz } else { n };
 
-    // Set up workspace ranges
+    // Set up workspace ranges 
     let iz = 0;
     let idlmda = iz + n;
     let iw = idlmda + n;
@@ -3055,18 +3054,28 @@ pub fn dlaed7(
     let is = iq2 + n * ldq2;
 
     let indx = 0;
-    let indxc = indx + n;
-    let coltyp = indxc + n;
-    let indxp = coltyp + n;
-    
-    // Form z-vector which consists of the last row of Q_1 and first row of Q_2
+    let indxp = indx + n;
+    let coltyp = indxp + n;
+
+    // Set up pointers into workspace
+    let (work_left, work_right) = work.split_at_mut(idlmda);
+    let (work_mid, work_end) = work_right.split_at_mut(iw - idlmda);
+    let z = &mut work_left[iz..iz+n];
+    let dlamda = &mut work_mid;
+    let w = &mut work_end[..n];
+
+    // Split iwork
+    let (iwork_left, iwork_right) = iwork.split_at_mut(indxp);
+    let indx_p = &mut iwork_left[indx..];
+    let indxp_p = &mut iwork_right[..n];
+
+    // Form z-vector
     let mut ptr = 1 + 2_usize.pow(tlvls as u32);
     for i in 1..curlvl {
         ptr += 2_usize.pow((tlvls - i) as u32);
     }
     let curr = ptr + curpbm;
     
-    // Quick return if at the bottom level
     if curlvl == tlvls {
         qptr[curr] = 1;
         prmptr[curr] = 1;
@@ -3086,17 +3095,17 @@ pub fn dlaed7(
         indxq,
         rho,
         cutpnt,
-        &mut work[iz..iz+n],
-        &mut work[idlmda..idlmda+n],
-        &mut qstore,
+        z,
+        dlamda,
+        qstore,
         ldq2,
-        &mut work[iw..iw+n],
+        w,
         &mut perm[prmptr[curr]..],
         &mut givptr[curr+1],
         givcol,
         givnum,
-        &mut iwork[indxp..],
-        &mut iwork[indx..],
+        indxp_p,
+        indx_p,
     );
 
     if let Err(e) = result {
@@ -3108,19 +3117,19 @@ pub fn dlaed7(
 
     // Solve Secular Equation if k is positive
     if k > 0 {
-        // Call DLAED9 to compute eigenvalues and eigenvectors
-        let mut temp_q = vec![vec![0.0; k]; k];
+        // DLAED9: Need to construct proper matrices from workspace
+        let mut q_temp = vec![vec![0.0; k]; k];
         let result = dlaed9(
             k,
             1,
             k,
             n,
             d,
-            &mut temp_q,
+            &mut q_temp,
             k,
             *rho,
-            &mut work[idlmda..],
-            &mut work[iw..],
+            dlamda,
+            w,
             qstore,
             k,
         );
@@ -3130,18 +3139,10 @@ pub fn dlaed7(
         }
 
         if icompq == 1 {
-            // Compute eigenvectors of current problem
-            // Rust way to handle matrix multiplication using dgemm:
-            let q_slice = &work[iq2..iq2 + qsiz * k].chunks(k)
-                .map(|chunk| chunk.to_vec())
-                .collect::<Vec<Vec<f64>>>();
-            let qstore_slice = &qstore[qptr[curr]..qptr[curr] + k];
-            let result = dgemm(q_slice, qstore_slice);
-
-            // Copy result back to q
+            // Copy q_temp to proper locations
             for i in 0..qsiz {
                 for j in 0..k {
-                    q[i][j] = result[i][j];
+                    q[i][j] = q_temp[i][j];
                 }
             }
         }
