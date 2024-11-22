@@ -2070,15 +2070,21 @@ pub fn dlaed0(
         },
         2 => {
             for i in 0..n {
-                let j = iwork[indxq+i];
-                work[i] = d[j-1];
-                dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
+                let j = iwork[indxq + i];
+                work[i] = d[j - 1];
+                // Use a separate vector for the work to avoid borrowing conflicts
+                let start = n * i;
+                let end = start + n;
+                work[start..end].copy_from_slice(&q[j - 1][..n]); // Replace dcopy with direct copy
             }
             dcopy(n, work, 1, d, 1);
-
-            let mut work_matrix = vec![vec![0.0; n]; n];
-    
-            dlacpy('A', n, n, q, ldq, &mut work_matrix, n);
+            
+            // Declare `work_matrix` here with limited scope
+            {
+                let mut work_matrix = vec![vec![0.0; n]; n];
+                dlacpy('A', n, n, &q, ldq, &mut work_matrix, n);
+            }
+            // Any mutable borrow of `q` ends here
         },
         _ => {
             for i in 0..n {
@@ -3286,9 +3292,27 @@ pub fn dlaed7(
 
     let ldq2 = if icompq == 1 { qsiz } else { n };
     dlaed8(
-        icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt, z,
-        dlamda, q2, ldq2, w, perm,
-        givptr, &mut indxp, &mut indx,
+        icompq,
+        &mut k,
+        n,
+        qsiz,
+        d,
+        q,
+        ldq,
+        indxq,
+        rho,
+        cutpnt,
+        z,
+        dlamda,
+        q2,
+        ldq2,
+        w,
+        perm,
+        givptr,
+        &mut givcol,
+        &mut givnum,
+        &mut indxp,
+        &mut indx,
     )?;
     
     if k != 0 {
@@ -3814,7 +3838,8 @@ pub fn dlaed1(
     let mut k = 0;
     let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
     
-    let n1 = cutpnt;
+    let n1 = cutpnt; // Is `cutpnt` declared and in scope?
+    
     dlaed2(
         &mut k,
         n,
