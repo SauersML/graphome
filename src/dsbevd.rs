@@ -1916,9 +1916,11 @@ pub fn dlaed0(
         1 => {
             for i in 0..n {
                 let idx = indxq + i;
-                if idx < iwork.len() {
-                    let j = iwork[idx]
-                }
+                let j = if idx < iwork.len() {
+                    iwork[idx]
+                } else {
+                    continue
+                };
                 work[i] = d[j - 1];
                 dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
             }
