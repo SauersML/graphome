@@ -1504,7 +1504,7 @@ fn dsteqr(
 
                 // Form shift using dlapy2
                 let mut g = (d[l+1] - d[l]) / (2.0 * e[l]);
-                let r = dlapy2(g, 1.0);
+                let mut r = dlapy2(g, 1.0);
                 g = d[m] - d[l] + e[l] / (g + r.copysign(g));
                 let mut s = 1.0;
                 let mut c = 1.0;
@@ -1563,7 +1563,7 @@ fn dsteqr(
 
                 // Form shift using dlapy2
                 let mut g = (d[l-1] - d[l]) / (2.0 * e[l-1]);
-                let r = dlapy2(g, 1.0);
+                let mut r = dlapy2(g, 1.0);
                 g = d[m] - d[l] + e[l-1] / (g + r.copysign(g));
                 let mut s = 1.0;
                 let mut c = 1.0;
