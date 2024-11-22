@@ -3717,7 +3717,7 @@ pub fn dlaed1(
     cutpnt: usize,
     work: &mut [f64],
     iwork: &mut [usize],
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Quick return if possible
     if n == 0 {
         return Ok(());
@@ -3773,7 +3773,7 @@ pub fn dlaed1(
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
         
-        dlaed3(
+        let info = dlaed3(
             k,
             n, 
             cutpnt,
@@ -3787,7 +3787,10 @@ pub fn dlaed1(
             &iwork[coltyp..],
             &mut work[iw..],
             &mut s_temp,
-        )?;
+        );
+        if info != 0 {
+            return Err(Error(info));
+        }
 
         // Sort eigenvalues and corresponding eigenvectors
         let n1 = k;
