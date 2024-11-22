@@ -688,3 +688,312 @@ fn test_dlaed5() {
     let result = dlaed5(i_invalid, &d, &z, &mut delta, rho, &mut dlam);
     assert!(result.is_err());
 }
+
+
+#[test]
+fn test_dlargv() {
+    // Test normal case
+    let mut x = vec![3.0, 4.0, 5.0];
+    let mut y = vec![4.0, 3.0, 12.0];
+    let mut c = vec![0.0; 3];
+    dlargv(3, &mut x, 1, &mut y, 1, &mut c, 1);
+    
+    // Verify results
+    for i in 0..3 {
+        assert!((c[i] * c[i] + y[i] * y[i] - 1.0).abs() < 1e-10);
+    }
+
+    // Test zero cases
+    let mut x_zero = vec![0.0, 0.0];
+    let mut y_zero = vec![1.0, 1.0];
+    let mut c_zero = vec![0.0; 2];
+    dlargv(2, &mut x_zero, 1, &mut y_zero, 1, &mut c_zero, 1);
+    assert_eq!(c_zero, vec![0.0, 0.0]);
+    assert_eq!(y_zero, vec![1.0, 1.0]);
+}
+
+#[test]
+fn test_dlartv() {
+    let mut x = vec![1.0, 2.0, 3.0];
+    let mut y = vec![4.0, 5.0, 6.0];
+    let c = vec![0.8, 0.6, 0.7];
+    let s = vec![0.6, 0.8, 0.7];
+    
+    // Make copies for verification
+    let x_orig = x.clone();
+    let y_orig = y.clone();
+    
+    dlartv(3, &mut x, 1, &mut y, 1, &c, &s, 1);
+    
+    // Verify results - check if rotation preserves lengths
+    for i in 0..3 {
+        let orig_length = (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i]).sqrt();
+        let new_length = (x[i] * x[i] + y[i] * y[i]).sqrt();
+        assert!((orig_length - new_length).abs() < 1e-10);
+    }
+
+    // Test with empty arrays
+    let mut x_empty: Vec<f64> = vec![];
+    let mut y_empty: Vec<f64> = vec![];
+    let c_empty: Vec<f64> = vec![];
+    let s_empty: Vec<f64> = vec![];
+    dlartv(0, &mut x_empty, 1, &mut y_empty, 1, &c_empty, &s_empty, 1);
+}
+
+#[test]
+fn test_dlar2v() {
+    let mut x = vec![1.0, 2.0, 3.0];
+    let mut y = vec![4.0, 5.0, 6.0];
+    let mut z = vec![7.0, 8.0, 9.0];
+    let c = vec![0.8, 0.6, 0.7];
+    let s = vec![0.6, 0.8, 0.7];
+
+    let x_orig = x.clone();
+    let y_orig = y.clone();
+    let z_orig = z.clone();
+
+    dlar2v(3, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+
+    // Verify orthogonality is preserved
+    for i in 0..3 {
+        let orig_norm = (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i] + z_orig[i] * z_orig[i]).sqrt();
+        let new_norm = (x[i] * x[i] + y[i] * y[i] + z[i] * z[i]).sqrt();
+        assert!((orig_norm - new_norm).abs() < 1e-10);
+    }
+
+    // Test index out of bounds panic
+    let result = std::panic::catch_unwind(|| {
+        dlar2v(4, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dlamc3_overflow() {
+    // Test potential overflow cases
+    let max = f64::MAX;
+    let result = dlamc3(max, max);
+    assert!(result.is_infinite());
+
+    // Test underflow cases
+    let min = f64::MIN_POSITIVE;
+    let result = dlamc3(min, -min);
+    assert_eq!(result, 0.0);
+
+    // Test NaN handling
+    let nan = f64::NAN;
+    let result = dlamc3(nan, 1.0);
+    assert!(result.is_nan());
+}
+
+#[test]
+fn test_dgemv() {
+    let a = vec![
+        vec![1.0, 2.0, 3.0],
+        vec![4.0, 5.0, 6.0],
+        vec![7.0, 8.0, 9.0]
+    ];
+    let x = vec![1.0, 1.0, 1.0];
+    let mut y = vec![0.0; 3];
+
+    // Test normal multiplication
+    dgemv(false, 3, 3, 1.0, &a, &x, 0.0, &mut y);
+    assert_eq!(y, vec![6.0, 15.0, 24.0]);
+
+    // Test transpose multiplication
+    let mut y = vec![0.0; 3];
+    dgemv(true, 3, 3, 1.0, &a, &x, 0.0, &mut y);
+    assert_eq!(y, vec![12.0, 15.0, 18.0]);
+
+    // Test with zero alpha
+    let mut y = vec![1.0; 3];
+    dgemv(false, 3, 3, 0.0, &a, &x, 1.0, &mut y);
+    assert_eq!(y, vec![1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn test_dlaset() {
+    // Test full matrix fill
+    let mut a = vec![vec![1.0; 3]; 3];
+    dlaset('A', 3, 3, 2.0, 3.0, &mut a);
+    for i in 0..3 {
+        for j in 0..3 {
+            assert_eq!(a[i][j], if i == j { 3.0 } else { 2.0 });
+        }
+    }
+
+    // Test upper triangle
+    let mut a = vec![vec![1.0; 3]; 3];
+    dlaset('U', 3, 3, 2.0, 3.0, &mut a);
+    for i in 0..3 {
+        for j in 0..3 {
+            if i <= j {
+                assert_eq!(a[i][j], if i == j { 3.0 } else { 2.0 });
+            } else {
+                assert_eq!(a[i][j], 1.0);
+            }
+        }
+    }
+
+    // Test empty matrix
+    let mut a: Vec<Vec<f64>> = vec![vec![]];
+    dlaset('A', 0, 0, 2.0, 3.0, &mut a);
+}
+
+#[test]
+fn test_dlascl() {
+    let mut a = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    
+    // Test normal scaling
+    let result = dlascl(&mut a, 2.0, 1.0);
+    assert!(result.is_ok());
+    assert_eq!(a, vec![vec![0.5, 1.0], vec![1.5, 2.0]]);
+
+    // Test scaling by zero (should return error)
+    let result = dlascl(&mut a, 0.0, 1.0);
+    assert!(result.is_err());
+
+    // Test overflow handling
+    let result = dlascl(&mut a, f64::MIN_POSITIVE, f64::MAX);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_get_mut_bands() {
+    let mut ab = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0], vec![7.0, 8.0, 9.0]];
+    
+    // Test normal case
+    let (band1, band2) = get_mut_bands(&mut ab, 0, 1, 0, 3);
+    assert_eq!(band1, vec![1.0, 2.0, 3.0]);
+    assert_eq!(band2, vec![4.0, 5.0, 6.0]);
+
+    // Test panic on same band access
+    let result = std::panic::catch_unwind(|| {
+        get_mut_bands(&mut ab, 1, 1, 0, 3);
+    });
+    assert!(result.is_err());
+
+    // Test panic on invalid length
+    let result = std::panic::catch_unwind(|| {
+        get_mut_bands(&mut ab, 0, 1, 0, 4);
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dlartg() {
+    // Test normal case
+    let (c, s) = dlartg(3.0, 4.0);
+    assert!((c * c + s * s - 1.0).abs() < 1e-10);
+    assert!((3.0 * c + 4.0 * s).abs() > (3.0 * s - 4.0 * c).abs());
+
+    // Test zero cases
+    let (c, s) = dlartg(0.0, 0.0);
+    assert_eq!(c, 1.0);
+    assert_eq!(s, 0.0);
+
+    // Test f = 0
+    let (c, s) = dlartg(0.0, 1.0);
+    assert_eq!(c, 0.0);
+    assert_eq!(s, 1.0);
+}
+
+#[test]
+fn test_dsbtrd() {
+    let n = 3;
+    let kd = 1;
+    let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
+    let mut d = vec![0.0; n];
+    let mut e = vec![0.0; n-1];
+    let mut q = vec![vec![0.0; n]; n];
+
+    dsbtrd('U', n, kd, &mut ab, &mut d, &mut e, &mut q);
+
+    // Verify d contains the diagonal elements
+    for i in 0..n {
+        assert!((d[i] - ab[0][i]).abs() < 1e-10);
+    }
+
+    // Test invalid parameters
+    let result = std::panic::catch_unwind(|| {
+        dsbtrd('X', n, kd, &mut ab, &mut d, &mut e, &mut q);
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dlaed6() {
+    let mut tau = 0.0;
+    let mut info = 0;
+    let kniter = 2;
+    let orgati = true;
+    let rho = 1.0;
+    let mut d = vec![1.0, 2.0, 3.0];
+    let mut z = vec![0.5, 0.5, 0.5];
+    let finit = 1.0;
+
+    dlaed6(kniter, orgati, rho, &mut d, &mut z, finit, &mut tau, &mut info);
+    
+    // Check that info is valid
+    assert!(info == 0 || info == 1);
+
+    // Test with zero rho
+    dlaed6(kniter, orgati, 0.0, &mut d, &mut z, finit, &mut tau, &mut info);
+    assert!(info == 0 || info == 1);
+}
+
+#[test]
+fn test_dsbtrd_wrapper() {
+    let n = 3;
+    let kd = 1;
+    let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
+    
+    let (d, e, q) = dsbtrd_wrapper('U', n, kd, &mut ab);
+    
+    // Verify dimensions
+    assert_eq!(d.len(), n);
+    assert_eq!(e.len(), n-1);
+    assert_eq!(q.len(), n);
+    assert_eq!(q[0].len(), n);
+
+    // Test invalid parameters
+    let result = std::panic::catch_unwind(|| {
+        dsbtrd_wrapper('U', n, n+1, &mut ab);
+    });
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dlaeda() {
+    let n = 4;
+    let tlvls = 2;
+    let curlvl = 1;
+    let curpbm = 0;
+    let prmptr = vec![0, 2, 4];
+    let perm = vec![1, 2, 3, 4];
+    let givptr = vec![1, 2];
+    let givcol = vec![vec![1, 2], vec![2, 3]];
+    let givnum = vec![vec![0.8, 0.6], vec![0.6, 0.8]];
+    let q = vec![1.0, 0.0, 0.0, 1.0];
+    let qptr = vec![0, 2, 4];
+    let mut z = vec![0.0; n];
+    let mut ztemp = vec![0.0; n];
+
+    let result = dlaeda(
+        n, tlvls, curlvl, curpbm, 
+        &prmptr, &perm, &givptr,
+        &givcol, &givnum, &q, &qptr,
+        &mut z, &mut ztemp
+    );
+    
+    assert!(result.is_ok());
+
+    // Test empty case
+    let result = dlaeda(
+        0, tlvls, curlvl, curpbm,
+        &prmptr, &perm, &givptr,
+        &givcol, &givnum, &q, &qptr,
+        &mut z, &mut ztemp
+    );
+    assert!(result.is_ok());
+}
