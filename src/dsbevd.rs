@@ -2610,19 +2610,12 @@ pub fn dlaed3(
 
 
     if n23 > 0 {
-        dgemm(
-            n2,
-            k,
-            n23,
-            1.0,
-            &q2[n1 * n12..],
-            ldq,
-            &s[..n23],
-            n23,
-            0.0,
-            &mut q[n1..],
-            ldq,
-        );
+        let result = dgemm(&q2[n1 * n12..], &s[..n23]);
+        for (i, row) in result.iter().enumerate() {
+            for (j, val) in row.iter().enumerate() {
+                q[n1 + i][j] = *val;
+            }
+        }
     } else {
         dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..]);
     }
