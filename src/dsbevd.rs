@@ -2042,11 +2042,11 @@ pub fn dlaed0(
                     cutpnt,
                     &mut qstore_flat, // &mut [f64] (flattened qstore)
                     mut qptr,
-                    &mut prmptr,     // &mut [usize]
-                    &mut perm,       // &mut [usize]
+                    prmptr,
+                    perm,
                     &mut givptr,     // &mut usize
-                    &mut givcol,     // &mut [Vec<usize>]
-                    &mut givnum,     // &mut [Vec<f64>]
+                    givcol,
+                    givnum,
                     &mut work,       // &mut [f64]
                     &mut iwork,      // &mut [usize]
                 )?;
