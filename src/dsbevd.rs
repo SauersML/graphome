@@ -1030,7 +1030,7 @@ pub fn dsbtrd(
     d: &mut [f64],
     e: &mut [f64],
     q: &mut [Vec<f64>],
-) {
+) -> Result<(), Error> {
     let kd1 = kd + 1;
     let kdm1 = if kd >= 1 { kd - 1 } else { 0 };
     let mut nr: usize = 0;
@@ -1193,6 +1193,7 @@ pub fn dsbtrd(
         }
         d[n - 1] = ab[0][n - 1];
     }
+    Ok(())
 }
 
 pub fn dsteqr(
