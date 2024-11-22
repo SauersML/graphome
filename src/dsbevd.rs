@@ -123,7 +123,7 @@ impl SymmetricBandedMatrix {
         }
         
         let kd1 = kd + 1;
-        let kdm1 = kd - 1;
+        let kdm1 = if kd >= 1 { kd - 1 } else { 0 }; // Prevent negative kdm1
         let inca = kd1;
         
         let mut nr = 0;
