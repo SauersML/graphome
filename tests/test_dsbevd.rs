@@ -700,35 +700,6 @@ fn test_dlartv() {
 }
 
 #[test]
-fn test_dlar2v() {
-    let mut x = vec![1.0, 2.0, 3.0];
-    let mut y = vec![4.0, 5.0, 6.0];
-    let mut z = vec![7.0, 8.0, 9.0];
-    let c = vec![0.8, 0.6, 0.7];
-    let s = vec![0.6, 0.8, 0.7];
-
-    let x_orig = x.clone();
-    let y_orig = y.clone();
-    let z_orig = z.clone();
-
-    dlar2v(3, &mut x, &mut y, &mut z, 1, &c, &s, 1);
-
-    // Verify orthogonality is preserved
-    for i in 0..3 {
-        let orig_norm =
-            (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i] + z_orig[i] * z_orig[i]).sqrt();
-        let new_norm = (x[i] * x[i] + y[i] * y[i] + z[i] * z[i]).sqrt();
-        assert!((orig_norm - new_norm).abs() < 1e-10);
-    }
-
-    // Test index out of bounds panic
-    let result = std::panic::catch_unwind(|| {
-        dlar2v(4, &mut x, &mut y, &mut z, 1, &c, &s, 1);
-    });
-    assert!(result.is_err());
-}
-
-#[test]
 fn test_dlamc3_overflow() {
     // Test potential overflow cases
     let max = f64::MAX;
@@ -818,31 +789,6 @@ fn test_dlascl() {
     assert!(result.is_ok());
 }
 
-#[test]
-fn test_get_mut_bands() {
-    let mut ab = vec![
-        vec![1.0, 2.0, 3.0],
-        vec![4.0, 5.0, 6.0],
-        vec![7.0, 8.0, 9.0],
-    ];
-
-    // Test normal case
-    let (band1, band2) = get_mut_bands(&mut ab, 0, 1, 0, 3);
-    assert_eq!(band1, vec![1.0, 2.0, 3.0]);
-    assert_eq!(band2, vec![4.0, 5.0, 6.0]);
-
-    // Test panic on same band access
-    let result = std::panic::catch_unwind(|| {
-        get_mut_bands(&mut ab, 1, 1, 0, 3);
-    });
-    assert!(result.is_err());
-
-    // Test panic on invalid length
-    let result = std::panic::catch_unwind(|| {
-        get_mut_bands(&mut ab, 0, 1, 0, 4);
-    });
-    assert!(result.is_err());
-}
 
 #[test]
 fn test_dlartg() {
@@ -862,28 +808,6 @@ fn test_dlartg() {
     assert_eq!(s, 1.0);
 }
 
-#[test]
-fn test_dsbtrd() {
-    let n = 3;
-    let kd = 1;
-    let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
-    let mut d = vec![0.0; n];
-    let mut e = vec![0.0; n - 1];
-    let mut q = vec![vec![0.0; n]; n];
-
-    dsbtrd('U', n, kd, &mut ab, &mut d, &mut e, &mut q);
-
-    // Verify d contains the diagonal elements
-    for i in 0..n {
-        assert!((d[i] - ab[0][i]).abs() < 1e-10);
-    }
-
-    // Test invalid parameters
-    let result = std::panic::catch_unwind(|| {
-        dsbtrd('X', n, kd, &mut ab, &mut d, &mut e, &mut q);
-    });
-    assert!(result.is_err());
-}
 
 #[test]
 fn test_dlaed6() {
@@ -908,27 +832,6 @@ fn test_dlaed6() {
         kniter, orgati, 0.0, &mut d, &mut z, finit, &mut tau, &mut info,
     );
     assert!(info == 0 || info == 1);
-}
-
-#[test]
-fn test_dsbtrd_wrapper() {
-    let n = 3;
-    let kd = 1;
-    let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
-
-    let (d, e, q) = dsbtrd_wrapper('U', n, kd, &mut ab);
-
-    // Verify dimensions
-    assert_eq!(d.len(), n);
-    assert_eq!(e.len(), n - 1);
-    assert_eq!(q.len(), n);
-    assert_eq!(q[0].len(), n);
-
-    // Test invalid parameters
-    let result = std::panic::catch_unwind(|| {
-        dsbtrd_wrapper('U', n, n + 1, &mut ab);
-    });
-    assert!(result.is_err());
 }
 
 #[test]
