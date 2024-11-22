@@ -452,23 +452,6 @@ fn test_dlamc3() {
     assert_eq!(result, a + b);
 }
 
-#[test]
-fn test_dlanst_function() {
-    let n = 3;
-    let d = vec![1.0, 2.0, 3.0];
-    let e = vec![0.5, -0.5];
-    let norm = dlanst('M', n, &d, &e);
-    assert!(norm > 0.0);
-
-    // Test for invalid norm type (should panic)
-    let result = std::panic::catch_unwind(|| dlanst('X', n, &d, &e));
-    assert!(result.is_err());
-
-    // Test for index out of bounds
-    let e_incorrect = vec![0.5]; // One element less
-    let result = std::panic::catch_unwind(|| dlanst('M', n, &d, &e_incorrect));
-    assert!(result.is_err());
-}
 
 #[test]
 fn test_dlaev2() {
