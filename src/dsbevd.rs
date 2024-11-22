@@ -2008,16 +2008,25 @@ pub fn dlaed0(
             };
 
             if icompq == 2 {
+
+                let split_point = indxq + submat - 1;
+                let (iwork_left, iwork_right) = iwork.split_at_mut(split_point);
+                
+                // Adjust the indices relative to the split slices
+                let iwork_slice1 = &mut iwork_left[(submat - 1)..];
+                let iwork_slice2 = &mut iwork_right[(subpbs - split_point)..];
+    
                 dlaed1(
                     matsiz,
                     &mut d[submat-1..],
                     &mut q[submat-1..],
                     ldq,
-                    &mut iwork[indxq+submat-1..],
+                    iwork_slice1,
                     &mut e[submat + msd2 - 2],
                     msd2,
                     work,
-                    &mut iwork[subpbs..])?;
+                    iwork_slice2,
+                );
             } else {
                 let cutpnt = msd2;
                 let rho_index = submat + msd2 - 2; // Adjust index for zero-based indexing
@@ -2034,7 +2043,7 @@ pub fn dlaed0(
                     tlvls,
                     curlvl,
                     curpbm,
-                    &mut d,          // &mut [f64]
+                    d,
                     q,
                     ldq,
                     &mut indxq[..],
@@ -3857,7 +3866,7 @@ pub fn dlaed1(
         q,
         ldq,
         indxq,
-        &mut rho,
+        rho,
         work_iz,
         work_idlmda,
         work_iw,
