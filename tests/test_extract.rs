@@ -111,8 +111,12 @@ fn test_load_adjacency_matrix() -> io::Result<()> {
 /// Test extracting a submatrix covering all nodes and verifying the Laplacian matches the original adjacency matrix
 #[test]
 fn test_full_range_extraction() -> io::Result<()> {
+    // Create a temporary directory
+    let dir = tempdir()?;
+
     // Create a temporary GFA file with sample data
-    let mut gfa_file = NamedTempFile::new()?;
+    let gfa_path = dir.path().join("test.gfa");
+    let mut gfa_file = File::create(&gfa_path)?;
     writeln!(gfa_file, "H\tVN:Z:1.0")?;
     writeln!(gfa_file, "S\t1\t*")?;
     writeln!(gfa_file, "S\t2\t*")?;
@@ -122,58 +126,43 @@ fn test_full_range_extraction() -> io::Result<()> {
     writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
 
     // Output file for adjacency matrix
-    let output_gam = NamedTempFile::new()?;
+    let output_gam_path = dir.path().join("output.gam");
 
     // Run the conversion
-    convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+    convert_gfa_to_edge_list(&gfa_path, &output_gam_path)?;
 
     // Define the full range (all nodes)
     let start_node = 0;
     let end_node = 2;
 
-    // Output file base path for analysis
-    let output_analysis = NamedTempFile::new()?;
-
     // Run the extraction
     extract::extract_and_analyze_submatrix(
-        output_gam.path(),
+        &output_gam_path,
         start_node,
         end_node,
     )?;
 
-    // Define expected edges within the range as a Vec
-    let _expected_edges: Vec<(u32, u32)> = vec![
-        (0, 1), // From node 1 to node 2
-        (1, 0), // From node 2 to node 1
-        (1, 2), // From node 2 to node 3
-        (2, 1), // From node 3 to node 2
-        (0, 2), // From node 1 to node 3
-        (2, 0), // From node 3 to node 1
-    ];
+    // Paths to the expected output files
+    let laplacian_csv = dir.path().join("laplacian.csv");
+    let eigenvalues_csv = dir.path().join("eigenvalues.csv");
+    let eigenvectors_csv = dir.path().join("eigenvectors.csv");
 
     // Load the Laplacian matrix from CSV
-    let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
     let laplacian = load_csv_as_matrix(&laplacian_csv)?;
 
     // Verify the Laplacian matrix
-    // For nodes 1, 2, 3 with all mutual connections:
-    // Degrees: 2, 2, 2
-    // Laplacian should be:
-    // [2, -1, -1]
-    // [-1, 2, -1]
-    // [-1, -1, 2]
     let expected_laplacian = array![
         [2.0, -1.0, -1.0],
         [-1.0, 2.0, -1.0],
         [-1.0, -1.0, 2.0],
     ];
+
     assert_eq!(
         laplacian, expected_laplacian,
         "Laplacian matrix does not match expected values for full range extraction."
     );
 
     // Load eigenvalues
-    let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
     let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
 
     // Expected eigenvalues
@@ -199,10 +188,12 @@ fn test_full_range_extraction() -> io::Result<()> {
         );
     }
 
-    // Load eigenvectors
-    let eigenvectors_csv = output_analysis.path().with_extension("eigenvectors.csv");
+    // Load eigenvectors (optional)
     let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    // Additional tests on eigenvectors can be added here
 
+    // Close the temporary directory (optional)
+    dir.close()?;
     Ok(())
 }
 
@@ -244,8 +235,12 @@ fn load_csv_as_vector<P: AsRef<Path>>(path: P) -> io::Result<Vec<f64>> {
 /// Test extracting a submatrix for a subset of nodes
 #[test]
 fn test_partial_range_extraction() -> io::Result<()> {
+    // Create a temporary directory
+    let dir = tempdir()?;
+
     // Create a temporary GFA file with sample data
-    let mut gfa_file = NamedTempFile::new()?;
+    let gfa_path = dir.path().join("test.gfa");
+    let mut gfa_file = File::create(&gfa_path)?;
     writeln!(gfa_file, "H\tVN:Z:1.0")?;
     writeln!(gfa_file, "S\t1\t*")?;
     writeln!(gfa_file, "S\t2\t*")?;
@@ -255,57 +250,59 @@ fn test_partial_range_extraction() -> io::Result<()> {
     writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
     writeln!(gfa_file, "L\t3\t+\t4\t+\t70M")?;
     writeln!(gfa_file, "L\t1\t+\t4\t+\t80M")?;
+
     // Output file for adjacency matrix
-    let output_gam = NamedTempFile::new()?;
+    let output_gam_path = dir.path().join("output.gam");
+
     // Run the conversion
-    convert_gfa_to_edge_list(gfa_file.path(), output_gam.path())?;
+    convert_gfa_to_edge_list(&gfa_path, &output_gam_path)?;
+
     // Define a partial range (nodes 2 to 3)
     let start_node = 1;
     let end_node = 2;
 
-    // Output file base path for analysis
-    let output_analysis = NamedTempFile::new()?;
     // Run the extraction
     extract::extract_and_analyze_submatrix(
-        output_gam.path(),
+        &output_gam_path,
         start_node,
         end_node,
     )?;
-    // Define expected edges within the range as a Vec
-    let _expected_edges: Vec<(u32, u32)> = vec![
-        (1, 2), // From node 2 to node 3
-        (2, 1), // From node 3 to node 2
-    ];
+
+    // Paths to the expected output files
+    let laplacian_csv = dir.path().join("laplacian.csv");
+    let eigenvalues_csv = dir.path().join("eigenvalues.csv");
+    let eigenvectors_csv = dir.path().join("eigenvectors.csv");
+
     // Load the Laplacian matrix from CSV
-    let laplacian_csv = output_analysis.path().with_extension("laplacian.csv");
     let laplacian = load_csv_as_matrix(&laplacian_csv)?;
+
     // Verify the Laplacian matrix
-    // For nodes 2 and 3, the adjacency is:
-    // 2 connected to 3
-    // 3 connected to 2
-    // Thus, the Laplacian should be:
-    // [1, -1]
-    // [-1, 1]
     let expected_laplacian = array![
         [1.0, -1.0],
         [-1.0, 1.0],
     ];
+
     assert_eq!(
         laplacian, expected_laplacian,
         "Laplacian matrix does not match expected values for partial range extraction."
     );
-    // Load the eigenvalues from CSV
-    let eigenvalues_csv = output_analysis.path().with_extension("eigenvalues.csv");
+
+    // Load eigenvalues
     let eigenvalues = load_csv_as_vector(&eigenvalues_csv)?;
-    // Expected eigenvalues for the Laplacian matrix [1, -1; -1, 1] are [0.0, 2.0]
+
+    // Expected eigenvalues
     let expected_eigenvalues = vec![0.0, 2.0];
+
     // The order doesn't affect the comparison
     let mut sorted_eigenvalues = eigenvalues.clone();
     sorted_eigenvalues.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
     let mut sorted_expected = expected_eigenvalues.clone();
     sorted_expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
     // Define a tolerance for floating-point comparison
     let tolerance = 1e-6;
+
     // Compare each eigenvalue within the tolerance
     for (computed, expected) in sorted_eigenvalues.iter().zip(sorted_expected.iter()) {
         assert!(
@@ -316,6 +313,12 @@ fn test_partial_range_extraction() -> io::Result<()> {
         );
     }
 
+    // Load eigenvectors (optional)
+    let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    // Additional tests on eigenvectors can be added here
+
+    // Close the temporary directory (optional)
+    dir.close()?;
     Ok(())
 }
 
