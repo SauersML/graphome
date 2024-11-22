@@ -3284,14 +3284,13 @@ pub fn dlaed7(
     let mut indx = vec![0usize; n];
     let mut q2 = vec![vec![0.0; n]; n]; // Are dimensions correct? 
 
-    let ldq2 = n; // This is probably wrong
-
     dlaed8(
         icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt,
-        z, dlamda, &mut q2, ldq2, w, perm, givptr,
-        &mut givcol, &mut givnum, &mut indxp, &mut indx,
+        z, dlamda, q2, ldq2, w, perm, givptr,
+        &mut indxp,
+        &mut indx,
     )?;
-
+    
     if k != 0 {
         // Solve the secular equation
         let mut s = vec![vec![0.0; k]; k];
