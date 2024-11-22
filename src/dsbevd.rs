@@ -1658,7 +1658,12 @@ fn dsteqr(
         }
         if k != i {
             d.swap(k-1, i-1);
-            dswap(n, &mut z[k-1], 1, &mut z[i-1], 1);
+            let (left_z, right_z) = z.split_at_mut(max(k - 1, i - 1));
+            if k - 1 < i - 1 {
+                dswap(n, &mut left_z[k - 1], 1, &mut right_z[i - k - 1], 1);
+            } else {
+                dswap(n, &mut right_z[i - 1], 1, &mut left_z[k - i - 1], 1);
+            }
         }
     }
 
