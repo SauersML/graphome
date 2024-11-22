@@ -2227,7 +2227,7 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
     let mut n1sv = n1;
     let mut n2sv = n2;
     let mut ind1 = if dtrd1 > 0 { 0 } else { n1 - 1 };
-    let mut ind2 = if dtrd2 > 0 { n1 } else { n - 1 };
+    let mut ind2 = if dtrd2 > 0 { n1 } else { n1 + n2 - 1 };
     let mut i = 0;
     let n = n1 + n2;
 
