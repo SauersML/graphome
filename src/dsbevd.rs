@@ -3061,7 +3061,7 @@ pub fn dlaed7(
     let (work_left, work_right) = work.split_at_mut(idlmda);
     let (work_mid, work_end) = work_right.split_at_mut(iw - idlmda);
     let z = &mut work_left[iz..iz+n];
-    let dlamda = &mut work_mid;
+    let dlamda = work_mid;
     let w = &mut work_end[..n];
 
     // Split iwork
