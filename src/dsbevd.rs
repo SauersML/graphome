@@ -2292,16 +2292,69 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
 }
 
 
+/// Computes the i-th eigenvalue and eigenvector of a symmetric rank-one
+/// modification of a 2-by-2 diagonal matrix.
+/// Corresponds to LAPACK's DLAED5
+pub fn dlaed5(
+    i: usize,
+    d: &[f64],
+    z: &[f64],
+    delta: &mut [f64],
+    rho: f64,
+    dlam: &mut f64,
+) -> Result<(), i32> {
+    if i == 1 {
+        let del = d[1] - d[0];
+        let w = 1.0 + 2.0 * rho * (z[1] * z[1] - z[0] * z[0]) / del;
+
+        if w > 0.0 {
+            let b = del + rho * (z[0] * z[0] + z[1] * z[1]);
+            let c = rho * z[0] * z[0] * del;
+            let tau = 2.0 * c / (b + (b * b - 4.0 * c).abs().sqrt());
+            *dlam = d[0] + tau;
+            delta[0] = -z[0] / tau;
+            delta[1] = z[1] / (del - tau);
+        } else {
+            let b = -del + rho * (z[0] * z[0] + z[1] * z[1]);
+            let c = rho * z[1] * z[1] * del;
+            let tau =
+                -2.0 * c / (b + (b * b + 4.0 * c * (if b < 0.0 { -1.0 } else { 1.0 })).sqrt());
+            *dlam = d[1] + tau;
+            delta[0] = -z[0] / (del + tau);
+            delta[1] = -z[1] / tau;
+        }
+
+        let temp = (delta[0] * delta[0] + delta[1] * delta[1]).sqrt();
+        delta[0] /= temp;
+        delta[1] /= temp;
+    } else if i == 2 {
+        let del = d[1] - d[0];
+        let b = -del + rho * (z[0] * z[0] + z[1] * z[1]);
+        let c = rho * z[1] * z[1] * del;
+
+        let tau = if b > 0.0 {
+            (b + (b * b + 4.0 * c).sqrt()) / 2.0
+        } else {
+            2.0 * c / (-b + (b * b + 4.0 * c).sqrt())
+        };
+
+        *dlam = d[1] + tau;
+        delta[0] = -z[0] / (del + tau);
+        delta[1] = -z[1] / tau;
+        let temp = (delta[0] * delta[0] + delta[1] * delta[1]).sqrt();
+        delta[0] /= temp;
+        delta[1] /= temp;
+    }
+
+    Ok(())
+}
+
 
 
 /*
 Not yet implemented functions:
 
 - dlaed3
-
-- DLAED5
-  - Description: Computes the i-th eigenvalue and eigenvector of a symmetric rank-one modification of a 2-by-2 diagonal matrix. It handles the special case where the problem size is two.
-  - When it's called: Within `dlaed4` when the problem has been reduced to size two, allowing for a direct computation of eigenvalues and eigenvectors in the divide and conquer algorithm.
 
 - DLAED6
   - Description: Computes one Newton step in the solution of the secular equation, specializing in refining a single eigenvalue. It is used for efficiently finding roots of the secular equation.
