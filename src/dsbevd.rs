@@ -2997,12 +2997,176 @@ pub fn dlaed8(
 }
 
 
+/// Computes the updated eigensystem of a diagonal matrix after modification by a 
+/// rank-one symmetric matrix. Used when the original matrix is dense.
+pub fn dlaed7(
+    icompq: i32,
+    n: usize,
+    qsiz: usize,
+    tlvls: usize,
+    curlvl: usize,
+    curpbm: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize],
+    rho: &mut f64,
+    cutpnt: usize,
+    qstore: &mut [Vec<f64>],
+    qptr: &mut [usize],
+    prmptr: &mut [usize],
+    perm: &mut [usize],
+    givptr: &mut [usize],
+    givcol: &mut [Vec<Vec<usize>]],
+    givnum: &mut [Vec<Vec<f64>]],
+    work: &mut [f64],
+    iwork: &mut [usize],
+) -> Result<(), i32> {
+    // Test the input parameters
+    if icompq < 0 || icompq > 1 {
+        return Err(-1);
+    }
+    if n < 0 {
+        return Err(-2);
+    }
+    if icompq == 1 && qsiz < n {
+        return Err(-4);
+    }
+    if ldq < n.max(1) {
+        return Err(-9);
+    }
+    if cutpnt < 1.min(n) || cutpnt > n {
+        return Err(-12); 
+    }
+
+    // Quick return if possible
+    if n == 0 {
+        return Ok(());
+    }
+
+    // Set up workspace pointers for current merge level
+    let mut ldq2 = if icompq == 1 { qsiz } else { n };
+
+    // Set up workspace ranges
+    let iz = 0;
+    let idlmda = iz + n;
+    let iw = idlmda + n;
+    let iq2 = iw + n;
+    let is = iq2 + n * ldq2;
+
+    let indx = 0;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
+    
+    // Form z-vector which consists of the last row of Q_1 and first row of Q_2
+    let mut ptr = 1 + 2_usize.pow(tlvls as u32);
+    for i in 1..curlvl {
+        ptr += 2_usize.pow((tlvls - i) as u32);
+    }
+    let curr = ptr + curpbm;
+    
+    // Quick return if at the bottom level
+    if curlvl == tlvls {
+        qptr[curr] = 1;
+        prmptr[curr] = 1;
+        givptr[curr] = 1;
+    }
+    
+    // Execute DLAED8 to merge and deflate eigenvalues
+    let mut k = 0;
+    let result = dlaed8(
+        icompq,
+        &mut k,
+        n,
+        qsiz,
+        d,
+        q,
+        ldq,
+        indxq,
+        rho,
+        cutpnt,
+        &mut work[iz..iz+n],
+        &mut work[idlmda..idlmda+n],
+        &mut qstore,
+        ldq2,
+        &mut work[iw..iw+n],
+        &mut perm[prmptr[curr]..],
+        &mut givptr[curr+1],
+        givcol,
+        givnum,
+        &mut iwork[indxp..],
+        &mut iwork[indx..],
+    );
+
+    if let Err(e) = result {
+        return Err(e);
+    }
+
+    prmptr[curr + 1] = prmptr[curr] + n;
+    givptr[curr + 1] = givptr[curr + 1] + givptr[curr];
+
+    // Solve Secular Equation if k is positive
+    if k > 0 {
+        // Call DLAED9 to compute eigenvalues and eigenvectors
+        let result = dlaed9(
+            k,
+            1,
+            k,
+            n,
+            d,
+            &mut work[is..],
+            k,
+            *rho,
+            &mut work[idlmda..],
+            &mut work[iw..],
+            qstore,
+            k,
+        );
+
+        if let Err(e) = result {
+            return Err(e);
+        }
+
+        if icompq == 1 {
+            // Compute eigenvectors of current problem
+            // Rust way to handle matrix multiplication using dgemm:
+            dgemm(
+                false,
+                false,
+                qsiz,
+                k, 
+                k,
+                1.0,
+                &work[iq2..],
+                ldq2,
+                &qstore[qptr[curr]..],
+                k,
+                0.0,
+                q,
+                ldq,
+            );
+        }
+
+        qptr[curr + 1] = qptr[curr] + k * k;
+
+        // Prepare INDXQ sorting permutation
+        let n1 = k;
+        let n2 = n - k;
+        dlamrg(n1, n2, d, 1, -1, indxq);
+    } else {
+        qptr[curr + 1] = qptr[curr];
+        for i in 0..n {
+            indxq[i] = i;
+        }
+    }
+
+    Ok(())
+}
+
+
 /*
 Not yet implemented functions:
-
-- DLAED7
-  - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix, used when the original matrix is dense. It specifically handles larger subproblems in the divide and conquer algorithm.
-  - When it's called: Within `dstedc`, `dlaed7` is called during recursive steps of the divide and conquer process to update eigenvalues and eigenvectors after merging subproblems.
 
 - DLAEDA
   - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
