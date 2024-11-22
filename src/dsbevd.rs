@@ -614,6 +614,11 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
             end += 1;
         }
 
+        // 'end' does not exceed 'n - 1' when used later
+        if end >= n {
+            end = n - 1;
+        }
+
         // Process submatrix from start to end
         let m = end - start + 1;
 
