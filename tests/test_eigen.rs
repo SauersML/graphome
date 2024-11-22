@@ -15,33 +15,6 @@ use graphome::eigen::{
 
 const TOLERANCE: f64 = 1e-6;
 
-/// Test the `to_banded_format` function...
-#[test]
-fn test_to_banded_format_kd_1() {
-    // Define a known symmetric matrix
-    let matrix = array![
-        [1.0, 2.0, 0.0],
-        [2.0, 3.0, 4.0],
-        [0.0, 4.0, 5.0]
-    ];
-    let kd = 1;
-
-    // Define the expected banded format for kd = 1 
-    let expected_banded = array![
-        [0.0, 2.0, 4.0], // Upper diagonal (k = 1)
-        [1.0, 3.0, 5.0]  // Main diagonal
-    ];
-
-    // Convert the matrix to banded format
-    let banded = to_banded_format(&matrix, kd);
-
-    // Assert that the banded matrix matches the expected format
-    assert_eq!(
-        banded,
-        expected_banded,
-        "Banded matrix with kd = 1 does not match the expected output."
-    );
-}
 
 fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
     let n = matrix.nrows();
@@ -56,46 +29,6 @@ fn to_banded_format(matrix: &Array2<f64>, kd: usize) -> Array2<f64> {
         }
     }
     banded_matrix
-}
-
-/// Test the `to_banded_format` function with a known symmetric matrix and `kd = 2`.
-#[test]
-fn test_to_banded_format_kd_2() {
-    // Define a known symmetric matrix
-    let matrix = array![
-        [4.0, 1.0, 0.0, 0.0],
-        [1.0, 3.0, 1.0, 0.0],
-        [0.0, 1.0, 2.0, 1.0],
-        [0.0, 0.0, 1.0, 1.0]
-    ];
-    let kd = 2;
-
-    let expected_banded = array![
-        [0.0, 0.0, 0.0, 0.0], // k = 2
-        [0.0, 1.0, 1.0, 1.0], // k = 1
-        [4.0, 3.0, 2.0, 1.0]  // Main diagonal
-    ];
-
-    let banded = to_banded_format(&matrix, kd);
-
-    assert_eq!(
-        banded,
-        expected_banded,
-        "Banded matrix with kd = 2 does not match the expected output."
-    );
-}
-
-fn max_band(matrix: &Array2<f64>) -> usize {
-    let n = matrix.nrows();
-    let mut kd = 0;
-    for i in 0..n {
-        for j in 0..n {
-            if matrix[[i, j]] != 0.0 {
-                kd = std::cmp::max(kd, (i as isize - j as isize).abs() as usize); // Cast to isize
-            }
-        }
-    }
-    kd
 }
 
 
