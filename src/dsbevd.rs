@@ -2306,10 +2306,10 @@ pub fn dlaed1(
     let mut info = 0;
 
     if n == 0 {
-        return info; // Quick return if possible
+        return info;
     }
 
-    // We DO NOT need to validate inputs explicitly
+    // No need for input validation
 
     // Workspace pointers
     let iz = 0;
@@ -2322,16 +2322,30 @@ pub fn dlaed1(
     let coltyp = indxc + n;
     let indxp = coltyp + n;
 
-
     // Form the z-vector
     let zpp1 = cutpnt;
-    work[iz..iz + cutpnt].copy_from_slice(&q[cutpnt - 1][..cutpnt]); // Last row of Q1
-    work[iz + cutpnt..iz + n].copy_from_slice(&q[zpp1][zpp1..]);     // First row of Q2
-    let z = &work[iz..iz + n]; // Create a slice for the z-vector. IMPORTANT for correct indexing later!
 
+    // More robust and efficient way to form the z-vector
+    let mut z = vec![0.0; n];
+    for i in 0..cutpnt {
+        z[i] = q[cutpnt - 1][i];
+    }
+    for i in cutpnt..n {
+        z[i] = q[zpp1][i];
+    }
 
     // Deflate eigenvalues
-    let mut k = 0;  // Initialize k before the call to dlaed2
+    let mut k = 0;
+    let n2 = n - cutpnt;
+
+    // Initialize q2 conditionally based on the value of k
+    let q2 = if k > 0 {
+            vec![vec![0.0; n]; n]
+        } else {
+            // Provide a dummy value; q2 won't be used if k == 0. Can fix later
+            vec![vec![0.0; 1]; 1]
+        };
+    
     dlaed2(
         &mut k,
         n,
@@ -2340,30 +2354,26 @@ pub fn dlaed1(
         q,
         ldq,
         indxq,
-        &mut rho, // rho is modified by dlaed2
-        &mut work[iz..iz + n], // Pass z as mutable slice
+        &mut rho,
+        &mut z, // Pass z directly, no need for slice
         &mut work[idlmda..idlmda + n],
         &mut work[iw..iw + n],
-        &mut vec![vec![0.0; n1*n1 + n2*n2]; n], // Adjust Q2 size
+        &mut q2,
         &mut iwork[indx..indx + n],
         &mut iwork[indxc..indxc + n],
         &mut iwork[indxp..indxp + n],
         &mut iwork[coltyp..coltyp + n],
     );
 
-    if info != 0 {
-        return info;
-    }
 
-    // Solve Secular Equation (if necessary)
+    // Solve Secular Equation
     if k > 0 {
+
         let n1 = k;
-        let n2 = n - k;
-
+        let n2 = n - n1;
         let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt
-            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt)
+            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * n2
             + iq2;
-
 
         dlaed3(
             k,
@@ -2373,15 +2383,14 @@ pub fn dlaed1(
             q,
             ldq,
             rho,
-            &mut work[idlmda..idlmda + k],  // dlamda
-            &mut vec![vec![0.0; n]; n],     // q2 - Needs proper sizing
-            &mut iwork[indxc..indxc + n],   // indx
-            &mut iwork[coltyp..coltyp + 4], // ctot
-            &mut work[iw..iw + k],          // w
-            &mut work[is..],                // s - size depends on usage in dlaed3
+            &mut work[idlmda..idlmda + k],
+            &mut q2, // No need to resize; it's already correctly sized
+            &iwork[indxc..indxc + n],
+            &iwork[coltyp..coltyp + 4],
+            &mut work[iw..iw + k],
+            &mut work[is..is + (cutpnt+1) * k], //  Size of s is (N1+1)*K in LAPACK's DLAED3. N1 is cutpnt, K is k here.
             &mut info,
         );
-
 
         if info != 0 {
             return info;
@@ -2389,14 +2398,15 @@ pub fn dlaed1(
 
         // Prepare INDXQ sorting permutation
         dlamrg(n1, n2, d, 1, -1, indxq);
+
     } else {
+        // Handle case where k=0
         for i in 0..n {
-            indxq[i] = i + 1;
+            indxq[i] = i + 1; // 1-based indexing
         }
     }
 
-
-    info // Return info
+    info
 }
 
 
