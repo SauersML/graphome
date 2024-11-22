@@ -361,7 +361,7 @@ impl SymmetricBandedMatrix {
                 *val *= scale;
             }
         }
-        Ok(scaled)
+        scaled
     }
 }
 
