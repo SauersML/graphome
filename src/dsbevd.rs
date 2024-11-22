@@ -3,7 +3,7 @@
 // We ONLY care about large matrices, and we ALWAYS want both eigenvectors and eigenvalues
 
 use rayon::prelude::*;
-use std::cmp::{max};
+use std::cmp::{min};
 
 /// Represents a real symmetric banded matrix.
 #[derive(Clone)]
