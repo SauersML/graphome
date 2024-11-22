@@ -2047,8 +2047,8 @@ pub fn dlaed0(
                     &mut givptr,     // &mut usize
                     givcol,
                     givnum,
-                    &mut work,       // &mut [f64]
-                    &mut iwork,      // &mut [usize]
+                    work,
+                    iwork,
                 )?;
             }
 
