@@ -195,6 +195,7 @@ impl SymmetricBandedMatrix {
                                         &y_temp[..len],
                                         1,
                                     );
+                                }
 
                                 for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
                                     let j = j1 - kd + l + idx * kd;
