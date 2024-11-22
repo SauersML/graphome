@@ -1242,11 +1242,13 @@ fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],  
                    // Store rotations
                    rotations.clear();
                    for idx in 0..nr {
-                       let j = j1 - kd - 1 + idx * kd;
-                       if j < ab[kd].len() {
-                           rotations.push((ab[kd][j], ab[kd-1][j]));
-                       }
-                   }
+                        let j = j1 - kd - 1 + idx * kd;
+                    
+                        // j is within the bounds of BOTH ab[kd] AND ab[kd-1]
+                        if j < ab[kd].len() && j < ab[kd - 1].len() {  // bound check
+                            rotations.push((ab[kd][j], ab[kd - 1][j]));
+                        }
+                    }
 
                    // Apply stored rotations
                    for (idx, &(x, y)) in rotations.iter().enumerate() {
