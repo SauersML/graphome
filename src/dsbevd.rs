@@ -2673,17 +2673,28 @@ pub fn dlaed9(
 
     // Modify values DLAMDA(i) to make sure all DLAMDA(i)-DLAMDA(j) can
     // be computed with high relative accuracy. This is needed to combat
-    // problems with machines that lack a guard digit in add/subtract.
+    // problems with machines that lack a guard digit in add/subtract. Lol.
     for i in 0..n {
         dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
     }
 
     // Compute eigenvalues of the modified secular equation
     for j in kstart-1..kstop {
-        // Call dlaed4 to get the j-th updated eigenvalue and eigenvector
-        match dlaed4(k, j+1, dlamda, w, &mut q[j], rho, &mut d[j]) {
-            0 => continue,
-            _ => return Err(1), // Eigenvalue did not converge
+        let mut d_sub = vec![0.0; k];
+        let mut z_out = vec![vec![0.0; k]; k];
+        
+        // Call dlaed4 with the correct arguments
+        // Note: dlaed4 takes the secular equation parameters and returns eigenvalue/vectors
+        if dlaed4(&dlamda, &dlamda, w, rho, &mut d_sub, &mut z_out) != 0 {
+            return Err(1); // Eigenvalue did not converge
+        }
+        
+        // Copy the computed eigenvalue
+        d[j] = d_sub[0];
+        
+        // Copy the computed eigenvector to Q
+        for i in 0..k {
+            q[i][j] = z_out[i][0];
         }
     }
 
