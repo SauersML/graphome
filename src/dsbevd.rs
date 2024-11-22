@@ -3172,7 +3172,7 @@ pub fn dlaed8(
 /// - `rho`: The subdiagonal entry used to create the rank-one modification.
 ///          On exit, destroyed.
 /// - `cutpnt`: The location of the last eigenvalue in the leading submatrix.
-/// - `qstore`: Workspace array to store the eigenvectors.
+/// - NOT using `qstore`: Workspace array to store the eigenvectors.
 /// - `qptr`, `prmptr`, `perm`, `givptr`, `givcol`, `givnum`: Workspace arrays for DLAED7.
 /// - `work`: Workspace array.
 /// - `iwork`: Integer workspace array.
