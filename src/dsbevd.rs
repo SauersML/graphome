@@ -3272,28 +3272,15 @@ pub fn dlaed7(
 
     // Deflate eigenvalues
     let mut k = 0;
+
+    // Declarations of givcol and givnum
+    let mut givcol = vec![vec![0usize; 2]; n]; // Are these appropriate dimensions?
+    let mut givnum = vec![vec![0.0; 2]; n];    // Are these appropriate dimensions?
+
     dlaed8(
-        icompq,
-        &mut k,
-        n,
-        qsiz,
-        d,
-        q,
-        ldq,
-        indxq,
-        rho,
-        cutpnt,
-        z,
-        dlamda,
-        q2,
-        n,
-        w,
-        perm,
-        givptr,
-        givcol,
-        givnum,
-        indxpv,
-        indxv,
+        icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt,
+        z, dlamda, q2, ldq2, w, perm, givptr,
+        &mut givcol, &mut givnum, indxp, indx,
     )?;
 
     if k != 0 {
