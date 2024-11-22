@@ -1998,12 +1998,59 @@ pub fn dcopy(n: usize, dx: &[f64], incx: i32, dy: &mut [f64], incy: i32) {
 }
 
 
+/// Copies all or part of a 2D matrix A to another matrix B.
+///
+/// This function corresponds to LAPACK's DLACPY subroutine.
+///
+/// # Arguments
+///
+/// * `uplo` - Specifies the part of the matrix A to be copied to B:
+///     - 'U': Upper triangular part
+///     - 'L': Lower triangular part
+///     - Other: All of the matrix A
+/// * `m` - The number of rows of the matrix A.  m >= 0.
+/// * `n` - The number of columns of the matrix A.  n >= 0.
+/// * `a` - The m-by-n matrix A.
+/// * `lda` - The leading dimension of the array A. lda >= max(1,m).
+/// * `b` - On exit, B = A in the locations specified by uplo.
+/// * `ldb` - The leading dimension of the array B. ldb >= max(1,m).
+pub fn dlacpy(uplo: char, m: usize, n: usize, a: &[Vec<f64>], lda: usize, b: &mut [Vec<f64>], ldb: usize) {
+    if m == 0 || n == 0 {
+        return; // Quick return if possible
+    }
+
+    match uplo {
+        'U' | 'u' => {
+            // Copy the upper triangular part of A to B
+            for j in 0..n {
+                for i in 0..min(j + 1, m) {
+                    b[i][j] = a[i][j];
+                }
+            }
+        }
+        'L' | 'l' => {
+            // Copy the lower triangular part of A to B
+            for j in 0..n {
+                for i in j..m {
+                    b[i][j] = a[i][j];
+                }
+            }
+        }
+        _ => {
+            // Copy the entire matrix A to B
+            for j in 0..n {
+                for i in 0..m {
+                    b[i][j] = a[i][j];
+                }
+            }
+        }
+    }
+}
+
+
+
 /*
 Not yet implemented functions:
-
-- DLACPY
-  - Description: Copies all or part of a two-dimensional matrix `A` to another matrix `B`. It can copy the entire matrix or just the upper or lower triangular part, depending on the specified options.
-  - When it's called: Used to copy matrices or submatrices, particularly when manipulating eigenvector matrices. In `dstedc` and `dlaed0`, `dlacpy` is called to manage workspace matrices during computations.
 
 - DLAED1
   - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix. It is specifically used when the original matrix is tridiagonal and involves deflation techniques.
