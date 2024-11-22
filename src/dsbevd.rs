@@ -3349,11 +3349,249 @@ pub fn dlaeda(
 }
 
 
+/// Applies a sequence of plane rotations to a real matrix A from either the left or right.
+/// This function corresponds to LAPACK's DLASR routine.
+/// 
+/// # Arguments
+/// * `side` - Specifies whether P is applied from the left ('L') or right ('R')
+/// * `pivot` - Specifies rotation plane:
+///   - 'V': Variable pivot (k,k+1)
+///   - 'T': Top pivot (1,k+1)
+///   - 'B': Bottom pivot (k,z)
+/// * `direct` - Specifies order of rotations:
+///   - 'F': Forward P = P(z-1)*...*P(2)*P(1)
+///   - 'B': Backward P = P(1)*P(2)*...*P(z-1)
+/// * `m` - Number of rows in matrix A
+/// * `n` - Number of columns in matrix A
+/// * `c` - Cosines of the rotations
+/// * `s` - Sines of the rotations
+/// * `a` - The matrix to be transformed
+/// * `lda` - Leading dimension of A
+pub fn dlasr(
+    side: char,
+    pivot: char,
+    direct: char,
+    m: usize,
+    n: usize,
+    c: &[f64],
+    s: &[f64],
+    a: &mut [Vec<f64>],
+    lda: usize,
+) -> Result<(), i32> {
+    // Parameter validation
+    if !matches!(side, 'L' | 'R') {
+        return Err(1);
+    }
+    if !matches!(pivot, 'V' | 'T' | 'B') {
+        return Err(2);
+    }
+    if !matches!(direct, 'F' | 'B') {
+        return Err(3);
+    }
+    if m < 0 {
+        return Err(4);
+    }
+    if n < 0 {
+        return Err(5);
+    }
+    if lda < m.max(1) {
+        return Err(9);
+    }
 
-/*
-Not yet implemented functions:
+    // Quick return if possible
+    if m == 0 || n == 0 {
+        return Ok(());
+    }
 
-- DLASR
-  - Description: Applies a sequence of plane rotations to a general rectangular matrix. This function can apply rotations from the left or the right, in forward or backward order, and with different pivot strategies.
-  - When it's called: Used in `dsteqr` to apply accumulated rotations to eigenvectors during the QR iteration process for computing eigenvalues and eigenvectors of a tridiagonal matrix.
-*/
+    // Constants
+    const ONE: f64 = 1.0;
+    const ZERO: f64 = 0.0;
+
+    match side {
+        'L' => {
+            // Form P * A
+            match pivot {
+                'V' => {
+                    // Variable pivot
+                    if direct == 'F' {
+                        // Forward sequence
+                        for j in 0..m-1 {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j+1][i];
+                                    a[j+1][i] = ctemp * temp - stemp * a[j][i];
+                                    a[j][i] = stemp * temp + ctemp * a[j][i];
+                                }
+                            }
+                        }
+                    } else {
+                        // Backward sequence
+                        for j in (0..m-1).rev() {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j+1][i];
+                                    a[j+1][i] = ctemp * temp - stemp * a[j][i];
+                                    a[j][i] = stemp * temp + ctemp * a[j][i];
+                                }
+                            }
+                        }
+                    }
+                },
+                'T' => {
+                    // Top pivot
+                    if direct == 'F' {
+                        for j in 1..m {
+                            let ctemp = c[j-1];
+                            let stemp = s[j-1];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j][i];
+                                    a[j][i] = ctemp * temp - stemp * a[0][i];
+                                    a[0][i] = stemp * temp + ctemp * a[0][i];
+                                }
+                            }
+                        }
+                    } else {
+                        for j in (1..m).rev() {
+                            let ctemp = c[j-1];
+                            let stemp = s[j-1];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j][i];
+                                    a[j][i] = ctemp * temp - stemp * a[0][i];
+                                    a[0][i] = stemp * temp + ctemp * a[0][i];
+                                }
+                            }
+                        }
+                    }
+                },
+                'B' => {
+                    // Bottom pivot
+                    if direct == 'F' {
+                        for j in 0..m-1 {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j][i];
+                                    a[j][i] = stemp * a[m-1][i] + ctemp * temp;
+                                    a[m-1][i] = ctemp * a[m-1][i] - stemp * temp;
+                                }
+                            }
+                        }
+                    } else {
+                        for j in (0..m-1).rev() {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..n {
+                                    let temp = a[j][i];
+                                    a[j][i] = stemp * a[m-1][i] + ctemp * temp;
+                                    a[m-1][i] = ctemp * a[m-1][i] - stemp * temp;
+                                }
+                            }
+                        }
+                    }
+                },
+                _ => unreachable!(),
+            }
+        },
+        'R' => {
+            // Form A * P^T
+            match pivot {
+                'V' => {
+                    // Variable pivot
+                    if direct == 'F' {
+                        for j in 0..n-1 {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j+1];
+                                    a[i][j+1] = ctemp * temp - stemp * a[i][j];
+                                    a[i][j] = stemp * temp + ctemp * a[i][j];
+                                }
+                            }
+                        }
+                    } else {
+                        for j in (0..n-1).rev() {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j+1];
+                                    a[i][j+1] = ctemp * temp - stemp * a[i][j];
+                                    a[i][j] = stemp * temp + ctemp * a[i][j];
+                                }
+                            }
+                        }
+                    }
+                },
+                'T' => {
+                    // Top pivot
+                    if direct == 'F' {
+                        for j in 1..n {
+                            let ctemp = c[j-1];
+                            let stemp = s[j-1];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j];
+                                    a[i][j] = ctemp * temp - stemp * a[i][0];
+                                    a[i][0] = stemp * temp + ctemp * a[i][0];
+                                }
+                            }
+                        }
+                    } else {
+                        for j in (1..n).rev() {
+                            let ctemp = c[j-1];
+                            let stemp = s[j-1];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j];
+                                    a[i][j] = ctemp * temp - stemp * a[i][0];
+                                    a[i][0] = stemp * temp + ctemp * a[i][0];
+                                }
+                            }
+                        }
+                    }
+                },
+                'B' => {
+                    // Bottom pivot
+                    if direct == 'F' {
+                        for j in 0..n-1 {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j];
+                                    a[i][j] = stemp * a[i][n-1] + ctemp * temp;
+                                    a[i][n-1] = ctemp * a[i][n-1] - stemp * temp;
+                                }
+                            }
+                        }
+                    } else {
+                        for j in (0..n-1).rev() {
+                            let ctemp = c[j];
+                            let stemp = s[j];
+                            if ctemp != ONE || stemp != ZERO {
+                                for i in 0..m {
+                                    let temp = a[i][j];
+                                    a[i][j] = stemp * a[i][n-1] + ctemp * temp;
+                                    a[i][n-1] = ctemp * a[i][n-1] - stemp * temp;
+                                }
+                            }
+                        }
+                    }
+                },
+                _ => unreachable!(),
+            }
+        },
+        _ => unreachable!(),
+    }
+
+    Ok(())
+}
