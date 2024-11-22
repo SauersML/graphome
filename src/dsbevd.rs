@@ -1642,9 +1642,9 @@ fn dsteqr(
 
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
-fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), &'static str> {
+fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), Error> {
     if cfrom == 0.0 {
-        return Err("CFROM cannot be zero");
+        return Err(Error(-1));
     }
     
     let smlnum = f64::MIN_POSITIVE;
