@@ -3017,8 +3017,8 @@ pub fn dlaed7(
     prmptr: &mut [usize],
     perm: &mut [usize],
     givptr: &mut [usize],
-    givcol: &mut [Vec<Vec<usize>]],
-    givnum: &mut [Vec<Vec<f64>]],
+    givcol: &mut [Vec<Vec<usize>],
+    givnum: &mut [Vec<Vec<f64>],
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), i32> {
