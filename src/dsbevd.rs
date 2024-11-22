@@ -3859,9 +3859,6 @@ pub fn dlaed1(
             &mut work[iw..],
             &mut s_temp,
         );
-        if info != 0 {
-            return Err(Error(info?));
-        }
 
         // Sort eigenvalues and corresponding eigenvectors
         let n1 = k;
