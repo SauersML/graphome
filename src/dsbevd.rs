@@ -2339,12 +2339,22 @@ pub fn dlaed1(
     let n2 = n - cutpnt;
 
     // Initialize q2 conditionally based on the value of k
-    let q2 = if k > 0 {
-            vec![vec![0.0; n]; n]
-        } else {
-            // Provide a dummy value; q2 won't be used if k == 0. Can fix later
-            vec![vec![0.0; 1]; 1]
-        };
+    let mut q2 = if k > 0 {
+        vec![vec![0.0; n]; n]
+    } else {
+        // Provide a dummy value; q2 won't be used if k == 0. Can fix later
+        vec![vec![0.0; 1]; 1]
+    };
+
+    // Split work and iwork to avoid multiple mutable borrows
+    let (work_z, work_dlamda_iw) = work.split_at_mut(idlmda);
+    let (work_dlamda, work_iw_q2) = work_dlamda_iw.split_at_mut(n);
+    let (work_iw, _) = work_iw_q2.split_at_mut(n);
+
+    let (iwork_indx, iwork_indxc_rest) = iwork.split_at_mut(indxc);
+    let (iwork_indxc, iwork_rest) = iwork_indxc_rest.split_at_mut(n);
+    let (iwork_indxp, iwork_coltyp) = iwork_rest.split_at_mut(n);
+    let iwork_coltyp = &mut iwork_coltyp[..n];
     
     dlaed2(
         &mut k,
@@ -2355,14 +2365,14 @@ pub fn dlaed1(
         ldq,
         indxq,
         &mut rho,
-        &mut z, // Pass z directly, no need for slice
-        &mut work[idlmda..idlmda + n],
-        &mut work[iw..iw + n],
+        &mut z,
+        work_dlamda,
+        work_iw,
         &mut q2,
-        &mut iwork[indx..indx + n],
-        &mut iwork[indxc..indxc + n],
-        &mut iwork[indxp..indxp + n],
-        &mut iwork[coltyp..coltyp + n],
+        &mut iwork_indx[..n],
+        iwork_indxc,
+        iwork_indxp,
+        iwork_coltyp,
     );
 
 
@@ -2375,6 +2385,9 @@ pub fn dlaed1(
             + (iwork[coltyp + 1] + iwork[coltyp + 2]) * n2
             + iq2;
 
+        let (work_dlamda, work_iw_s) = work.split_at_mut(idlmda+k);
+        let (work_iw, work_s) = work_iw_s.split_at_mut(k); // Split to obtain a slice for s
+
         dlaed3(
             k,
             n,
@@ -2383,14 +2396,17 @@ pub fn dlaed1(
             q,
             ldq,
             rho,
-            &mut work[idlmda..idlmda + k],
-            &mut q2, // No need to resize; it's already correctly sized
-            &iwork[indxc..indxc + n],
-            &iwork[coltyp..coltyp + 4],
-            &mut work[iw..iw + k],
-            &mut work[is..is + (cutpnt+1) * k], //  Size of s is (N1+1)*K in LAPACK's DLAED3. N1 is cutpnt, K is k here.
+            work_dlamda,        // Pass only the slice needed
+            &mut q2,             
+            &indx[..n],         // Pass a slice for indx
+            &ctot[..4],         // Pass a slice for ctot
+            work_iw,            // Pass a mutable slice for w of size k
+    
+            &mut work_s[.. (cutpnt + 1) * k],
             &mut info,
         );
+
+
 
         if info != 0 {
             return info;
@@ -2410,22 +2426,17 @@ pub fn dlaed1(
 }
 
 
-pub fn dlaed3(
-    k: usize,
+pub fn dlaed1(
     n: usize,
-    n1: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
     ldq: usize,
-    rho: f64,
-    dlambda: &mut [f64],
-    q2: &mut [Vec<f64>],
-    indx: &[usize],
-    ctot: &[usize],
-    w: &mut [f64],
-    s: &mut [f64],
-    info: &mut i32,
-) {
+    indxq: &mut [usize],
+    mut rho: f64,
+    cutpnt: usize,
+    work: &mut [f64],
+    iwork: &mut [usize],
+) -> i32 {
     *info = 0;
 
     if k == 0 {
