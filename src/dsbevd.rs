@@ -2075,7 +2075,7 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
-            dlacpy('A', n, n, q, ldq, &mut work[n..], n);
+            dlacpy('A', n, n, q, ldq, &mut work_matrix, n);
         },
         _ => {
             for i in 0..n {
