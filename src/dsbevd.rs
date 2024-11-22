@@ -2543,7 +2543,7 @@ pub fn dlaed3(
 
     for j in 0..k {
         let mut info_dlaed4 = 0;  // Initialize info before calling dlaed4
-        info_dlaed4 = dlaed4(k, j + 1, dlamda, w, &mut q[..k], rho, &mut d[j]);
+        info_dlaed4 = dlaed4(&dlamda[..k], &w[..k], &q[..k][j], rho, &mut d, &mut q[..k]);
         
         // If dlaed4 failed, set info and return
         if info_dlaed4 != 0 {
@@ -2628,7 +2628,8 @@ pub fn dlaed3(
     }
 
     dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
-    dgemm(, q2, &mut s[..n12]);
+    let result = dgemm(q2, &mut s[..n12]);
+
 
     info
 }
