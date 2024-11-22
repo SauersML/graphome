@@ -1349,7 +1349,7 @@ fn dsteqr(
     z: &mut [Vec<f64>],
     work: &mut [f64],
 ) -> Result<(), i32> {
-    // We only handle 'I' case - always want eigenvectors
+    // We only handle 'I' case - always want eigenvectors (and eigenvalues)
     if compz != 'I' {
         return Err(-1);
     }
