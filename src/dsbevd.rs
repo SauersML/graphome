@@ -513,17 +513,17 @@ fn dlar2v(
 
 
 /// Computes all eigenvalues and eigenvectors of a symmetric tridiagonal matrix using divide and conquer.
-/// 
+///
 /// # Arguments
 /// * `d` - On entry, the diagonal elements. On exit, the eigenvalues in ascending order.
 /// * `e` - On entry, the subdiagonal elements. On exit, destroyed.
 /// * `z` - On entry (when computing eigenvectors), the identity matrix.
 ///        On exit, the orthonormal eigenvectors of the tridiagonal matrix.
-/// 
+///
 /// # Returns
 /// * `Ok(())` on successful computation
-/// * `Err(i)` if the algorithm failed to compute eigenvalue i
-pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i32> {
+/// * `Err(Error)` if the algorithm failed to compute eigenvalues
+pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Error> {
     let n = d.len();
     if n == 0 {
         return Ok(());
@@ -534,63 +534,93 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
     }
 
     // Parameters
-    let smlsiz = 25; // Minimum size for divide-conquer. Use STEQR for smaller.
+    let smlsiz = 25; // Minimum size for divide-conquer
     let eps = f64::EPSILON;
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
-        let mut work = vec![0.0; 2*n-2];
-        return dsteqr('I', n, d, e, z, &mut work).map_err(|_| 1);
+        let mut work = vec![0.0; 2 * n - 2];
+        dsteqr('I', n, d, e, z, &mut work)?;
+        return Ok(());
     }
 
     // Scale the matrix if necessary
-    let orgnrm = d.iter().map(|&x| x.abs())
-                  .chain(e.iter().map(|&x| x.abs()))
-                  .fold(0.0_f64, f64::max);
+    let orgnrm = d
+        .iter()
+        .map(|&x| x.abs())
+        .chain(e.iter().map(|&x| x.abs()))
+        .fold(0.0_f64, f64::max);
     if orgnrm == 0.0 {
         // Zero matrix, eigenvalues all zero, z stays identity
         return Ok(());
     }
 
-    let mut info = 0;
+    // Variables needed for the algorithm
+    let mut info: i32 = 0;
+    let mut subpbs = 1;
+    let mut tlvls = 0;
+
+    // Determine the number of levels and subproblem sizes
+    let mut size = n;
+    let mut iwork = vec![0usize; (n as f64).log2().ceil() as usize * 4];
+    iwork[0] = n;
+    while iwork[subpbs - 1] > smlsiz {
+        // Divide each problem into 2 parts
+        for j in (0..subpbs).rev() {
+            let i1 = iwork[j] / 2;
+            let i2 = iwork[j] - i1;
+            iwork[2 * j + 1] = i2;
+            iwork[2 * j] = i1;
+        }
+        subpbs *= 2;
+        tlvls += 1;
+    }
+
+    // Allocate work arrays
+    let mut work = vec![0.0; 4 * n * n];
+    let mut iwork2 = vec![0usize; 3 * n];
+
+    // Initialize z to identity
+    for i in 0..n {
+        for j in 0..n {
+            z[i][j] = if i == j { 1.0 } else { 0.0 };
+        }
+    }
+
     let mut start = 0;
 
     // Main divide and conquer loop
     while start < n {
         // Find the end of the current submatrix (look for small subdiagonal)
-        let mut finish = start;
-        while finish < n - 1 {
-            let tiny = eps * (d[finish].abs().sqrt() * d[finish + 1].abs().sqrt());
-            if e[finish].abs() <= tiny {
-                e[finish] = 0.0; // Deflate
+        let mut end = start;
+        while end < n - 1 {
+            let tiny = eps * (d[end].abs().sqrt() * d[end + 1].abs().sqrt());
+            if e[end].abs() <= tiny {
+                e[end] = 0.0; // Deflate
                 break;
             }
-            finish += 1;
+            end += 1;
         }
 
-        // Process submatrix from start to finish
-        let m = finish - start + 1;
+        // Process submatrix from start to end
+        let m = end - start + 1;
 
         if m == 1 {
             // 1x1 block, already diagonal
-            start = finish + 1;
+            start = end + 1;
             continue;
         }
 
         if m <= smlsiz {
             // Small subproblem - use STEQR
-            let mut d_sub = d[start..=finish].to_vec();
-            let mut e_sub = e[start..finish].to_vec();
+            let mut d_sub = d[start..=end].to_vec();
+            let mut e_sub = e[start..end].to_vec();
             let mut z_sub = vec![vec![0.0; m]; m];
             for i in 0..m {
                 z_sub[i][i] = 1.0;
             }
-            let mut work = vec![0.0; 2*m-2];
-            if let Err(err) = dsteqr('I', m, &mut d_sub, &mut e_sub, &mut z_sub, &mut work) {
-                info = (start + 1) * (n + 1) + finish;
-                break;
-            }
-
+            let mut work_sub = vec![0.0; 4 * m];
+            dsteqr('I', m, &mut d_sub, &mut e_sub, &mut z_sub, &mut work_sub)?;
             // Copy results back
             for i in 0..m {
                 d[start + i] = d_sub[i];
@@ -600,9 +630,8 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
             }
         } else {
             // Large subproblem - use divide and conquer
-            let mid = start + m/2 - 1;
-            let rho = e[mid];
-            e[mid] = 0.0; // Split matrix
+            let mid = (start + end) / 2;
+            e[mid] = 0.0; // Split the matrix
 
             // Solve left subproblem
             let left_size = mid - start + 1;
@@ -615,9 +644,9 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
             dstedc(&mut d_left, &mut e_left, &mut z_left)?;
 
             // Solve right subproblem
-            let right_size = finish - mid;
-            let mut d_right = d[mid+1..=finish].to_vec();
-            let mut e_right = e[mid+1..finish].to_vec();
+            let right_size = end - mid;
+            let mut d_right = d[mid + 1..=end].to_vec();
+            let mut e_right = e[mid + 1..end].to_vec();
             let mut z_right = vec![vec![0.0; right_size]; right_size];
             for i in 0..right_size {
                 z_right[i][i] = 1.0;
@@ -625,59 +654,107 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
             dstedc(&mut d_right, &mut e_right, &mut z_right)?;
 
             // Merge solutions
-            let mut d_merged = vec![0.0; m];
-            let mut z_merged = vec![vec![0.0; m]; m];
+            // Form the rank-one modification
 
-            // Form rank-one modification
-            let mut z_vec = vec![0.0; m];
-            for i in 0..left_size {
-                z_vec[i] = z_left[i][left_size - 1];
+            let k = m;
+            let n1 = left_size;
+            let n2 = right_size;
+
+            // Create work arrays
+            let mut d_work = vec![0.0; k];
+            let mut q_work = vec![vec![0.0; k]; k];
+            let mut indxq = vec![0usize; k];
+            let mut rho = 0.0;
+            let cutpnt = n1;
+
+            // Form z-vector
+            let mut z_vector = vec![0.0; k];
+            for i in 0..n1 {
+                z_vector[i] = z_left[n1 - 1][i];
             }
-            for i in 0..right_size {
-                z_vec[left_size + i] = z_right[i][0];
+            for i in 0..n2 {
+                z_vector[n1 + i] = z_right[0][i];
             }
 
-            // Solve secular equation
-            let mut z_out = vec![vec![0.0; m]; m];
-            let err = dlaed4(&d_left, &d_right, &z_vec, rho, &mut d_merged, &mut z_out);
-            
-            if err != 0 {
-                info = (start + err as usize) * (n + 1);
-                break;
+            // Copy eigenvalues
+            for i in 0..n1 {
+                d_work[i] = d_left[i];
+            }
+            for i in 0..n2 {
+                d_work[n1 + i] = d_right[i];
             }
 
-            // Update eigenvectors
-            let mut z_out = vec![vec![0.0; m]; m];
-            for i in 0..m {
-                for j in 0..m {
-                    let mut sum = 0.0;
-                    if i < left_size {
-                        for k in 0..left_size {
-                            sum += z_left[i][k] * z_out[k][j];
-                        }
-                    } else {
-                        for k in 0..right_size {
-                            sum += z_right[i - left_size][k] * z_out[left_size + k][j];
-                        }
-                    }
-                    z_merged[i][j] = sum;
+            // Initialize q_work
+            for i in 0..n1 {
+                for j in 0..n1 {
+                    q_work[i][j] = z_left[i][j];
+                }
+            }
+            for i in 0..n2 {
+                for j in 0..n2 {
+                    q_work[n1 + i][n1 + j] = z_right[i][j];
                 }
             }
 
-            // Copy back results
-            for i in 0..m {
-                d[start + i] = d_merged[i];
-                for j in 0..m {
-                    z[start + i][start + j] = z_merged[i][j];
+            // Initialize indxq
+            for i in 0..k {
+                indxq[i] = i;
+            }
+
+            // Call dlaed7
+            // Allocate necessary arrays
+            let qsiz = k; // Since q_work is k x k
+            let tlvls = 1; // Number of divide levels
+            let curlvl = 1; // Current level
+            let curpbm = 1; // Current problem
+            let ldq = k;
+            let ldq2 = k;
+            let mut qstore = vec![vec![0.0; k]; k];
+            let mut qptr = vec![0usize; 2 * k];
+            let mut prmptr = vec![0usize; 2 * k];
+            let mut perm = vec![0usize; 2 * k];
+            let mut givptr = vec![0usize; 2 * k];
+            let mut givcol = vec![vec![0usize; k]; 2 * k];
+            let mut givnum = vec![vec![0.0; k]; 2 * k];
+            let mut work_work = vec![0.0; 4 * k];
+            let mut iwork_work = vec![0usize; 4 * k];
+
+            rho = 0.0; // Initialize rho
+
+            dlaed7(
+                1,
+                k,
+                qsiz,
+                tlvls,
+                curlvl,
+                curpbm,
+                &mut d_work,
+                &mut q_work,
+                ldq,
+                &mut indxq,
+                &mut rho,
+                cutpnt,
+                &mut qstore,
+                &mut qptr,
+                &mut prmptr,
+                &mut perm,
+                &mut givptr,
+                &mut givcol,
+                &mut givnum,
+                &mut work_work,
+                &mut iwork_work,
+            )?;
+
+            // Copy the merged eigenvalues and eigenvectors back
+            for i in 0..k {
+                d[start + i] = d_work[i];
+                for j in 0..k {
+                    z[start + i][start + j] = q_work[i][j];
                 }
             }
         }
 
-        start = finish + 1;
-    }
-
-    if info != 0 {
-        return Err(info.try_into().unwrap());
+        start = end + 1;
     }
 
     // Final eigenvalue sort using selection sort to minimize eigenvector swaps
@@ -685,13 +762,13 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
         let i = ii - 1;
         let mut k = i;
         let p = d[i];
-        
+
         for j in ii..n {
             if d[j] < p {
                 k = j;
             }
         }
-        
+
         if k != i {
             // Swap eigenvalues and eigenvectors
             d.swap(k, i);
@@ -703,7 +780,6 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), i3
 
     Ok(())
 }
-
 
 
 
