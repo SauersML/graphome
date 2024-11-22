@@ -665,7 +665,7 @@ pub fn dstedc(
             }
 
             // Prepare indxq
-            let mut indxq = vec![0usize; k];
+            let mut indxq: Vec<usize> = vec![0; n]; // Initialize with appropriate size
             for i in 0..k {
                 indxq[i] = i;
             }
@@ -2017,30 +2017,32 @@ pub fn dlaed0(
                 let rho_index = submat + msd2 - 2; // Adjust index for zero-based indexing
                 let mut rho = e[rho_index];
                 let mut info = 0;
+                let mut givptr: usize = 0;
+                let mut qstore_flat: Vec<f64> = qstore.iter().flatten().cloned().collect();
                 
-               dlaed7(
-                   icompq,
-                   n,
-                   qsiz,
-                   tlvls,
-                   curlvl,
-                   curpbm,
-                   &mut d,
-                   &mut q,
-                   ldq,
-                   &mut indxq,
-                   &mut rho,
-                   cutpnt,
-                   &mut qstore,
-                   &mut qptr,
-                   &mut prmptr,
-                   &mut perm,
-                   &mut givptr,
-                   &mut givcol,
-                   &mut givnum,
-                   &mut work,
-                   &mut iwork,
-               )?;
+                dlaed7(
+                    icompq,
+                    n,
+                    qsiz,
+                    tlvls,
+                    curlvl,
+                    curpbm,
+                    &mut d,          // &mut [f64]
+                    &mut q,          // &mut [Vec<f64>]
+                    ldq,
+                    &mut indxq,      // &mut [usize]
+                    &mut rho,
+                    cutpnt,
+                    &mut qstore_flat, // &mut [f64] (flattened qstore)
+                    &mut qptr,       // &mut [usize]
+                    &mut prmptr,     // &mut [usize]
+                    &mut perm,       // &mut [usize]
+                    &mut givptr,     // &mut usize
+                    &mut givcol,     // &mut [Vec<usize>]
+                    &mut givnum,     // &mut [Vec<f64>]
+                    &mut work,       // &mut [f64]
+                    &mut iwork,      // &mut [usize]
+                )?;
             }
 
             iwork[i/2 + 1] = iwork[i+2];
