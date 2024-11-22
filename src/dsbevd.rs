@@ -2637,8 +2637,6 @@ pub fn dlaed3(
 /*
 Not yet implemented functions:
 
-- dlaed3
-
 - DLAED7
   - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix, used when the original matrix is dense. It specifically handles larger subproblems in the divide and conquer algorithm.
   - When it's called: Within `dstedc`, `dlaed7` is called during recursive steps of the divide and conquer process to update eigenvalues and eigenvectors after merging subproblems.
