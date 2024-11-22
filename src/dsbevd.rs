@@ -3181,8 +3181,38 @@ pub fn dlaed8(
 }
 
 
-/// Computes the updated eigensystem of a diagonal matrix after modification by a 
+/// Computes the updated eigensystem of a diagonal matrix after modification by a
 /// rank-one symmetric matrix. Used when the original matrix is dense.
+///
+/// Corresponds to LAPACK's DLAED7 subroutine.
+///
+/// # Arguments
+/// - `icompq`: Specifies whether to compute eigenvectors.
+///     - 0: Compute eigenvalues only.
+///     - 1: Compute eigenvectors of the original dense symmetric matrix.
+/// - `n`: The order of the matrix.
+/// - `qsiz`: The dimension of the orthogonal matrix used to reduce
+///           the full matrix to tridiagonal form.
+/// - `tlvls`: The total number of merging levels in the overall divide and conquer tree.
+/// - `curlvl`: The current level in the overall merge routine.
+/// - `curpbm`: The current problem in the current level.
+/// - `d`: On entry, the diagonal elements of the tridiagonal matrix.
+///        On exit, contains the eigenvalues.
+/// - `q`: On entry, if `icompq = 1`, the orthogonal matrix used to reduce the original matrix
+///        to tridiagonal form. On exit, if `icompq = 1`, contains the eigenvectors.
+/// - `indxq`: On entry, the permutation which separately sorts the two subproblems
+///            in D into ascending order. On exit, the permutation which will reintegrate
+///            the subproblems back into sorted order.
+/// - `rho`: The subdiagonal entry used to create the rank-one modification.
+///          On exit, destroyed.
+/// - `cutpnt`: The location of the last eigenvalue in the leading submatrix.
+/// - `qstore`: Workspace array to store the eigenvectors.
+/// - `qptr`, `prmptr`, `perm`, `givptr`, `givcol`, `givnum`: Workspace arrays for DLAED7.
+/// - `work`: Workspace array.
+/// - `iwork`: Integer workspace array.
+///
+/// # Returns
+/// - `Result<(), Error>` indicating success or an error.
 pub fn dlaed7(
     icompq: i32,
     n: usize,
@@ -3192,7 +3222,6 @@ pub fn dlaed7(
     curpbm: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
-    ldq: usize,
     indxq: &mut [usize],
     rho: &mut f64,
     cutpnt: usize,
@@ -3208,19 +3237,13 @@ pub fn dlaed7(
 ) -> Result<(), Error> {
     // Test the input parameters
     if icompq < 0 || icompq > 1 {
-        return Err(-1);
+        return Err(Error(-1));
     }
     if n < 0 {
-        return Err(-2);
+        return Err(Error(-2));
     }
     if icompq == 1 && qsiz < n {
-        return Err(-4);
-    }
-    if ldq < n.max(1) {
-        return Err(-9);
-    }
-    if cutpnt < 1.min(n) || cutpnt > n {
-        return Err(-12); 
+        return Err(Error(-4));
     }
 
     // Quick return if possible
@@ -3228,124 +3251,106 @@ pub fn dlaed7(
         return Ok(());
     }
 
-    let ldq2 = if icompq == 1 { qsiz } else { n };
+    // Variables
+    let smlsiz = 25; // Should match with the value used in dstedc
 
-    // Set up workspace ranges 
+    // Compute total number of merging levels
+    let mut subpbs = 1;
+    let mut lgn = 0;
+    while subpbs < n {
+        subpbs *= 2;
+        lgn += 1;
+    }
+
+    // Workspace indices
     let iz = 0;
     let idlmda = iz + n;
     let iw = idlmda + n;
     let iq2 = iw + n;
-    let is = iq2 + n * ldq2;
+    let is = iq2 + n * n;
 
     let indx = 0;
-    let indxp = indx + n;
-    let coltyp = indxp + n;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
 
-    // Set up pointers into workspace
-    let (work_left, work_right) = work.split_at_mut(idlmda);
-    let (work_mid, work_end) = work_right.split_at_mut(iw - idlmda);
-    let z = &mut work_left[iz..iz+n];
-    let dlamda = work_mid;
-    let w = &mut work_end[..n];
+    // Split work arrays
+    let z = &mut work[iz..iz + n];
+    let dlamda = &mut work[idlmda..idlmda + n];
+    let w = &mut work[iw..iw + n];
+    let s = &mut work[is..is + n * n]; // Assuming s is n by n
 
-    // Split iwork
-    let (iwork_left, iwork_right) = iwork.split_at_mut(indxp);
-    let indx_p = &mut iwork_left[indx..];
-    let indxp_p = &mut iwork_right[..n];
+    let indx_work = &mut iwork[indx..indx + n];
+    let indxc_work = &mut iwork[indxc..indxc + n];
+    let coltyp_work = &mut iwork[coltyp..coltyp + n];
+    let indxp_work = &mut iwork[indxp..indxp + n];
 
-    // Form z-vector
-    let mut ptr = 1 + 2_usize.pow(tlvls as u32);
-    for i in 1..curlvl {
-        ptr += 2_usize.pow((tlvls - i) as u32);
-    }
-    let curr = ptr + curpbm;
-    
-    if curlvl == tlvls {
-        qptr[curr] = 1;
-        prmptr[curr] = 1;
-        givptr[curr] = 1;
-    }
-    
-    // Execute DLAED8 to merge and deflate eigenvalues
+    // Determine the size of the subproblems at the bottom of the divide and conquer tree
+    let submat_start = 0;
+    let matsiz = n;
+
+    // Deflate eigenvalues
     let mut k = 0;
-    let result = dlaed8(
+    let mut rho = *rho; // Local mutable copy of rho
+    dlaed8(
         icompq,
         &mut k,
         n,
         qsiz,
         d,
         q,
-        ldq,
+        n,
         indxq,
-        rho,
+        &mut rho,
         cutpnt,
         z,
         dlamda,
         qstore,
-        ldq2,
+        n,
         w,
-        &mut perm[prmptr[curr]..],
-        &mut givptr[curr+1],
+        perm,
+        &mut givptr[0],
         givcol,
         givnum,
-        indxp_p,
-        indx_p,
-    );
+        indxp_work,
+        indx_work,
+    )?;
 
-    if let Err(e) = result {
-        return Err(e);
+    // If eigenvalues were deflated, return
+    if k == 0 {
+        qptr[0] = 0;
+        prmptr[0] = 0;
+        givptr[0] = 0;
+        return Ok(());
     }
 
-    prmptr[curr + 1] = prmptr[curr] + n;
-    givptr[curr + 1] = givptr[curr + 1] + givptr[curr];
+    // Solve the secular equation
+    dlaed9(
+        k,
+        1,          // kstart
+        k,          // kstop
+        n,
+        d,
+        q,
+        n,
+        rho,
+        dlamda,
+        w,
+        s,
+        k,
+    )?;
 
-    // Solve Secular Equation if k is positive
-    if k > 0 {
-        // DLAED9: Need to construct proper matrices from workspace
-        let mut q_temp = vec![vec![0.0; k]; k];
-        let result = dlaed9(
-            k,
-            1,
-            k,
-            n,
-            d,
-            &mut q_temp,
-            k,
-            *rho,
-            dlamda,
-            w,
-            qstore,
-            k,
-        );
+    // Prepare the INDXQ sorting permutation
+    dlamrg(k, n - k, d, 1, -1, indxq);
 
-        if let Err(e) = result {
-            return Err(e);
-        }
-
-        if icompq == 1 {
-            // Copy q_temp to proper locations
-            for i in 0..qsiz {
-                for j in 0..k {
-                    q[i][j] = q_temp[i][j];
-                }
-            }
-        }
-
-        qptr[curr + 1] = qptr[curr] + k * k;
-
-        // Prepare INDXQ sorting permutation
-        let n1 = k;
-        let n2 = n - k;
-        dlamrg(n1, n2, d, 1, -1, indxq);
-    } else {
-        qptr[curr + 1] = qptr[curr];
-        for i in 0..n {
-            indxq[i] = i;
-        }
-    }
+    // Update the pointers
+    qptr[0] = k * k;
+    prmptr[0] = n;
+    givptr[0] = 0; // Number of Givens rotations used
 
     Ok(())
 }
+
 
 /// Computes the Z vector determining the rank-one modification of the diagonal matrix
 /// during the merge phase of the divide and conquer algorithm.
