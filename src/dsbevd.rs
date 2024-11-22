@@ -3803,7 +3803,7 @@ pub fn dlaed1(
     q: &mut [Vec<f64>],
     ldq: usize,
     indxq: &mut [usize],
-    rho: f64,
+    rho: &mut f64,
     cutpnt: usize,
     work: &mut [f64],
     iwork: &mut [usize],
@@ -3839,7 +3839,16 @@ pub fn dlaed1(
     let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
     
     let n1 = cutpnt; // Is `cutpnt` declared and in scope?
+
+    // Split `work` into non-overlapping mutable slices
+    let (work_iz, work_rest) = work.split_at_mut(idlmda);
+    let (work_idlmda, work_iw) = work_rest.split_at_mut(iw - idlmda);
     
+    // Similarly, split `iwork`
+    let (iwork_indx, iwork_rest) = iwork.split_at_mut(indxc);
+    let (iwork_indxc, iwork_rest) = iwork_rest.split_at_mut(indxp - indxc);
+    let (iwork_indxp, iwork_coltyp) = iwork_rest.split_at_mut(coltyp - indxp);
+
     dlaed2(
         &mut k,
         n,
@@ -3849,15 +3858,16 @@ pub fn dlaed1(
         ldq,
         indxq,
         &mut rho,
-        &mut work[iz..],
-        &mut work[idlmda..],
-        &mut work[iw..],
+        work_iz,
+        work_idlmda,
+        work_iw,
         &mut q2,
-        &mut iwork[indx..],
-        &mut iwork[indxc..],
-        &mut iwork[indxp..],
-        &mut iwork[coltyp..],
+        iwork_indx,
+        iwork_indxc,
+        iwork_indxp,
+        iwork_coltyp,
     )?;
+
 
     if k != 0 {
         // Solve Secular Equation
