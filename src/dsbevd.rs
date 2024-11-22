@@ -2640,7 +2640,7 @@ pub fn dlaed3(
     ctot: &[usize],
     w: &mut [f64],
     s: &mut [Vec<f64>],
-) -> i32 {
+) -> Result<i32, Error> {
     let mut info = 0;
 
     if k == 0 {
