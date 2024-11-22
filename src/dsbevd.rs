@@ -202,12 +202,8 @@ impl SymmetricBandedMatrix {
                                 if !row1.is_empty() {
                                     let jidx = (jinc - j1) / kd1;
                                     if jidx < work.len() && jidx < y_temp.len() {
-                                        drot(
-                                            &mut row1,
-                                            &mut row2,
-                                            work[jidx],
-                                            y_temp[jidx],
-                                        );
+                                        let n_rot = row1.len(); // Should we assume row1 and row2 have the same length?
+                                        drot(n_rot, &mut row1, 1, &mut row2, 1, work[jidx], y_temp[jidx]);
     
                                         for (idx, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
                                             if jinc - kd + idx < ab[0].len() && (kd) < ab.len() && (kd1) < ab.len() {
