@@ -2787,7 +2787,7 @@ pub fn dlaed3(
     let result = dgemm(q2, &mut s[..n12]);
 
 
-    info
+    Ok(info)
 }
 
 
