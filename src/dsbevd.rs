@@ -22,13 +22,13 @@ pub struct EigenResults {
 pub struct Error(i32);
 
 impl From<&'static str> for Error {
-    fn from(_: &'static str) -> Error {
+    pub fn from(_: &'static str) -> Error {
         Error(-1) // Simple conversion of all string errors to Error(-1)
     }
 }
 
 impl From<i32> for Error {
-    fn from(e: i32) -> Error {
+    pub fn from(e: i32) -> Error {
         Error(e)
     }
 }
@@ -105,7 +105,7 @@ impl SymmetricBandedMatrix {
         })
     }
 
-    fn dsbtrd(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
+    pub fn dsbtrd(&self) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
@@ -359,7 +359,7 @@ impl SymmetricBandedMatrix {
         (d, e, q)
     }
 
-    fn dlanst(&self) -> f64 {
+    pub fn dlanst(&self) -> f64 {
         let mut value: f64 = 0.0;
         if self.kd == 0 {
             // Diagonal case
@@ -382,7 +382,7 @@ impl SymmetricBandedMatrix {
         value
     }
 
-    fn dlascl(&self, scale: f64) -> Self {
+    pub fn dlascl(&self, scale: f64) -> Self {
         let mut scaled = (*self).clone();
         for row in &mut scaled.ab {
             for val in row {
@@ -400,7 +400,7 @@ impl SymmetricBandedMatrix {
 ///    [ -s(i)  c(i) ] [ y(i) ] = [  0  ]
 ///
 /// Returns updated x values (now containing a(i)) and c,s rotation values
-fn dlargv(
+pub fn dlargv(
     n: usize,
     x: &mut [f64],
     incx: usize,
@@ -455,7 +455,7 @@ fn dlargv(
     }
 }
 
-fn dlartv(
+pub fn dlartv(
     n: usize,
     x: &mut [f64],
     incx: usize,
@@ -485,7 +485,7 @@ fn dlartv(
 }
 
 /// Performs a Givens rotation. (LAPACK's DROT)
-fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, s: f64) {
+pub fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, s: f64) {
     if n == 0 {
         return;
     }
@@ -503,7 +503,7 @@ fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, 
     }
 }
 
-fn dlar2v(
+pub fn dlar2v(
     n: usize,
     x: &mut [f64],
     y: &mut [f64],
@@ -768,7 +768,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
 /// `rho`: The rank-one update scalar.
 /// `d`: Output eigenvalues.
 /// `z_out`: Output eigenvectors.
-fn dlaed4(
+pub fn dlaed4(
     d1: &[f64],
     d2: &[f64],
     z: &[f64],
@@ -899,7 +899,7 @@ fn dlaed4(
 }
 
 /// Multiplies q and z matrices to get the eigenvectors of the original matrix.
-fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
+pub fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = q.len();
     let mut result = vec![vec![0.0; n]; n];
 
@@ -914,12 +914,12 @@ fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
 }
 
 /// Force a and b to be stored prior to addition
-fn dlamc3(a: f64, b: f64) -> f64 {
+pub fn dlamc3(a: f64, b: f64) -> f64 {
     a + b
 }
 
 /// Compute the norm of a symmetric tridiagonal matrix
-fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
+pub fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
     match norm_type {
         'M' | 'm' => {
             // Maximum absolute value
@@ -978,7 +978,7 @@ fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
 }
 
 /// Compute parameters for a 2x2 eigenvalue problem
-fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
+pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
     if b == 0.0 && c == 0.0 {
         // Matrix is diagonal
         if a >= c {
@@ -1060,7 +1060,7 @@ fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
 }
 
 /// Safe computation of sqrt(x*x + y*y)
-fn dlapy2(x: f64, y: f64) -> f64 {
+pub fn dlapy2(x: f64, y: f64) -> f64 {
     let x_abs = x.abs();
     let y_abs = y.abs();
 
@@ -1076,7 +1076,7 @@ fn dlapy2(x: f64, y: f64) -> f64 {
 }
 
 /// Initialize a matrix with diagonal and off-diagonal values
-fn dlaset(uplo: char, m: usize, n: usize, alpha: f64, beta: f64, a: &mut [Vec<f64>]) {
+pub fn dlaset(uplo: char, m: usize, n: usize, alpha: f64, beta: f64, a: &mut [Vec<f64>]) {
     match uplo {
         'U' | 'u' => {
             // Upper triangle
@@ -1237,7 +1237,7 @@ pub fn dsbtrd_wrapper(
 }
 
 // Helper function for safe mutable band access
-fn get_mut_bands(
+pub fn get_mut_bands(
     ab: &mut [Vec<f64>],
     k1: usize,
     k2: usize,
@@ -1260,7 +1260,7 @@ fn get_mut_bands(
     }
 }
 
-fn dlartg(f: f64, g: f64) -> (f64, f64) {
+pub fn dlartg(f: f64, g: f64) -> (f64, f64) {
     if g == 0.0 {
         (1.0, 0.0)
     } else if f == 0.0 {
@@ -1278,7 +1278,7 @@ fn dlartg(f: f64, g: f64) -> (f64, f64) {
     }
 }
 
-fn dsbtrd(
+pub fn dsbtrd(
     uplo: char,
     n: usize,
     kd: usize,
@@ -1449,7 +1449,7 @@ fn dsbtrd(
     }
 }
 
-fn dsteqr(
+pub fn dsteqr(
     compz: char,
     n: usize,
     d: &mut [f64],
@@ -1765,7 +1765,7 @@ fn dsteqr(
 
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
-fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), Error> {
+pub fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), Error> {
     if cfrom == 0.0 {
         return Err(Error(-1));
     }
@@ -1814,7 +1814,7 @@ fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), Error> {
 
 /// Swaps two vectors.
 /// Translated from BLAS's DSWAP
-fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
+pub fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
     if n == 0 {
         return;
     }
@@ -1875,7 +1875,7 @@ fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
 /// # Note
 ///
 /// This function corresponds to the LAPACK routine DLASSQ.
-fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
+pub fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
     if n == 0 {
         return;
     }
@@ -1898,7 +1898,7 @@ fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
 }
 
 /// Query function for machine-dependent parameters
-fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
+pub fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
     // - For ispec = 9 (used in DLAED0), return the block size for the D&C algorithm.
     // In LAPACK, ILAENV(9, ...) returns the value of SMLSIZ, is always 25.
     if ispec == 9 {
