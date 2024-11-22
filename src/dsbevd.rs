@@ -2292,9 +2292,8 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
 }
 
 
-/// Finds the roots of the secular equation and updates the eigenvectors.
-/// This function corresponds to LAPACK's DLAED3 subroutine.
-/// Used when the original matrix is tridiagonal.
+
+/// Finds the roots of the secular equation and updates the eigenvectors. Used when the original matrix is tridiagonal.
 pub fn dlaed3(
     k: usize,
     n: usize,
@@ -2318,31 +2317,35 @@ pub fn dlaed3(
     }
 
     for j in 0..k {
-        dlaed4(k, j, dlambda, w, &mut q[..k].iter_mut().map(|v| &mut v[j]).collect::<Vec<&mut f64>>(), rho, &mut d[j], info);
+        dlaed4(k, j, dlambda, w, &mut d[j], &mut q[j], rho, info);
         if *info != 0 {
             return;
         }
     }
-
+    
+    // Initialize q for the cases where k=1 or k=2
     if k == 1 {
-        q[0][0] = 1.0; // Initialize eigenvector for k=1 case.
+        q[0][0] = 1.0; 
         return;
     }
-
     if k == 2 {
-        for j in 0..k {
-            let ii = indx[0];
-            s[0] = q[0][j];
-            let ii2 = indx[1];
-            s[1] = q[1][j];
-            q[0][j] = s[ii];
-            q[1][j] = s[ii2];
-        }
-        return;
-    }
+       let ii1 = indx[0];
+       let ii2 = indx[1];
+
+       for j in 0..k {
+           s[0] = q[0][j];
+           s[1] = q[1][j];
+           q[0][j] = s[ii1];
+           q[1][j] = s[ii2];
+       }
+
+       return;
+   }
 
     dcopy(k, w, 1, s, 1);
-    dcopy(k, &q.iter().map(|v| v[0]).collect::<Vec<f64>>(), 1, w, 1);
+    for i in 0..k {
+        w[i] = q[i][i]; // Equivalent to dcopy with ldq+1 increment
+    }
 
     for j in 0..k {
         for i in 0..j {
@@ -2357,14 +2360,17 @@ pub fn dlaed3(
         w[i] = (-w[i]).sqrt().copysign(s[i]);
     }
 
+    // Reinitialize 's' to avoid issues
+    let mut s_matrix = vec![vec![0.0; k]; k];
+
     for j in 0..k {
         for i in 0..k {
-            s[i] = w[i] / q[i][j];
+            s_matrix[i][j] = w[i] / q[i][j];
         }
-        let temp = dnrm2(k, s, 1);
+        let temp = dnrm2(k, &s_matrix.iter().map(|v| v[j]).collect::<Vec<f64>>(), 1);
         for i in 0..k {
             let ii = indx[i];
-            q[i][j] = s[ii] / temp;
+            q[i][j] = s_matrix[ii][j] / temp;
         }
     }
 
@@ -2372,34 +2378,45 @@ pub fn dlaed3(
     let n12 = ctot[0] + ctot[1];
     let n23 = ctot[1] + ctot[2];
 
-    dlacpy('A', n23, k, &q2[ctot[0]..].chunks(q2[0].len()).map(|chunk| chunk.to_vec()).collect::<Vec<Vec<f64>>>(), q2[0].len(), s, n23);
+    // Correctly slice q2 based on ctot
+    let q2_slice = &q2[ctot[0]..ctot[0] + n23];
+
+    // Resize s to be n x k
+    let mut s_matrix = vec![vec![0.0; k]; n];
+
+    dlacpy('A', n23, k, q2_slice, ldq, &mut s_matrix[ctot[0]..], n);
 
     if n23 != 0 {
         let mut temp_q = vec![vec![0.0; k]; n2];
-        dgemm(false, 'N', 'N', n2, k, n23, 1.0, &q2[n1 * n12..], n2, s, n23, 0.0, &mut temp_q);
+        dgemm(
+            false, false, n2, k, n23, 1.0, &q2[n1 * n12..], n2, &s_matrix[ctot[0]..ctot[0]+n23], n23, 0.0, &mut temp_q, n2,
+        );
         for i in 0..n2 {
             for j in 0..k {
-                q[n1 + i][j] = temp_q[i][j];
+                q[n1+i][j] = temp_q[i][j];
             }
         }
-
     } else {
-        dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..].chunks_mut(ldq).map(|chunk| chunk.to_vec()).collect::<Vec<Vec<f64>>>());
+        dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..], ldq);
     }
 
-    dlacpy('A', n12, k, q, ldq, s, n12);
+
+    dlacpy('A', n12, k, q, ldq, &mut s_matrix, n);
 
     if n12 != 0 {
         let mut temp_q = vec![vec![0.0; k]; n1];
-        dgemm(false, 'N', 'N', n1, k, n12, 1.0, q2, n1, s, n12, 0.0, &mut temp_q);
+
+        dgemm(
+            false, false, n1, k, n12, 1.0, q2, n1, &s_matrix, n12, 0.0, &mut temp_q, n1,
+        );
+
         for i in 0..n1 {
             for j in 0..k {
                 q[i][j] = temp_q[i][j];
             }
         }
-
     } else {
-        dlaset('A', n1, k, 0.0, 0.0, &mut q[..n1].chunks_mut(ldq).map(|chunk| chunk.to_vec()).collect::<Vec<Vec<f64>>>());
+        dlaset('A', n1, k, 0.0, 0.0, &mut q[..n1], ldq);
     }
 }
 
