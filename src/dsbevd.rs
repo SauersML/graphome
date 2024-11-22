@@ -2627,7 +2627,7 @@ pub fn dlaed3(
     }
 
     dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
-    dgemm(n1, k, n12, 1.0, q2, ldq, &mut s[..n12], n12, 0.0, q, ldq);
+    dgemm(, q2, &mut s[..n12]);
 
     info
 }
