@@ -1800,7 +1800,7 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
 ///
 /// Parameters:
 /// - `icompq`: Specifies whether to compute eigenvectors. NOT NEEDED. We always compute BOTH eigenvectors and eigenvalues.
-///     - 0: Compute eigenvalues only.
+///     - 0: Compute eigenvalues only. We always want also eigenvectors too.
 ///     - 1: Compute eigenvectors of the original symmetric matrix.
 ///     - 2: Compute eigenvectors of the tridiagonal matrix.
 /// - `n`: The order of the matrix.
