@@ -3262,10 +3262,16 @@ pub fn dlaed7(
     let indxp = coltyp + n;
 
     // Extract slices from work arrays
-    let z = &mut work[iz..iz + n];
-    let dlamda = &mut work[idlmda..idlmda + n];
-    let w = &mut work[iw..iw + n];
-    let q2 = &mut work[iq2..iq2 + n * n];
+    // Split `work` into non-overlapping slices
+    let (work_iz, work_rest) = work.split_at_mut(idlmda);
+    let (work_dlamda, work_rest) = work_rest.split_at_mut(iw - idlmda);
+    let (work_w, work_q2) = work_rest.split_at_mut(iq2 - iw);
+    
+    // Now assign the slices accordingly
+    let z = work_iz;
+    let dlamda = work_dlamda;
+    let w = work_w;
+    let q2 = work_q2;
 
     let indxv = &mut iwork[indx..indx + n];
     let indxcv = &mut iwork[indxc..indxc + n];
@@ -3886,6 +3892,12 @@ pub fn dlaed1(
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
         
+        // Split `work` into non-overlapping slices
+        let (work_iz, work_rest) = work.split_at_mut(idlmda);
+        let (work_idlmda, work_rest) = work_rest.split_at_mut(iw - idlmda);
+        let (work_iw, _) = work_rest.split_at_mut(iq2 - iw);
+        
+        // Now use the non-overlapping slices in the function call
         let info = dlaed3(
             k,
             n, 
@@ -3894,11 +3906,11 @@ pub fn dlaed1(
             q,
             ldq,
             *rho,
-            &mut work[idlmda..],
+            work_idlmda,
             &q2_temp,
             &iwork[indxc..],
             &iwork[coltyp..],
-            &mut work[iw..],
+            work_iw,
             &mut s_temp,
         );
 
