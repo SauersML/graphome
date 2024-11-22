@@ -3109,13 +3109,14 @@ pub fn dlaed7(
     // Solve Secular Equation if k is positive
     if k > 0 {
         // Call DLAED9 to compute eigenvalues and eigenvectors
+        let mut temp_q = vec![vec![0.0; k]; k];
         let result = dlaed9(
             k,
             1,
             k,
             n,
             d,
-            &mut work[is..],
+            &mut temp_q,
             k,
             *rho,
             &mut work[idlmda..],
