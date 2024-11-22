@@ -1765,6 +1765,7 @@ pub fn dlaed0(
     curlvl: usize,
     curpbm: usize,
     d: &mut [f64],
+    e: &mut [f64],
     q: &mut [Vec<f64>],
     ldq: usize,
     qstore: &mut [Vec<f64>],
