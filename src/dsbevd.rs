@@ -1970,17 +1970,110 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
     }
 }
 
+/// Determines double-precision real machine parameters.
+/// This function corresponds to LAPACK's DLAMCH subroutine.
+pub fn dlamch(cmach: char) -> f64 {
+    let one: f64 = 1.0;
+    let zero: f64 = 0.0;
+
+    // Assume rounding, not chopping.
+    let rnd: f64 = one;
+
+    let eps: f64 = if one == rnd {
+        f64::EPSILON * 0.5
+    } else {
+        f64::EPSILON
+    };
+
+    match cmach {
+        'E' | 'e' => eps,
+        'S' | 's' => {
+            let mut sfmin: f64 = f64::MIN_POSITIVE; // tiny(zero)
+            let small: f64 = 1.0 / f64::MAX; // 1 / huge(zero)
+            if small >= sfmin {
+                // Use SMALL plus a bit, to avoid the possibility of rounding causing overflow when computing 1/sfmin.
+                sfmin = small * (one + eps);
+            }
+            sfmin
+        }
+        'B' | 'b' => 2.0f64, // radix(zero). We assume base 2.  If you need to support other bases, you'll need to detect this.
+        'P' | 'p' => eps * 2.0f64, // eps * radix(zero)
+        'N' | 'n' => f64::MANTISSA_DIGITS as f64, // digits(zero)
+        'R' | 'r' => rnd,
+        'M' | 'm' => f64::MIN_EXP as f64, // minexponent(zero)
+        'U' | 'u' => f64::MIN_POSITIVE, // tiny(zero)
+        'L' | 'l' => f64::MAX_EXP as f64, // maxexponent(zero)
+        'O' | 'o' => f64::MAX, // huge(zero)
+        _ => zero,
+    }
+}
+
+
+
+/// Copies a vector, x, to a vector, y.
+///
+/// This function corresponds to the BLAS level 1 routine DCOPY.  It uses unrolled loops
+/// for the common case where increment values are equal to one.  It does not simplify
+/// the general case of arbitrary increments.
+///
+/// # Arguments
+/// * `n` - The number of vector elements to be copied. `n ≥ 0`.
+/// * `dx` - The source vector.
+/// * `incx` - The increment between elements of `dx`. `incx ≠ 0`.
+/// * `dy` - The destination vector.
+/// * `incy` - The increment between elements of `dy`. `incy ≠ 0`.
+pub fn dcopy(n: usize, dx: &[f64], incx: i32, dy: &mut [f64], incy: i32) {
+    if n == 0 {
+        return;
+    }
+
+    if incx == 1 && incy == 1 {
+        // Optimized case for increments equal to 1, using unrolled loops
+
+        let m = n % 7;  // Unroll by 7
+        if m != 0 {
+            // Cleanup loop for remaining elements
+            for i in 0..m {
+                dy[i] = dx[i];
+            }
+            if n < 7 {
+                return;
+            }
+        }
+
+        for i in (m..n).step_by(7) {
+            dy[i] = dx[i];
+            dy[i + 1] = dx[i + 1];
+            dy[i + 2] = dx[i + 2];
+            dy[i + 3] = dx[i + 3];
+            dy[i + 4] = dx[i + 4];
+            dy[i + 5] = dx[i + 5];
+            dy[i + 6] = dx[i + 6];
+        }
+    } else {
+        // General case for unequal increments
+
+        let mut ix: isize = 0;
+        let mut iy: isize = 0;
+
+        if incx < 0 {
+            ix = (1 - (n as i32)) * incx as isize;
+        }
+        if incy < 0 {
+            iy = (1 - (n as i32)) * incy as isize;
+        }
+
+        for _ in 0..n {
+            dy[iy as usize] = dx[ix as usize];
+            ix += incx as isize;
+            iy += incy as isize;
+        }
+    }
+}
+
 
 /*
 Not yet implemented functions:
-
-- DLAMCH
-  - Description: Determines double-precision real machine parameters, such as the machine precision (EPS), the safe minimum (SAFMIN), the base of the machine, the maximum and minimum exponents, etc. This function is essential for setting up constants used in scaling and convergence criteria in numerical algorithms.
-  - When it's called: It's called during `dsbevd` to get machine constants like EPS (precision), SAFMIN (safe minimum), SMLNUM, BIGNUM, RMIN, RMAX. These constants are crucial for scaling decisions, convergence checks, and to avoid overflow or underflow during computations.
-
-- DCOPY
-  - Description: Copies the contents of one vector to another, i.e., performs the operation `y := x`. It handles copying vectors with specific increments between elements.
-  - When it's called: Used throughout the algorithms to copy vectors or portions of vectors. In routines like `dlaed0`, `dlaed1`, and `dlaed2`, it is essential for duplicating data during the divide and conquer steps.
 
 - DLACPY
   - Description: Copies all or part of a two-dimensional matrix `A` to another matrix `B`. It can copy the entire matrix or just the upper or lower triangular part, depending on the specified options.
