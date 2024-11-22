@@ -62,7 +62,10 @@ impl SymmetricBandedMatrix {
         for i in 0..self.n {
             d[i] = self.ab[0][i]; // Diagonal is in first row of banded storage
             if i < self.n-1 {
-                e[i] = self.ab[1][i]; // Subdiagonal is in second row
+                if i < self.ab[1].len() {
+                    e[i] = self.ab[1][i] 
+                }
+
             }
         }
         let anrm = dlanst('M', self.n, &d, &e);
@@ -1052,7 +1055,9 @@ pub fn dsbtrd(
                     // Store rotations
                     rotations.clear();
                     for idx in 0..nr {
-                        let j = j1 - kd - 1 + idx * kd;
+                        j1.checked_sub(kd).and_then(|x| x.checked_sub(1))
+                           .and_then(|x| x.checked_add(idx.checked_mul(kd)?))
+                           .ok_or("Arithmetic overflow")?
 
                         // j is within the bounds of BOTH ab[kd] AND ab[kd-1]
                         if j < ab[kd].len() && j < ab[kd - 1].len() {
@@ -1910,7 +1915,10 @@ pub fn dlaed0(
     match icompq {
         1 => {
             for i in 0..n {
-                let j = iwork[indxq + i];
+                let idx = indxq + i;
+                if idx < iwork.len() {
+                    let j = iwork[idx]
+                }
                 work[i] = d[j - 1];
                 dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
             }
