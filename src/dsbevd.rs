@@ -2236,7 +2236,7 @@ pub fn dlaed2(
     let mut info = 0;
 
     if n == 0 {
-        return info;
+        return Ok(info);
     }
 
     let n2 = n - n1;
@@ -2286,7 +2286,7 @@ pub fn dlaed2(
 
         dlacpy('A', n, n, q2, ldq, q, ldq);
         dcopy(n, dlamda, 1, d, 1);
-        return info;
+        return Ok(info);
     }
 
     // Check for multiple eigenvalues and deflate
@@ -2691,7 +2691,7 @@ pub fn dlaed3(
     let mut info = 0;
 
     if k == 0 {
-        return info;
+        return Ok(info);
     }
 
     // Adjust dlamda for better accuracy
@@ -2711,13 +2711,13 @@ pub fn dlaed3(
         // If dlaed4 failed, set info and return
         if info_dlaed4 != 0 {
             info = 1; // Or potentially more specific error code
-            return info; 
+            return Ok(info); 
         }
     }
 
     if k == 1 {
         // Return early for k=1 case
-        return info;
+        return Ok(info);
     }
 
     if k == 2 {
@@ -2731,7 +2731,7 @@ pub fn dlaed3(
             q[1][j] = w1.max(w2);
         }
 
-         return info;
+         return Ok(info);
     }
 
 
