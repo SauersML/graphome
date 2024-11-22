@@ -3280,10 +3280,15 @@ pub fn dlaed7(
     let mut givcol = vec![vec![0usize; 2]; n]; // Are these appropriate dimensions?
     let mut givnum = vec![vec![0.0; 2]; n];    // Are these appropriate dimensions?
 
+    let mut indxp = vec![0usize; n];
+    let mut indx = vec![0usize; n];
+    let mut q2 = vec![vec![0.0; n]; n]; // Are dimensions correct? 
+
     dlaed8(
         icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt,
         z, dlamda, q2, ldq2, w, perm, givptr,
-        &mut givcol, &mut givnum, indxp, indx,
+        &mut indxp,
+        &mut indx,
     )?;
 
     if k != 0 {
