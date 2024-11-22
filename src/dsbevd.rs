@@ -3163,13 +3163,195 @@ pub fn dlaed7(
     Ok(())
 }
 
+/// Computes the Z vector determining the rank-one modification of the diagonal matrix
+/// during the merge phase of the divide and conquer algorithm.
+/// 
+/// This function is used by DSTEDC when computing eigenvectors of a symmetric 
+/// tridiagonal matrix using divide and conquer. It specifically handles computing
+/// the parts of eigenvectors needed during merging of subproblems.
+///
+/// # Arguments
+/// * `n` - The dimension of the symmetric tridiagonal matrix
+/// * `tlvls` - The total number of levels in the divide & conquer tree
+/// * `curlvl` - The current level in the divide & conquer tree (0 <= curlvl <= tlvls) 
+/// * `curpbm` - The current problem in the current level
+/// * `prmptr` - Array of pointers to permutations at each level
+/// * `perm` - The permutations used to form deflation sets
+/// * `givptr` - Array of pointers to Givens rotations
+/// * `givcol` - The columns rotated by Givens rotations
+/// * `givnum` - The cosines and sines of the Givens rotations
+/// * `q` - The eigenvectors of the subproblems at the current level
+/// * `qptr` - Array of pointers into Q for the different splits
+/// * `z` - The final Z vector on output 
+/// * `ztemp` - Temporary workspace array for Z computations
+///
+/// # Returns
+/// * `Result<(), i32>` - Ok(()) on success, Err(info) if an error occurred
+pub fn dlaeda(
+    n: usize,
+    tlvls: usize,
+    curlvl: usize,
+    curpbm: usize,
+    prmptr: &[usize],
+    perm: &[usize],
+    givptr: &[usize],
+    givcol: &[Vec<usize>],
+    givnum: &[Vec<f64>],
+    q: &[f64],
+    qptr: &[usize],
+    z: &mut [f64],
+    ztemp: &mut [f64],
+) -> Result<(), i32> {
+    // Parameter validation
+    if n == 0 {
+        return Ok(());
+    }
+
+    // Determine location of first number in second half
+    let mid = n / 2 + 1;
+
+    // Determine location of current position in arrays
+    let mut curr = 1 + curpbm * (1 << curlvl) + (1 << (curlvl - 1)) - 1;
+
+    // Calculate sizes of the two eigenblocks
+    let bsiz1 = ((qptr[curr + 1] - qptr[curr]) as f64).sqrt() as usize;
+    let bsiz2 = ((qptr[curr + 2] - qptr[curr + 1]) as f64).sqrt() as usize;
+
+    // Initialize z to zero
+    for k in 0..mid-bsiz1 {
+        z[k] = 0.0;
+    }
+
+    // Copy last row of first eigenblock
+    for k in 0..bsiz1 {
+        z[mid-bsiz1+k] = q[qptr[curr] + bsiz1*k + bsiz1-1];
+    }
+
+    // Copy first row of second eigenblock
+    for k in 0..bsiz2 {
+        z[mid+k] = q[qptr[curr+1] + bsiz2*k];
+    }
+
+    // Zero out remainder
+    for k in mid+bsiz2..n {
+        z[k] = 0.0;
+    }
+
+    // Apply permutations and Givens rotations for each level
+    let mut ptr = 1 << tlvls;
+    for k in 1..=curlvl {
+        // Calculate indices for current level
+        let level_curr = ptr + curpbm * (1 << (curlvl-k)) + (1 << (curlvl-k-1)) - 1;
+        
+        // Get sizes for the blocks at this level
+        let psiz1 = prmptr[level_curr + 1] - prmptr[level_curr];
+        let psiz2 = prmptr[level_curr + 2] - prmptr[level_curr + 1];
+        let zptr1 = mid - psiz1;
+
+        // Apply Givens rotations
+        for i in givptr[level_curr]..givptr[level_curr + 1] {
+            // Get rotation columns
+            let c1 = givcol[0][i-1] - 1;
+            let c2 = givcol[1][i-1] - 1;
+            
+            // Apply rotation
+            let temp = z[zptr1 + c1];
+            z[zptr1 + c1] = givnum[0][i-1] * temp + givnum[1][i-1] * z[zptr1 + c2];
+            z[zptr1 + c2] = -givnum[1][i-1] * temp + givnum[0][i-1] * z[zptr1 + c2];
+        }
+
+        for i in givptr[level_curr + 1]..givptr[level_curr + 2] {
+            // Get rotation columns for second block
+            let c1 = givcol[0][i-1] - 1; 
+            let c2 = givcol[1][i-1] - 1;
+            
+            // Apply rotation to second block
+            let temp = z[mid - 1 + c1];
+            z[mid - 1 + c1] = givnum[0][i-1] * temp + givnum[1][i-1] * z[mid - 1 + c2];
+            z[mid - 1 + c2] = -givnum[1][i-1] * temp + givnum[0][i-1] * z[mid - 1 + c2];
+        }
+
+        // Permute the vector by copying to temporary space
+        for i in 0..psiz1 {
+            ztemp[i] = z[zptr1 + perm[prmptr[level_curr] + i] - 1];
+        }
+        for i in 0..psiz2 {
+            ztemp[psiz1 + i] = z[mid + perm[prmptr[level_curr + 1] + i] - 1];
+        }
+
+        // Transform first block
+        let mut bsiz = ((qptr[level_curr + 1] - qptr[level_curr]) as f64).sqrt() as usize;
+        if bsiz > 0 {
+            // Create matrix view for multiplication
+            let mut qmat = vec![vec![0.0; bsiz]; bsiz];
+            for i in 0..bsiz {
+                for j in 0..bsiz {
+                    qmat[i][j] = q[qptr[level_curr] + i * bsiz + j];
+                }
+            }
+            
+            // Perform matrix-vector multiplication
+            let mut temp = vec![0.0; bsiz];
+            for i in 0..bsiz {
+                temp[i] = 0.0;
+                for j in 0..bsiz {
+                    temp[i] += qmat[j][i] * ztemp[j];
+                }
+            }
+            
+            // Copy result back
+            for i in 0..bsiz {
+                z[zptr1 + i] = temp[i];
+            }
+        }
+
+        // Copy any remaining elements
+        for i in bsiz..psiz1 {
+            z[zptr1 + i] = ztemp[i];
+        }
+
+        // Transform second block
+        bsiz = ((qptr[level_curr + 2] - qptr[level_curr + 1]) as f64).sqrt() as usize;
+        if bsiz > 0 {
+            // Create matrix view for multiplication
+            let mut qmat = vec![vec![0.0; bsiz]; bsiz];
+            for i in 0..bsiz {
+                for j in 0..bsiz {
+                    qmat[i][j] = q[qptr[level_curr + 1] + i * bsiz + j];
+                }
+            }
+            
+            // Perform matrix-vector multiplication
+            let mut temp = vec![0.0; bsiz];
+            for i in 0..bsiz {
+                temp[i] = 0.0;
+                for j in 0..bsiz {
+                    temp[i] += qmat[j][i] * ztemp[psiz1 + j];
+                }
+            }
+            
+            // Copy result back
+            for i in 0..bsiz {
+                z[mid + i] = temp[i];
+            }
+        }
+
+        // Copy any remaining elements
+        for i in bsiz..psiz2 {
+            z[mid + i] = ztemp[psiz1 + i];
+        }
+
+        // Update pointer for next level
+        ptr += 1 << (tlvls - k);
+    }
+
+    Ok(())
+}
+
+
 
 /*
 Not yet implemented functions:
-
-- DLAEDA
-  - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
-  - When it's called: Used within `dlaed0` during the divide and conquer process to set up vectors necessary for merging eigenvalues and eigenvectors from subproblems.
 
 - DLASR
   - Description: Applies a sequence of plane rotations to a general rectangular matrix. This function can apply rotations from the left or the right, in forward or backward order, and with different pivot strategies.
