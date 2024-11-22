@@ -2633,6 +2633,110 @@ pub fn dlaed3(
 }
 
 
+/// Finds the roots of the secular equation and updates the eigenvectors.
+/// Used when the original matrix is dense.
+pub fn dlaed9(
+    k: usize,
+    kstart: usize,
+    kstop: usize,
+    n: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    rho: f64,
+    dlamda: &mut [f64],
+    w: &mut [f64],
+    s: &mut [Vec<f64>],
+    lds: usize,
+) -> Result<(), i32> {
+    // Test the input parameters
+    if k > n {
+        return Err(-4); // N must be >= K
+    }
+    if kstart < 1 || kstart > k.max(1) {
+        return Err(-2);
+    }
+    if kstop < kstart || kstop > k.max(1) {
+        return Err(-3);
+    }
+    if ldq < n.max(1) {
+        return Err(-7);
+    }
+    if lds < k.max(1) {
+        return Err(-12);
+    }
+
+    // Quick return if possible
+    if k == 0 {
+        return Ok(());
+    }
+
+    // Modify values DLAMDA(i) to make sure all DLAMDA(i)-DLAMDA(j) can
+    // be computed with high relative accuracy. This is needed to combat
+    // problems with machines that lack a guard digit in add/subtract.
+    for i in 0..n {
+        dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
+    }
+
+    // Compute eigenvalues of the modified secular equation
+    for j in kstart-1..kstop {
+        // Call dlaed4 to get the j-th updated eigenvalue and eigenvector
+        match dlaed4(k, j+1, dlamda, w, &mut q[j], rho, &mut d[j]) {
+            0 => continue,
+            _ => return Err(1), // Eigenvalue did not converge
+        }
+    }
+
+    // If we only have a small problem (k ≤ 2), we're done after copying
+    if k == 1 || k == 2 {
+        for i in 0..k {
+            for j in 0..k {
+                s[j][i] = q[j][i];
+            }
+        }
+        return Ok(());
+    }
+
+    // For larger problems, we need to compute updated W
+    // First, copy W to S (we'll use first column of S as workspace)
+    dcopy(k, w, 1, &mut s[0], 1);
+
+    // Initialize W(I) = Q(I,I)
+    for i in 0..k {
+        w[i] = q[i][i];
+    }
+
+    // Compute updated W values
+    for j in 0..k {
+        for i in 0..j {
+            w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
+        }
+        for i in j+1..k {
+            w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
+        }
+    }
+
+    // Update eigenvectors
+    for i in 0..k {
+        let sign = if s[0][i] >= 0.0 { 1.0 } else { -1.0 };
+        w[i] = sign * (-w[i]).abs().sqrt();
+    }
+
+    // Compute eigenvectors of the modified rank-1 modification
+    for j in 0..k {
+        for i in 0..k {
+            q[i][j] = w[i] / q[i][j];
+        }
+        // Normalize using DNRM2
+        let temp = dnrm2(k, &q[j], 1);
+        for i in 0..k {
+            s[i][j] = q[i][j] / temp;
+        }
+    }
+
+    Ok(())
+}
+
 
 /*
 Not yet implemented functions:
@@ -2644,10 +2748,6 @@ Not yet implemented functions:
 - DLAED8
   - Description: Merges eigenvalues and deflates the secular equation for dense matrices. It works alongside `dlaed7` to handle eigenvalue deflation and convergence during the divide and conquer algorithm.
   - When it's called: Called by `dlaed7` to perform the merging and deflation steps necessary for efficiently computing the eigenvalues and eigenvectors of the updated matrix.
-
-- DLAED9
-  - Description: Finds the roots of the secular equation and updates the eigenvectors. This function computes updated eigenvalues and eigenvectors for a rank-one modification of a diagonal matrix.
-  - When it's called: Invoked by `dlaed7` during the last stages of the divide and conquer algorithm to compute the final eigenvectors that will be combined to form the solution to the original problem.
 
 - DLAEDA
   - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
