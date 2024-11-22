@@ -2410,13 +2410,157 @@ pub fn dlaed1(
 }
 
 
+pub fn dlaed3(
+    k: usize,
+    n: usize,
+    n1: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    rho: f64,
+    dlambda: &mut [f64],
+    q2: &mut [Vec<f64>],
+    indx: &[usize],
+    ctot: &[usize],
+    w: &mut [f64],
+    s: &mut [f64],
+    info: &mut i32,
+) {
+    *info = 0;
+
+    if k == 0 {
+        return;
+    }
+
+
+    // 1. Modify dlambda for improved accuracy (as in LAPACK)
+    for i in 0..k {
+        dlambda[i] = dlamc3(dlambda[i], dlambda[i]) - dlambda[i];
+    }
+
+    // 2. Solve the secular equation for each eigenvalue
+    let mut q_work = vec![0.0; k]; // Temporary workspace for dlaed4
+
+    for j in 0..k {
+        dlaed4(k, j + 1, dlambda, w, &mut q_work, rho, &mut d[j], info);
+
+        if *info != 0 {
+            return; // Early return if dlaed4 fails
+        }
+        for i in 0..k {
+            q[i][j] = q_work[i]; // Store results back into q
+        }
+    }
+
+
+    if k == 1 {
+        return;  // Quick return
+    }
+
+
+
+    // 3. Compute updated w and eigenvectors
+    dcopy(k, w, 1, s, 1);
+
+
+    for i in 0..k {
+        w[i] = q[i][i];
+    }
+
+    for j in 0..k {
+
+        for i in 0..j {
+            w[i] *= q[i][j] / (dlambda[i] - dlambda[j]);
+        }
+        for i in j + 1..k {
+            w[i] *= q[i][j] / (dlambda[i] - dlambda[j]);
+        }
+    }
+
+    for i in 0..k {
+        w[i] = -w[i].sqrt().copysign(s[i]);
+    }
+
+
+
+    let mut s_work = vec![0.0; k]; // More temporary workspace
+    for j in 0..k {
+        for i in 0..k {
+            s_work[i] = w[i] / q[i][j];
+
+        }
+        let temp = dnrm2(k, &s_work, 1);
+
+
+        for i in 0..k {
+            q[i][j] = s_work[indx[i]-1] / temp;
+        }
+    }
+
+
+    // 4. Compute the final updated eigenvectors.
+
+    let n2 = n - n1;
+    let n12 = ctot[0] + ctot[1];
+    let n23 = ctot[1] + ctot[2];
+
+    // Check dimensions of s here because we rely on external info for s
+    if s.len() < n23*k {
+        panic!("s has insufficient size for dlacpy");
+    }
+
+    dlacpy('A', n23, k, &q[ctot[0]..ctot[0]+n23].to_vec(), ldq, &mut s[..n23*k].to_vec().chunks_mut(k).map(|x| x.to_vec()).collect::<Vec<Vec<f64>>>(), k);
+
+    let iq2 = n1 * n12;
+    if n23 != 0 {
+        if q2.len() < n {
+            *info = -9;
+            return;
+        }
+        let q2_slice = &q2[iq2..];
+        let q_slice = &mut q[n1..];
+            dgemm(
+                n2,
+                k,
+                n23,
+                1.0,
+                q2_slice,
+                n2,
+                s,
+                k,
+                0.0,
+                q_slice
+            );
+
+    } else {
+        dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..].to_vec());
+    }
+
+
+    dlacpy('A', n12, k, q, ldq, &mut s[..(n12*k)].to_vec().chunks_mut(k).map(|x| x.to_vec()).collect::<Vec<Vec<f64>>>(), k as usize);
+    if n12 != 0 {
+
+        dgemm(
+            n1,
+            k,
+            n12,
+            1.0,
+            &q2[..iq2],
+            n1,
+            s,
+            k,
+            0.0,
+            q
+        );
+    } else {
+        dlaset('A', n1, k, 0.0, 0.0, &mut q[0..n1].to_vec());
+    }
+}
+
+
 
 /*
 Not yet implemented functions:
-
-- DLAED2
-  - Description: Merges eigenvalues and deflates the secular equation, reducing the problem size when possible. It handles cases with multiple eigenvalues or negligible entries in the updating vector.
-  - When it's called: Called by `dlaed1` to perform deflation during the divide and conquer process, optimizing the computation by exploiting the structure of the problem.
 
 - DLAED5
   - Description: Computes the i-th eigenvalue and eigenvector of a symmetric rank-one modification of a 2-by-2 diagonal matrix. It handles the special case where the problem size is two.
