@@ -1995,7 +1995,7 @@ pub fn dlaed0(
             } else {
                 dlaed7(
                     icompq, n, qsiz, tlvls, curlvl, curpbm,
-                    &mut d, &mut q, &mut indxq, &mut rho, cutpnt,
+                    &mut d, &mut q, indxq, &mut rho, cutpnt,
                     &mut qstore, &mut qptr, &mut prmptr, &mut perm,
                     &mut givptr, &mut givcol, &mut givnum,
                     &mut work, &mut iwork, &mut info,
