@@ -207,16 +207,17 @@ impl SymmetricBandedMatrix {
                     } else {
                         let jend = j1 + kd1 * (nr - 1);
                         for jinc in (j1..=jend).step_by(kd1) {
-                            if jinc >= kd {
-                                let mut row1 = vec![];
-                                let mut row2 = vec![];
-    
-                                for idx in 0..kdm1 {
-                                    if jinc - kd + idx < ab[0].len() && (kd) < ab.len() && (kd1) < ab.len() {
-                                        row1.push(ab[kd][jinc - kd + idx]);
-                                        row2.push(ab[kd1][jinc - kd + idx]);
-                                    }
+                        if jinc >= kd {
+                            let mut row1 = vec![];
+                            let mut row2 = vec![];
+                        
+                            for idx in 0..kdm1 {
+                                if kd >= 1 && jinc - kd + idx < ab[0].len() &&
+                                   kd < ab.len() && kd1 < ab.len() {
+                                    row1.push(ab[kd][jinc - kd + idx]);
+                                    row2.push(ab[kd1][jinc - kd + idx]);
                                 }
+                            }
     
                                 if !row1.is_empty() {
                                     let jidx = (jinc - j1) / kd1;
