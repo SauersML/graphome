@@ -2031,7 +2031,7 @@ pub fn dlaed0(
                     indxq,
                     &mut rho,
                     cutpnt,
-                    &mut qstore,
+                    // no qstore,
                     &mut qptr,
                     &mut prmptr,
                     &mut perm,
