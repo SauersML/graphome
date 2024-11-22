@@ -2075,6 +2075,8 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
+
+            let mut work_matrix = vec![vec![0.0; n]; n];
     
             dlacpy('A', n, n, q, ldq, &mut work_matrix, n);
         },
@@ -3282,11 +3284,11 @@ pub fn dlaed7(
     let mut indx = vec![0usize; n];
     let mut q2 = vec![vec![0.0; n]; n]; // Are dimensions correct? 
 
+    let ldq2 = if icompq == 1 { qsiz } else { n };
     dlaed8(
-        icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt,
-        z, dlamda, q2, ldq2, w, perm, givptr,
-        &mut indxp,
-        &mut indx,
+        icompq, &mut k, n, qsiz, d, q, ldq, indxq, rho, cutpnt, z,
+        dlamda, q2, ldq2, w, perm,
+        givptr, &mut indxp, &mut indx,
     )?;
     
     if k != 0 {
@@ -3812,11 +3814,23 @@ pub fn dlaed1(
     let mut k = 0;
     let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
     
+    let n1 = cutpnt;
     dlaed2(
-        &mut k, n, n1, d, q, ldq, indxq, &mut rho,
-        &mut work[iz..], &mut work[idlmda..], &mut work[iw..],
+        &mut k,
+        n,
+        n1,
+        d,
+        q,
+        ldq,
+        indxq,
+        &mut rho,
+        &mut work[iz..],
+        &mut work[idlmda..],
+        &mut work[iw..],
         &mut q2,
-        &mut iwork[indx..], &mut iwork[indxc..], &mut iwork[indxp..],
+        &mut iwork[indx..],
+        &mut iwork[indxc..],
+        &mut iwork[indxp..],
         &mut iwork[coltyp..],
     )?;
 
