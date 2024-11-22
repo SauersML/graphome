@@ -2175,7 +2175,16 @@ pub fn dlaed2(
                         }
                         coltyp[pj] = 4;
 
-                        drot(n, &mut q[pj], 1, &mut q[nj], 1, c, s); // incx and incy are 1 here
+                        if pj < nj {
+                            let mut q_pj = q[pj].clone();
+                            drot(n, &mut q_pj, 1, &mut q[nj], 1, c, s);
+                            q[pj] = q_pj;
+                        } else {
+                            let mut q_nj = q[nj].clone();
+                            drot(n, &mut q_nj, 1, &mut q[pj], 1, c, s);
+                            q[nj] = q_nj;
+                        }
+                        
                         let temp = d[pj] * c * c + d[nj] * s * s;
                         d[nj] = d[pj] * s * s + d[nj] * c * c;
                         d[pj] = temp;
