@@ -2035,7 +2035,7 @@ pub fn dlaed0(
                     curlvl,
                     curpbm,
                     &mut d,          // &mut [f64]
-                    &mut q,          // &mut [Vec<f64>]
+                    q,
                     ldq,
                     &mut indxq[..],
                     &mut rho,
