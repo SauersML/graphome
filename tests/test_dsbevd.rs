@@ -1,42 +1,42 @@
 use graphome::dsbevd::SymmetricBandedMatrix;
-use rand_distr::{Normal, Distribution};
 use nalgebra::{DMatrix, SymmetricEigen};
-use std::time::Instant;
-use std::f64::EPSILON;
+use rand_distr::{Distribution, Normal};
 use std::f64;
+use std::f64::EPSILON;
+use std::time::Instant;
 
+use graphome::dsbevd::dcopy;
+use graphome::dsbevd::dgemm;
+use graphome::dsbevd::dgemv;
+use graphome::dsbevd::dlacpy;
+use graphome::dsbevd::dlaed0;
+use graphome::dsbevd::dlaed4;
+use graphome::dsbevd::dlaed5;
+use graphome::dsbevd::dlaev2;
+use graphome::dsbevd::dlamc3;
+use graphome::dsbevd::dlamch;
+use graphome::dsbevd::dlamrg;
+use graphome::dsbevd::dlanst as dlanst_function;
+use graphome::dsbevd::dlapy2;
+use graphome::dsbevd::dlar2v;
+use graphome::dsbevd::dlargv;
+use graphome::dsbevd::dlartg;
+use graphome::dsbevd::dlartv;
+use graphome::dsbevd::dlascl;
+use graphome::dsbevd::dlaset;
+use graphome::dsbevd::dlassq;
+use graphome::dsbevd::dnrm2;
+use graphome::dsbevd::drot;
+use graphome::dsbevd::dsbtrd_wrapper;
+use graphome::dsbevd::dscal;
+use graphome::dsbevd::dstedc;
+use graphome::dsbevd::dsteqr;
+use graphome::dsbevd::dswap;
+use graphome::dsbevd::get_mut_bands;
+use graphome::dsbevd::idamax;
+use graphome::dsbevd::ilaenv;
 use graphome::dsbevd::EigenResults;
 use graphome::dsbevd::Error;
-use graphome::dsbevd::dlargv;
-use graphome::dsbevd::dlartv;
-use graphome::dsbevd::drot;
-use graphome::dsbevd::dlar2v;
-use graphome::dsbevd::dstedc;
-use graphome::dsbevd::dlaed4;
-use graphome::dsbevd::dgemm;
-use graphome::dsbevd::dlamc3;
-use graphome::dsbevd::dlanst as dlanst_function;
-use graphome::dsbevd::dlaev2;
-use graphome::dsbevd::dlapy2;
-use graphome::dsbevd::dlaset;
-use graphome::dsbevd::dgemv;
-use graphome::dsbevd::dnrm2;
-use graphome::dsbevd::dscal;
-use graphome::dsbevd::idamax;
-use graphome::dsbevd::dsbtrd_wrapper;
-use graphome::dsbevd::get_mut_bands;
-use graphome::dsbevd::dlartg;
-use graphome::dsbevd::dsteqr;
-use graphome::dsbevd::dlascl;
-use graphome::dsbevd::dswap;
-use graphome::dsbevd::dcopy;
-use graphome::dsbevd::dlassq;
-use graphome::dsbevd::ilaenv;
-use graphome::dsbevd::dlaed0;
-use graphome::dsbevd::dlamch;
-use graphome::dsbevd::dlacpy;
-use graphome::dsbevd::dlamrg;
-use graphome::dsbevd::dlaed5;
 
 // Helper function to convert banded storage to dense matrix
 fn banded_to_dense(n: usize, kd: usize, ab: &Vec<Vec<f64>>) -> DMatrix<f64> {
@@ -168,8 +168,7 @@ fn test_tridiagonal_toeplitz() {
         .collect();
     expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
-    for (i, (&computed, &expected)) in results.eigenvalues.iter().zip(expected.iter()).enumerate()
-    {
+    for (i, (&computed, &expected)) in results.eigenvalues.iter().zip(expected.iter()).enumerate() {
         let diff = f64::abs(computed - expected);
         assert!(
             diff < 1e-10,
@@ -233,12 +232,7 @@ fn test_orthogonality() {
 
             let expected = if i == j { 1.0 } else { 0.0 };
             let diff = f64::abs(dot_product - expected);
-            assert!(
-                diff < 1e-8,
-                "Eigenvectors {} and {} not orthonormal",
-                i,
-                j
-            );
+            assert!(diff < 1e-8, "Eigenvectors {} and {} not orthonormal", i, j);
         }
     }
 }
@@ -325,20 +319,6 @@ fn test_performance_scaling() {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // Helper function to compare two floating-point numbers
 fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < 100.0 * EPSILON
@@ -348,10 +328,7 @@ fn approx_eq(a: f64, b: f64) -> bool {
 fn test_symmetric_banded_matrix_dsbevd() {
     let n = 4;
     let kd = 1;
-    let ab = vec![
-        vec![4.0, 1.0, 1.0, 1.0],
-        vec![1.0, 4.0, 1.0, 1.0],
-    ];
+    let ab = vec![vec![4.0, 1.0, 1.0, 1.0], vec![1.0, 4.0, 1.0, 1.0]];
     let matrix = SymmetricBandedMatrix::new(n, kd, ab);
     let result = matrix.dsbevd();
     assert!(result.is_ok());
@@ -415,14 +392,8 @@ fn test_dlaed4() {
 
 #[test]
 fn test_dgemm() {
-    let q = vec![
-        vec![1.0, 2.0],
-        vec![3.0, 4.0],
-    ];
-    let z = vec![
-        vec![5.0, 6.0],
-        vec![7.0, 8.0],
-    ];
+    let q = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+    let z = vec![vec![5.0, 6.0], vec![7.0, 8.0]];
     let result = dgemm(&q, &z);
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].len(), 2);
@@ -436,10 +407,7 @@ fn test_dgemm() {
     assert_eq!(result, expected);
 
     // Test for index out of bounds
-    let q_incorrect = vec![
-        vec![1.0],
-        vec![3.0],
-    ]; // One column less
+    let q_incorrect = vec![vec![1.0], vec![3.0]]; // One column less
     let result = std::panic::catch_unwind(|| dgemm(&q_incorrect, &z));
     assert!(result.is_err());
 }
@@ -451,7 +419,6 @@ fn test_dlamc3() {
     let result = dlamc3(a, b);
     assert_eq!(result, a + b);
 }
-
 
 #[test]
 fn test_dlaev2() {
@@ -476,7 +443,6 @@ fn test_dlapy2() {
     let result = dlapy2(x, y);
     assert_eq!(result, 5.0);
 }
-
 
 #[test]
 fn test_dnrm2() {
@@ -634,10 +600,7 @@ fn test_dlamch() {
 
 #[test]
 fn test_dlacpy() {
-    let a = vec![
-        vec![1.0, 2.0],
-        vec![3.0, 4.0],
-    ];
+    let a = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
     let lda = 2;
     let mut b = vec![vec![0.0; 2]; 2];
     let ldb = 2;
@@ -647,10 +610,7 @@ fn test_dlacpy() {
     // Test copying only upper triangle
     let mut b = vec![vec![0.0; 2]; 2];
     dlacpy('U', 2, 2, &a, lda, &mut b, ldb);
-    assert_eq!(b, vec![
-        vec![1.0,2.0],
-        vec![0.0,4.0],
-    ]);
+    assert_eq!(b, vec![vec![1.0, 2.0], vec![0.0, 4.0],]);
 }
 
 #[test]
@@ -689,7 +649,6 @@ fn test_dlaed5() {
     assert!(result.is_err());
 }
 
-
 #[test]
 fn test_dlargv() {
     // Test normal case
@@ -697,7 +656,7 @@ fn test_dlargv() {
     let mut y = vec![4.0, 3.0, 12.0];
     let mut c = vec![0.0; 3];
     dlargv(3, &mut x, 1, &mut y, 1, &mut c, 1);
-    
+
     // Verify results
     for i in 0..3 {
         assert!((c[i] * c[i] + y[i] * y[i] - 1.0).abs() < 1e-10);
@@ -718,13 +677,13 @@ fn test_dlartv() {
     let mut y = vec![4.0, 5.0, 6.0];
     let c = vec![0.8, 0.6, 0.7];
     let s = vec![0.6, 0.8, 0.7];
-    
+
     // Make copies for verification
     let x_orig = x.clone();
     let y_orig = y.clone();
-    
+
     dlartv(3, &mut x, 1, &mut y, 1, &c, &s, 1);
-    
+
     // Verify results - check if rotation preserves lengths
     for i in 0..3 {
         let orig_length = (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i]).sqrt();
@@ -756,7 +715,8 @@ fn test_dlar2v() {
 
     // Verify orthogonality is preserved
     for i in 0..3 {
-        let orig_norm = (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i] + z_orig[i] * z_orig[i]).sqrt();
+        let orig_norm =
+            (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i] + z_orig[i] * z_orig[i]).sqrt();
         let new_norm = (x[i] * x[i] + y[i] * y[i] + z[i] * z[i]).sqrt();
         assert!((orig_norm - new_norm).abs() < 1e-10);
     }
@@ -791,7 +751,7 @@ fn test_dgemv() {
     let a = vec![
         vec![1.0, 2.0, 3.0],
         vec![4.0, 5.0, 6.0],
-        vec![7.0, 8.0, 9.0]
+        vec![7.0, 8.0, 9.0],
     ];
     let x = vec![1.0, 1.0, 1.0];
     let mut y = vec![0.0; 3];
@@ -843,7 +803,7 @@ fn test_dlaset() {
 #[test]
 fn test_dlascl() {
     let mut a = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-    
+
     // Test normal scaling
     let result = dlascl(&mut a, 2.0, 1.0);
     assert!(result.is_ok());
@@ -860,8 +820,12 @@ fn test_dlascl() {
 
 #[test]
 fn test_get_mut_bands() {
-    let mut ab = vec![vec![1.0, 2.0, 3.0], vec![4.0, 5.0, 6.0], vec![7.0, 8.0, 9.0]];
-    
+    let mut ab = vec![
+        vec![1.0, 2.0, 3.0],
+        vec![4.0, 5.0, 6.0],
+        vec![7.0, 8.0, 9.0],
+    ];
+
     // Test normal case
     let (band1, band2) = get_mut_bands(&mut ab, 0, 1, 0, 3);
     assert_eq!(band1, vec![1.0, 2.0, 3.0]);
@@ -904,7 +868,7 @@ fn test_dsbtrd() {
     let kd = 1;
     let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
     let mut d = vec![0.0; n];
-    let mut e = vec![0.0; n-1];
+    let mut e = vec![0.0; n - 1];
     let mut q = vec![vec![0.0; n]; n];
 
     dsbtrd('U', n, kd, &mut ab, &mut d, &mut e, &mut q);
@@ -932,13 +896,17 @@ fn test_dlaed6() {
     let mut z = vec![0.5, 0.5, 0.5];
     let finit = 1.0;
 
-    dlaed6(kniter, orgati, rho, &mut d, &mut z, finit, &mut tau, &mut info);
-    
+    dlaed6(
+        kniter, orgati, rho, &mut d, &mut z, finit, &mut tau, &mut info,
+    );
+
     // Check that info is valid
     assert!(info == 0 || info == 1);
 
     // Test with zero rho
-    dlaed6(kniter, orgati, 0.0, &mut d, &mut z, finit, &mut tau, &mut info);
+    dlaed6(
+        kniter, orgati, 0.0, &mut d, &mut z, finit, &mut tau, &mut info,
+    );
     assert!(info == 0 || info == 1);
 }
 
@@ -947,18 +915,18 @@ fn test_dsbtrd_wrapper() {
     let n = 3;
     let kd = 1;
     let mut ab = vec![vec![2.0, 2.0, 2.0], vec![1.0, 1.0, 0.0]];
-    
+
     let (d, e, q) = dsbtrd_wrapper('U', n, kd, &mut ab);
-    
+
     // Verify dimensions
     assert_eq!(d.len(), n);
-    assert_eq!(e.len(), n-1);
+    assert_eq!(e.len(), n - 1);
     assert_eq!(q.len(), n);
     assert_eq!(q[0].len(), n);
 
     // Test invalid parameters
     let result = std::panic::catch_unwind(|| {
-        dsbtrd_wrapper('U', n, n+1, &mut ab);
+        dsbtrd_wrapper('U', n, n + 1, &mut ab);
     });
     assert!(result.is_err());
 }
@@ -980,20 +948,16 @@ fn test_dlaeda() {
     let mut ztemp = vec![0.0; n];
 
     let result = dlaeda(
-        n, tlvls, curlvl, curpbm, 
-        &prmptr, &perm, &givptr,
-        &givcol, &givnum, &q, &qptr,
-        &mut z, &mut ztemp
+        n, tlvls, curlvl, curpbm, &prmptr, &perm, &givptr, &givcol, &givnum, &q, &qptr, &mut z,
+        &mut ztemp,
     );
-    
+
     assert!(result.is_ok());
 
     // Test empty case
     let result = dlaeda(
-        0, tlvls, curlvl, curpbm,
-        &prmptr, &perm, &givptr,
-        &givcol, &givnum, &q, &qptr,
-        &mut z, &mut ztemp
+        0, tlvls, curlvl, curpbm, &prmptr, &perm, &givptr, &givcol, &givnum, &q, &qptr, &mut z,
+        &mut ztemp,
     );
     assert!(result.is_ok());
 }
