@@ -361,7 +361,7 @@ impl SymmetricBandedMatrix {
                 *val *= scale;
             }
         }
-        scaled
+        Ok(scaled)
     }
 }
 
@@ -2385,7 +2385,7 @@ pub fn dlaed2(
     w[*k-1] = z[indx[j-1]];
     indxp[*k-1] = indx[j-1];
 
-    info
+    Ok(info)
 }
 
 
