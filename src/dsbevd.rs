@@ -42,7 +42,8 @@ impl SymmetricBandedMatrix {
     }
 
     /// Computes all eigenvalues and eigenvectors of the symmetric banded matrix.
-    pub fn dsbevd(&self) -> Result<EigenResults, i32> {
+    pub fn dsbevd(&self) -> Result<EigenResults, Error> {
+    
         let safmin = f64::MIN_POSITIVE;
         let eps = f64::EPSILON;
         let smlnum = safmin / eps;
