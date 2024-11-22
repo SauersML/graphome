@@ -1912,64 +1912,6 @@ fn dlaed0(
 }
 
 
-/// Merges two sorted lists of numbers into a single sorted list with a permutation index.
-/// This function corresponds to LAPACK's DLAMRG subroutine.
-fn dlamrg(
-    n1: usize,
-    n2: usize,
-    a: &[f64],
-    dtrd1: i32,
-    dtrd2: i32,
-    index: &mut [usize],
-) {
-    let mut ind1: isize = if dtrd1 > 0 { 0 } else { n1 as isize - 1 };
-    let mut ind2: isize = if dtrd2 > 0 { n1 as isize } else { (n1 + n2) as isize - 1 };
-    let mut i: usize = 0;
-    let mut n1sv = n1 as isize;
-    let mut n2sv = n2 as isize;
-
-    while n1sv > 0 && n2sv > 0 {
-        let a_ind1 = a[ind1 as usize];
-        let a_ind2 = a[ind2 as usize];
-        if a_ind1 <= a_ind2 {
-            index[i] = ind1 as usize;
-            i += 1;
-            ind1 += dtrd1 as isize;
-            n1sv -= 1;
-        } else {
-            index[i] = ind2 as usize;
-            i += 1;
-            ind2 += dtrd2 as isize;
-            n2sv -= 1;
-        }
-    }
-
-    if n1sv == 0 {
-        for _ in 0..n2sv {
-            index[i] = ind2 as usize;
-            i += 1;
-            ind2 += dtrd2 as isize;
-        }
-    } else {
-        for _ in 0..n1sv {
-            index[i] = ind1 as usize;
-            i += 1;
-            ind1 += dtrd1 as isize;
-        }
-    }
-}
-
-/// Query function for machine-dependent parameters
-fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
-    // - For ispec = 9 (used in DLAED0), return the block size for the D&C algorithm.
-    // In LAPACK, ILAENV(9, ...) returns the value of SMLSIZ, is always 25.
-    if ispec == 9 {
-        25
-    } else {
-        1
-    }
-}
-
 /// Determines double-precision real machine parameters.
 /// This function corresponds to LAPACK's DLAMCH subroutine.
 pub fn dlamch(cmach: char) -> f64 {
@@ -1996,7 +1938,7 @@ pub fn dlamch(cmach: char) -> f64 {
             }
             sfmin
         }
-        'B' | 'b' => 2.0f64, // radix(zero). We assume base 2.  If you need to support other bases, you'll need to detect this.
+        'B' | 'b' => 2.0f64, // radix(zero). We assume base 2.
         'P' | 'p' => eps * 2.0f64, // eps * radix(zero)
         'N' | 'n' => f64::MANTISSA_DIGITS as f64, // digits(zero)
         'R' | 'r' => rnd,
@@ -2013,8 +1955,7 @@ pub fn dlamch(cmach: char) -> f64 {
 /// Copies a vector, x, to a vector, y.
 ///
 /// This function corresponds to the BLAS level 1 routine DCOPY.  It uses unrolled loops
-/// for the common case where increment values are equal to one.  It does not simplify
-/// the general case of arbitrary increments.
+/// for the common case where increment values are equal to one.
 ///
 /// # Arguments
 /// * `n` - The number of vector elements to be copied. `n ≥ 0`.
@@ -2029,39 +1970,11 @@ pub fn dcopy(n: usize, dx: &[f64], incx: i32, dy: &mut [f64], incy: i32) {
 
     if incx == 1 && incy == 1 {
         // Optimized case for increments equal to 1, using unrolled loops
-
-        let m = n % 7;  // Unroll by 7
-        if m != 0 {
-            // Cleanup loop for remaining elements
-            for i in 0..m {
-                dy[i] = dx[i];
-            }
-            if n < 7 {
-                return;
-            }
-        }
-
-        for i in (m..n).step_by(7) {
-            dy[i] = dx[i];
-            dy[i + 1] = dx[i + 1];
-            dy[i + 2] = dx[i + 2];
-            dy[i + 3] = dx[i + 3];
-            dy[i + 4] = dx[i + 4];
-            dy[i + 5] = dx[i + 5];
-            dy[i + 6] = dx[i + 6];
-        }
+        dy[..n].copy_from_slice(&dx[..n]);
     } else {
-        // General case for unequal increments
-
-        let mut ix: isize = 0;
-        let mut iy: isize = 0;
-
-        if incx < 0 {
-            ix = (1 - (n as i32)) * incx as isize;
-        }
-        if incy < 0 {
-            iy = (1 - (n as i32)) * incy as isize;
-        }
+        // General case for unequal or non-unit increments
+        let mut ix = if incx > 0 { 0 } else { (1 - (n as i32)) * incx } as isize;
+        let mut iy = if incy > 0 { 0 } else { (1 - (n as i32)) * incy } as isize;
 
         for _ in 0..n {
             dy[iy as usize] = dx[ix as usize];
