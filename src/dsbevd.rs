@@ -2749,8 +2749,6 @@ pub fn dlaed9(
 }
 
 /// Merges eigenvalues and deflates secular equation. Used when the original matrix is dense.
-/// This function merges two sets of eigenvalues together into a single sorted set 
-/// and tries to deflate the problem size when eigenvalues are close or Z elements are tiny.
 pub fn dlaed8(
     icompq: i32,
     k: &mut usize,
@@ -2769,8 +2767,8 @@ pub fn dlaed8(
     w: &mut [f64],
     perm: &mut [usize],
     givptr: &mut usize,
-    givcol: &mut Vec<Vec<usize>>, // Changed from 2-d array to Vec of Vec
-    givnum: &mut Vec<Vec<f64>>,   // Changed from 2-d array to Vec of Vec
+    givcol: &mut Vec<Vec<usize>>,
+    givnum: &mut Vec<Vec<f64>>,
     indxp: &mut [usize],
     indx: &mut [usize],
 ) -> Result<(), i32> {
@@ -2801,7 +2799,6 @@ pub fn dlaed8(
         return Err(-14);
     }
 
-    // Need to initialize GIVPTR to 0 to prevent undefined behavior
     *givptr = 0;
 
     // Quick return if possible
@@ -2836,7 +2833,7 @@ pub fn dlaed8(
         w[i] = z[indxq[i]];
     }
 
-    // Merge sorted subsets using dlamrg
+    // Merge sorted subsets
     dlamrg(n1, n2, dlamda, 1, 1, indx);
 
     // Reorder based on sorted indices
@@ -2861,7 +2858,9 @@ pub fn dlaed8(
         } else {
             for j in 0..n {
                 perm[j] = indxq[indx[j]];
-                dcopy(qsiz, &q[perm[j]], 1, &mut q2[j], 1);
+                for i in 0..qsiz {
+                    q2[i][j] = q[i][perm[j]];
+                }
             }
             dlacpy('A', qsiz, n, q2, ldq2, q, ldq);
         }
@@ -2913,7 +2912,14 @@ pub fn dlaed8(
                         givnum[1][*givptr - 1] = s;
 
                         if icompq == 1 {
-                            drot(qsiz, &mut q[indxq[indx[jlam]]], 1, &mut q[indxq[indx[j]]], 1, c, s);
+                            // Apply rotation column by column
+                            let col1 = indxq[indx[jlam]];
+                            let col2 = indxq[indx[j]];
+                            for i in 0..qsiz {
+                                let temp = c * q[i][col1] + s * q[i][col2];
+                                q[i][col2] = -s * q[i][col1] + c * q[i][col2];
+                                q[i][col1] = temp;
+                            }
                         }
 
                         let t = d[jlam] * c * c + d[j] * s * s;
@@ -2971,7 +2977,9 @@ pub fn dlaed8(
             let jp = indxp[j];
             dlamda[j] = d[jp];
             perm[j] = indxq[indx[jp]];
-            dcopy(qsiz, &q[perm[j]], 1, &mut q2[j], 1);
+            for i in 0..qsiz {
+                q2[i][j] = q[i][perm[j]];
+            }
         }
     }
 
