@@ -56,7 +56,17 @@ impl SymmetricBandedMatrix {
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
 
-        let anrm = dlanst('M', self.n, &self.d, &self.e);
+        // Extract diagonal and subdiagonal elements from banded matrix
+        let mut d = vec![0.0; self.n];
+        let mut e = vec![0.0; self.n-1];
+        for i in 0..self.n {
+            d[i] = self.ab[0][i]; // Diagonal is in first row of banded storage
+            if i < self.n-1 {
+                e[i] = self.ab[1][i]; // Subdiagonal is in second row
+            }
+        }
+        let anrm = dlanst('M', self.n, &d, &e);
+        
         let mut scale = 1.0;
         let mut iscale = 0;
 
@@ -68,11 +78,10 @@ impl SymmetricBandedMatrix {
             scale = rmax / anrm;
         }
 
-        let working_matrix = if scale != 1.0 {
-            dlascl(scale)
-        } else {
-            self.clone()
-        };
+        let mut working_matrix = self.clone();
+        if scale != 1.0 {
+            dlascl(&mut working_matrix.ab, anrm, scale)?;
+        }
 
         let (mut d, mut e, mut q) = working_matrix.dsbtrd();
 
