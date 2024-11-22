@@ -2013,13 +2013,35 @@ pub fn dlaed0(
                     work,
                     &mut iwork[subpbs..])?;
             } else {
+                let cutpnt = msd2;
+                let rho_index = submat + msd2 - 2; // Adjust index for zero-based indexing
+                let mut rho = e[rho_index];
+                let mut info = 0;
+                
                 dlaed7(
-                    icompq, n, qsiz, tlvls, curlvl, curpbm,
-                    &mut d, &mut q, indxq, &mut rho, cutpnt,
-                    &mut qstore, &mut qptr, &mut prmptr, &mut perm,
-                    &mut givptr, &mut givcol, &mut givnum,
-                    &mut work, &mut iwork, &mut info,
-                )
+                    icompq,
+                    n,
+                    qsiz,
+                    tlvls,
+                    curlvl,
+                    curpbm,
+                    &mut d,
+                    &mut q,
+                    ldq,  // ldq is passed?
+                    indxq,
+                    &mut rho,
+                    cutpnt,
+                    &mut qstore,
+                    &mut qptr,
+                    &mut prmptr,
+                    &mut perm,
+                    &mut givptr,
+                    &mut givcol,
+                    &mut givnum,
+                    &mut work,
+                    &mut iwork,
+                    &mut info,
+                )?;
             }
 
             iwork[i/2 + 1] = iwork[i+2];
