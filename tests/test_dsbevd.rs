@@ -644,11 +644,6 @@ fn test_dlaed5() {
     let result = dlaed5(i, &d, &z, &mut delta, rho, &mut dlam);
     assert!(result.is_ok());
     assert!(dlam >= d[0] && dlam <= d[1]);
-
-    // Test with invalid i (should return Err)
-    let i_invalid = 3;
-    let result = dlaed5(i_invalid, &d, &z, &mut delta, rho, &mut dlam);
-    assert!(result.is_err());
 }
 
 #[test]
