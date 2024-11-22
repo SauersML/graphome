@@ -1871,24 +1871,19 @@ pub fn dlaed0(
         if icompq == 2 {
             // Compute eigenvalues and vectors
             dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
-                   &mut q[submat-1..], ldq, work)?;
+                   &mut q[submat-1..], work)?;
+            
         } else {
             // Compute eigenvalues only or with original vectors
             let work_offset = iq - 1 + iwork[iqptr+curr];
+            let z = create_workspace_matrix(matsiz);
             dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
-                   &mut work[work_offset..], matsiz, work)?;
+                   &mut z, work)?;
 
             if icompq == 1 {
                 // Multiply by original vectors if needed
-                dgemm('N', 'N', qsiz, matsiz, matsiz,
-                      ONE,
-                      &q[submat-1..],
-                      ldq, 
-                      &work[work_offset..],
-                      matsiz,
-                      ZERO,
-                      &mut qstore[submat-1..], 
-                      ldqs);
+                let result = dgemm(&q[submat-1..], &z);
+                qstore[submat-1..].copy_from_slice(&result);
 
                 iwork[iqptr+curr+1] = iwork[iqptr+curr] + matsiz*matsiz;
                 curr += 1;
@@ -1963,7 +1958,7 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
-            dlacpy('A', n, n, &work[n..], n, q, ldq);
+            dlacpy('A', n, n, &convert_to_matrix(&work[n..], n), q);
         },
         _ => {
             for i in 0..n {
