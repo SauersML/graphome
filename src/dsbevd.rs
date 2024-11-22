@@ -1757,175 +1757,221 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
 ///
 /// Returns:
 /// - `Result<(), &'static str>` indicating success or an error message.
-fn dlaed0(
+pub fn dlaed0(
     icompq: i32,
     n: usize,
-    qsiz: usize,
+    qsiz: usize, 
     tlvls: usize,
     curlvl: usize,
     curpbm: usize,
     d: &mut [f64],
-    e: &mut [f64],
     q: &mut [Vec<f64>],
+    ldq: usize,
     qstore: &mut [Vec<f64>],
     qptr: &mut [usize],
     prmptr: &mut [usize],
     perm: &mut [usize],
-    givptr: &mut [usize],
-    givcol: &mut [Vec<usize>],
-    givnum: &mut [Vec<f64>],
+    givptr: &mut [usize], 
+    givcol: &mut Vec<Vec<usize>>,
+    givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
     iwork: &mut [usize],
-) -> Result<(), &'static str> {
-    // Test the input parameters.
-    if icompq < 0 || icompq > 2 {
-        return Err("Invalid value for icompq");
-    }
-    if icompq == 1 && qsiz < n {
-        return Err("QSIZ must be at least N when icompq == 1");
-    }
-    if n < 0 {
-        return Err("N must be non-negative");
-    }
-    if q.len() < n || q[0].len() < n {
-        return Err("Dimension of Q is too small");
-    }
-    if qstore.len() < n || qstore[0].len() < n {
-        return Err("Dimension of QSTORE is too small");
-    }
+) -> Result<(), i32> {
+    // Constants
+    const ZERO: f64 = 0.0;
+    const ONE: f64 = 1.0;
+    const TWO: f64 = 2.0;
 
     // Quick return if possible
     if n == 0 {
         return Ok(());
     }
 
-    let smlsiz = ilaenv(9, "DLAED0", " ", 0, 0, 0, 0) as usize;
+    // Get problem size cutoff for small subproblems
+    let smlsiz = 25; // From ILAENV(9)
 
-    if n <= smlsiz {
-        // Use dsteqr to compute the eigenvalues and eigenvectors.
-        let compz = match icompq {
-            0 => 'N',
-            1 => 'V',
-            2 => 'I',
-            _ => return Err("Invalid value for icompq"),
-        };
-        // Initialize q if necessary
-        if compz == 'I' {
-            for i in 0..n {
-                for j in 0..n {
-                    q[i][j] = if i == j { 1.0 } else { 0.0 };
-                }
-            }
-        }
-        // Prepare work array
-        let mut work_dsteqr = vec![0.0; max(1, 2 * n - 2)];
-        // Call dsteqr
-        let result = dsteqr(compz, n, d, e, q, &mut work_dsteqr);
-        if let Err(err) = result {
-            return Err(err);
-        }
-        return Ok(());
-    }
-
-    // Determine the size and placement of the submatrices, and save in IWORK.
-    let mut subpbs = 1;
+    // Initialize IWORK array for submatrix sizes
     iwork[0] = n;
-    let mut tlvls_local = 0;
-    while iwork[subpbs - 1] > smlsiz {
+    let mut subpbs = 1;
+    let mut tlvls = 0;
+
+    // Determine number of levels and subproblem sizes
+    while iwork[subpbs-1] > smlsiz {
         for j in (0..subpbs).rev() {
-            let i1 = iwork[j] / 2;
-            let i2 = iwork[j] - i1;
-            iwork[2 * j] = i1;
-            iwork[2 * j + 1] = i2;
+            iwork[2*j] = (iwork[j] + 1) / 2;
+            iwork[2*j-1] = iwork[j] / 2;
         }
-        tlvls_local += 1;
+        tlvls += 1;
         subpbs *= 2;
     }
 
-    let total_problems = subpbs;
-    for i in 1..subpbs {
-        iwork[i] += iwork[i - 1];
+    // Calculate cumulative sizes
+    for j in 1..subpbs {
+        iwork[j] = iwork[j] + iwork[j-1];
     }
 
-    // Divide the matrix into submatrices of size at most smlsiz+1
-    let mut submat: usize;
+    // Set up workspaces
+    let indxq = 4*n + 3;
 
-    // Recursively solve each submatrix eigenproblem
-    for i in 0..total_problems {
-        let matsiz = if i == 0 {
-            iwork[0]
+    // Different workspace setup based on ICOMPQ
+    let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = 
+    if icompq != 2 {
+        // Compute workspace sizes for eigenvalues/accumulate vectors
+        let temp = (n as f64).ln() / TWO.ln();
+        let mut lgn = temp as i32;
+        if 2i32.pow(lgn as u32) < n as i32 {
+            lgn += 1;
+        }
+        if 2i32.pow(lgn as u32) < n as i32 {
+            lgn += 1; 
+        }
+
+        let iprmpt = indxq + n + 1;
+        let iperm = iprmpt + n * lgn as usize;
+        let iqptr = iperm + n * lgn as usize;
+        let igivpt = iqptr + n + 2;
+        let igivcl = igivpt + n * lgn as usize;
+        let igivnm = 1;
+        let iq = igivnm + 2 * n * lgn as usize;
+        let iwrem = iq + n * n + 1;
+
+        // Initialize pointers 
+        for i in 0..=subpbs {
+            iwork[iprmpt+i] = 1;
+            iwork[igivpt+i] = 1;
+        }
+        iwork[iqptr] = 1;
+
+        (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem)
+    } else {
+        (0, 0, 0, 0, 0, 0, 0, 0)
+    };
+
+    // Solve each subproblem at the bottom of divide-conquer tree
+    let mut curr = 0;
+    let spm1 = subpbs - 1;
+    
+    // Divide matrix using rank-1 modifications
+    for i in 0..spm1 {
+        let submat = iwork[i] + 1;
+        let smm1 = submat - 1;
+        d[smm1] = d[smm1] - e[smm1].abs();
+        d[submat] = d[submat] - e[smm1].abs();
+    }
+
+    // Process each submatrix
+    for i in 0..=spm1 {
+        let (submat, matsiz) = if i == 0 {
+            (1, iwork[0])
         } else {
-            iwork[i] - iwork[i - 1]
+            (iwork[i] + 1, iwork[i+1] - iwork[i])
         };
-        submat = if i == 0 {
-            0
+
+        if icompq == 2 {
+            // Compute eigenvalues and vectors
+            dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
+                   &mut q[submat-1..], ldq, work)?;
         } else {
-            iwork[i - 1]
-        };
+            // Compute eigenvalues only or with original vectors
+            let work_offset = iq - 1 + iwork[iqptr+curr];
+            dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
+                   &mut work[work_offset..], matsiz, work)?;
 
-        if curlvl == tlvls {
-            // Use dsteqr to compute the eigenvalues and eigenvectors
-            let mut d_sub = d[submat..submat + matsiz].to_vec();
-            let mut e_sub = e[submat..submat + matsiz - 1].to_vec();
+            if icompq == 1 {
+                // Multiply by original vectors if needed
+                dgemm('N', 'N', qsiz, matsiz, matsiz,
+                      ONE,
+                      &q[submat-1..],
+                      ldq, 
+                      &work[work_offset..],
+                      matsiz,
+                      ZERO,
+                      &mut qstore[submat-1..], 
+                      ldqs);
 
-            // Initialize q_sub
-            let mut q_sub = vec![vec![0.0; matsiz]; matsiz];
-            for j in 0..matsiz {
-                q_sub[j][j] = 1.0;
+                iwork[iqptr+curr+1] = iwork[iqptr+curr] + matsiz*matsiz;
+                curr += 1;
             }
+        }
 
-            let compz = match icompq {
-                0 => 'N',
-                1 => 'V',
-                2 => 'I',
-                _ => return Err("Invalid value for icompq"),
-            };
-            let mut work_dsteqr = vec![0.0; max(1, 2 * matsiz - 2)];
-            let result = dsteqr(compz, matsiz, &mut d_sub, &mut e_sub, &mut q_sub, &mut work_dsteqr);
-
-            if let Err(_err) = result {
-                let info = submat * (n + 1) + submat + matsiz - 1;
-                return Err("Error in dsteqr");
-            }
-
-            // Copy back results
-            d[submat..submat + matsiz].copy_from_slice(&d_sub);
-            for i in 0..matsiz {
-                for j in 0..matsiz {
-                    q[submat + i][submat + j] = q_sub[i][j];
-                }
-            }
-        } else {
-            // Recursion to lower levels
-            let new_curlvl = curlvl + 1;
-            let new_tlvls = tlvls;
-            let new_curpbm = 2 * curpbm - 1 + i;
-
-            // Recursive call
-            dlaed0(
-                icompq,
-                matsiz,
-                qsiz,
-                new_tlvls,
-                new_curlvl,
-                new_curpbm,
-                &mut d[submat..submat + matsiz],
-                &mut e[submat..submat + matsiz - 1],
-                q,
-                qstore,
-                qptr,
-                prmptr,
-                perm,
-                givptr,
-                givcol,
-                givnum,
-                work,
-                iwork,
-            )?;
+        // Set up index mapping
+        let mut k = 1;
+        for j in submat..=iwork[i+1] {
+            iwork[indxq+j-1] = k;
+            k += 1;
         }
     }
 
-    // WE MUST MERGE BACK THE SUBPROBLEMS.
+    // Merge eigensystems of adjacent submatrices
+    let mut curlvl = 1;
+    while subpbs > 1 {
+        let spm2 = subpbs - 2;
+        for i in (0..=spm2).step_by(2) {
+            let (submat, matsiz, msd2, curprb) = if i == 0 {
+                (1, iwork[1], iwork[0], 0)
+            } else {
+                (iwork[i] + 1,
+                 iwork[i+2] - iwork[i],
+                 (iwork[i+2] - iwork[i])/2,
+                 i/2 + 1)
+            };
+
+            if icompq == 2 {
+                dlaed1(matsiz, &mut d[submat-1..], 
+                       &mut q[submat-1..], ldq,
+                       &mut iwork[indxq+submat-1..],
+                       &mut e[submat+msd2-2..], msd2,
+                       work, &mut iwork[subpbs..])?;
+            } else {
+                dlaed7(icompq, matsiz, qsiz, tlvls, curlvl, curprb,
+                       &mut d[submat-1..],
+                       &mut qstore[submat-1..], ldqs,
+                       &mut iwork[indxq+submat-1..],
+                       &mut e[submat+msd2-2..], msd2,
+                       &mut work[iq-1..],
+                       &mut iwork[iqptr..],
+                       &mut iwork[iprmpt..],
+                       &mut iwork[iperm..],
+                       &mut iwork[igivpt..],
+                       &mut iwork[igivcl..],
+                       &mut work[igivnm-1..],
+                       &mut work[iwrem-1..],
+                       &mut iwork[subpbs..])?;
+            }
+
+            iwork[i/2 + 1] = iwork[i+2];
+        }
+        subpbs /= 2;
+        curlvl += 1;
+    }
+
+    // Re-merge deflated eigenvalues/vectors
+    match icompq {
+        1 => {
+            for i in 0..n {
+                let j = iwork[indxq+i];
+                work[i] = d[j-1];
+                dcopy(qsiz, &qstore[j-1], 1, &mut q[i], 1);
+            }
+            dcopy(n, work, 1, d, 1);
+        },
+        2 => {
+            for i in 0..n {
+                let j = iwork[indxq+i];
+                work[i] = d[j-1];
+                dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
+            }
+            dcopy(n, work, 1, d, 1);
+            dlacpy('A', n, n, &work[n..], n, q, ldq);
+        },
+        _ => {
+            for i in 0..n {
+                let j = iwork[indxq+i];
+                work[i] = d[j-1];
+            }
+            dcopy(n, work, 1, d, 1);
+        }
+    }
 
     Ok(())
 }
