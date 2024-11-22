@@ -71,6 +71,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 
     // Save Laplacian matrix to CSV
     let output_dir = edge_list_path.as_ref().parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(&output_dir)?;
+
     let laplacian_csv = output_dir.join("laplacian.csv");
     save_ndarray_to_csv(&laplacian, &laplacian_csv)?;
     
