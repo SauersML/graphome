@@ -2048,6 +2048,179 @@ pub fn dlacpy(uplo: char, m: usize, n: usize, a: &[Vec<f64>], lda: usize, b: &mu
 }
 
 
+/// Merges eigenvalues and deflates the secular equation.
+/// This function corresponds to LAPACK's DLAED2 subroutine.
+pub fn dlaed2(
+    k: &mut usize,
+    n: usize,
+    n1: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize],
+    rho: &mut f64,
+    z: &mut [f64],
+    dlamda: &mut [f64],
+    w: &mut [f64],
+    q2: &mut [Vec<f64>],
+    indx: &mut [usize],
+    indxc: &mut [usize],
+    indxp: &mut [usize],
+    coltyp: &mut [usize],
+) -> i32 {
+
+    let mut info = 0;
+
+    if n == 0 {
+        return info;
+    }
+
+    let n2 = n - n1;
+    let n1p1 = n1 + 1;
+
+    // Scale z
+    if *rho < 0.0 {
+        let alpha = -1.0;
+        dscal(n2, alpha, &mut z[n1..], 1);
+    }
+
+    // Normalize z
+    let t = 1.0 / 2.0f64.sqrt();
+    dscal(n, t, z, 1);
+
+    // Update rho
+    *rho = (2.0 * *rho).abs();
+
+
+    // Sort eigenvalues into increasing order
+    for i in n1..n {
+        indxq[i] += n1;
+    }
+
+    // Re-integrate deflated parts
+    for i in 0..n {
+        dlamda[i] = d[indxq[i]];
+    }
+    dlamrg(n1, n2, dlamda, 1, 1, indxc);
+    for i in 0..n {
+        indx[i] = indxq[indxc[i]];
+    }
+
+    // Calculate deflation tolerance
+    let imax = idamax(n, z, 1);
+    let jmax = idamax(n, d, 1);
+    let eps = dlamch('E');
+    let tol = 8.0 * eps * d[jmax].abs().max(z[imax].abs());
+
+    if *rho * z[imax].abs() <= tol {
+        *k = 0;
+        for j in 0..n {
+            let i = indx[j];
+            dcopy(n, &q[i], ldq as i32, &mut q2[j], 1);
+            dlamda[j] = d[i];
+        }
+
+        dlacpy('A', n, n, q2, ldq, q, ldq);
+        dcopy(n, dlamda, 1, d, 1);
+        return info;
+    }
+
+    // Check for multiple eigenvalues and deflate
+    for i in 0..n1 {
+        coltyp[i] = 1;
+    }
+    for i in n1..n {
+        coltyp[i] = 3;
+    }
+
+    *k = 0;
+    let mut k2 = n + 1;
+    let mut j = 0;
+    while j < n {
+        let nj = indx[j];
+        if *rho * z[nj].abs() <= tol {
+            k2 -= 1;
+            coltyp[nj] = 4;
+            indxp[k2-1] = nj;
+            j += 1;
+        } else {
+            let mut pj = nj;
+            j += 1;
+            while j < n {
+                let nj = indx[j];
+                if *rho * z[nj].abs() <= tol {
+                    k2 -= 1;
+                    coltyp[nj] = 4;
+                    indxp[k2-1] = nj;
+                    j+=1;
+                } else {
+                    // Check if eigenvalues are close enough to allow deflation
+                    let mut s = z[pj];
+                    let mut c = z[nj];
+                    let tau = dlapy2(c, s);
+                    let t = d[nj] - d[pj];
+                    c /= tau;
+                    s = -s / tau;
+                    if (t * c * s).abs() <= tol {
+                        z[nj] = tau;
+                        z[pj] = 0.0;
+
+                        if coltyp[nj] != coltyp[pj] {
+                            coltyp[nj] = 2;
+                        }
+                        coltyp[pj] = 4;
+
+                        drot(n, &mut q[pj], ldq as i32, &mut q[nj], ldq as i32, c, s);
+                        let temp = d[pj] * c * c + d[nj] * s * s;
+                        d[nj] = d[pj] * s * s + d[nj] * c * c;
+                        d[pj] = temp;
+
+                        k2 -= 1;
+                        let mut i = 1;
+
+                        while k2 - 1 + i <= n {
+                           if d[pj] < d[indxp[k2 - 1 + i - 1]] {
+                               indxp[k2 - 1 + i - 2] = indxp[k2 - 1 + i - 1];
+                               indxp[k2 - 1 + i - 1] = pj;
+                           } else {
+                               indxp[k2 - 1 + i - 2] = pj;
+                               break;
+                           }
+                           i += 1;
+                        }
+                        pj = nj;
+                        j += 1;
+                    } else {
+                        *k += 1;
+                        dlamda[*k-1] = d[pj];
+                        w[*k-1] = z[pj];
+                        indxp[*k-1] = pj;
+                        pj = nj;
+                        j += 1;
+                    }
+                }
+                if j >= n {
+                    break;
+                }
+            }
+            if j >= n {
+                break;
+            }
+        }
+        if j >= n {
+            break;
+        }
+    }
+
+    *k += 1;
+    dlamda[*k-1] = d[indx[j-1]];
+    w[*k-1] = z[indx[j-1]];
+    indxp[*k-1] = indx[j-1];
+
+    info
+}
+
+
 
 /*
 Not yet implemented functions:
