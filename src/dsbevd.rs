@@ -2518,10 +2518,6 @@ Not yet implemented functions:
 
 - dlaed3
 
-- DLAED6
-  - Description: Computes one Newton step in the solution of the secular equation, specializing in refining a single eigenvalue. It is used for efficiently finding roots of the secular equation.
-  - When it's called: Invoked by `dlaed4` during the iterative solution of the secular equation, particularly when dealing with closely spaced eigenvalues that require careful handling to ensure convergence.
-
 - DLAED7
   - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix, used when the original matrix is dense. It specifically handles larger subproblems in the divide and conquer algorithm.
   - When it's called: Within `dstedc`, `dlaed7` is called during recursive steps of the divide and conquer process to update eigenvalues and eigenvectors after merging subproblems.
