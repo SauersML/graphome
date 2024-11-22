@@ -2075,6 +2075,9 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
+    
+            // Declare work_matrix as a two-dimensional array
+            let mut work_matrix = vec![vec![0.0; n]; n];
             dlacpy('A', n, n, q, ldq, &mut work_matrix, n);
         },
         _ => {
