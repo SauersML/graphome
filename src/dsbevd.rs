@@ -1997,8 +1997,8 @@ pub fn dlaed0(
                        &mut d[submat-1..],
                        &mut qstore[submat-1..], ldq,
                        &mut iwork[indxq+submat-1..],
-                       &mut e[submat + msd2 - 2]
-                       &mut work[iq-1..],
+                       &mut e[submat + msd2 - 2],
+                       &mut work[iq-1..iq],
                        &mut iwork[iqptr..],
                        &mut iwork[iprmpt..],
                        &mut iwork[iperm..],
