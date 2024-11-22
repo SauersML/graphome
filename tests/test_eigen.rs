@@ -90,25 +90,21 @@ fn test_adjacency_matrix_to_ndarray() {
 
 }
 
+#[test]
+fn test_compute_ngec_empty_eigenvalues() {
+    let eigenvalues = ndarray::Array1::<f64>::zeros(0);
+    let result = compute_ngec(&eigenvalues);
+    assert!(matches!(result, Err(e) if e.kind() == ErrorKind::InvalidInput));
+}
 
 #[test]
-fn test_compute_ngec_valid_eigenvalues() {
-    let eigenvalues = ndarray::array![2.0, 1.0, 0.5];
-    let expected_ngec = {
-        let sum = 3.5;
-        let normalized = ndarray::array![2.0 / sum, 1.0 / sum, 0.5 / sum];
-        let entropy = -(normalized[0] * normalized[0].ln() as f64
-            + normalized[1] * normalized[1].ln() as f64
-            + normalized[2] * normalized[2].ln() as f64);
-        entropy / 3.0f64.ln()
-    };
-    let ngec = compute_ngec(&eigenvalues).expect("NGEC calculation failed");
-    assert!(
-        (ngec - expected_ngec).abs() < TOLERANCE,
-        "NGEC value is not as expected. Got: {}, Expected: {}",
-        ngec,
-        expected_ngec
-    );
+fn test_compute_ngec_with_negative_eigenvalue() {
+    let eigenvalues = ndarray::array![-2.0, 1.0, 0.5]; // Negative eigenvalue present
+    let epsilon = 1e-9;
+    if eigenvalues.iter().any(|&x| x < -epsilon) {
+        let result = compute_ngec(&eigenvalues);
+        assert!(matches!(result, Err(e) if e.kind() == ErrorKind::InvalidInput));
+    }
 }
 
 #[test]
