@@ -56,7 +56,7 @@ impl SymmetricBandedMatrix {
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
 
-        let anrm = self.dlanst();
+        let anrm = dlanst();
         let mut scale = 1.0;
         let mut iscale = 0;
 
@@ -69,7 +69,7 @@ impl SymmetricBandedMatrix {
         }
 
         let working_matrix = if scale != 1.0 {
-            self.dlascl(scale)
+            dlascl(scale)
         } else {
             self.clone()
         };
