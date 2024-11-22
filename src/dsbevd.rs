@@ -2292,6 +2292,7 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
 }
 
 
+
 pub fn dlaed1(
     n: usize,
     d: &mut [f64],
@@ -2305,35 +2306,33 @@ pub fn dlaed1(
 ) -> i32 {
     let mut info = 0;
 
+    // Quick return if n is zero
     if n == 0 {
         return info;
     }
 
-    // Workspace pointers (adjusted for 0-based indexing)
+    // Define workspace array indices within 'work'
     let iz = 0;
     let idlmda = iz + n;
     let iw = idlmda + n;
     let iq2 = iw + n;
 
+    // Define workspace array indices within 'iwork'
     let indx = 0;
     let indxc = indx + n;
     let coltyp = indxc + n;
     let indxp = coltyp + n;
 
-    // Form the z-vector (more efficient approach)
+    // Construct the z-vector by copying appropriate parts of q
     let mut z = vec![0.0; n];
-    for i in 0..cutpnt {
-        z[i] = q[cutpnt - 1][i];
-    }
-    for i in cutpnt..n {
-        z[i] = q[cutpnt][i];
-    }
+    z[..cutpnt].copy_from_slice(&q[cutpnt - 1][..cutpnt]);
+    z[cutpnt..].copy_from_slice(&q[cutpnt][cutpnt..]);
 
-    // Deflate eigenvalues
+    // Initialize k and q2. q2 will store updated eigenvectors.
     let mut k = 0;
-    let mut q2 = vec![vec![0.0; n]; n]; // Initialize q2 outside the conditional
+    let mut q2 = vec![vec![0.0; n]; n];
 
-    // Use slices for work and iwork
+    // Create slices into workspace arrays to avoid multiple mutable borrows
     let work_dlamda = &mut work[idlmda..idlmda + n];
     let work_w = &mut work[iw..iw + n];
     let iwork_indx = &mut iwork[indx..indx + n];
@@ -2341,6 +2340,8 @@ pub fn dlaed1(
     let iwork_indxp = &mut iwork[indxp..indxp + n];
     let iwork_coltyp = &mut iwork[coltyp..coltyp + n];
 
+    // Deflate eigenvalues by merging close eigenvalues and updating
+    // the eigenvectors accordingly (DLAED2 equivalent).
     dlaed2(
         &mut k,
         n,
@@ -2360,10 +2361,12 @@ pub fn dlaed1(
         iwork_coltyp,
     );
 
-    // Solve Secular Equation
     if k > 0 {
-        let mut ctot = [0; 4]; // Declare ctot
-        let work_s = &mut work[iq2..]; // Slice for work_s
+        // If deflation occurred (k > 0), solve the secular equation.
+        let n1 = k;
+        let n2 = n - n1;
+        let mut ctot = [0; 4]; // Array to store the counts of each type of deflation
+        let work_s = &mut work[iq2..];
 
         dlaed3(
             k,
@@ -2373,33 +2376,50 @@ pub fn dlaed1(
             q,
             ldq,
             rho,
-            work_dlamda,        // Pass only the slice needed
-            &mut q2,             
-            &indx[..n],         // Pass a slice for indx
-            &ctot[..4],         // Pass a slice for ctot
-            work_iw,            // Pass a mutable slice for w of size k
-    
-            &mut work_s[.. (cutpnt + 1) * k],
+            work_dlamda,
+            &mut q2,
+            iwork_indx,
+            &ctot, // Counts of different deflation types
+            work_w,
+            work_s,
             &mut info,
         );
 
-
-
         if info != 0 {
+            // Handle the case where DLAED3 fails
             return info;
         }
 
-        // Prepare INDXQ sorting permutation
+        // Merge the eigenvalues and update INDXQ.
         dlamrg(n1, n2, d, 1, -1, indxq);
-
     } else {
-        // Handle case where k=0
+        // If no deflation occurred (k == 0), initialize indxq.
         for i in 0..n {
-            indxq[i] = i + 1; // 1-based indexing
+            indxq[i] = i + 1;
         }
     }
 
     info
+}
+
+// Implement next
+fn dlaed3(
+    k: usize,
+    n: usize,
+    cutpnt: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    rho: f64,
+    dlamda: &mut [f64],
+    q2: &mut [Vec<f64>],
+    indx: &mut [usize],
+    ctot: &[i32],
+    w: &mut [f64],
+    s: &mut [f64],
+    info: &mut i32,
+) {
+    unimplemented!();
 }
 
 
