@@ -1511,7 +1511,7 @@ fn dsteqr(
 
                 // Apply stored rotations using our dlasr
                 let mm = m - l + 1;
-                dlasr('R', 'V', 'B', n, mm, &work[l..l + mm], &work[n - 1 + l..n - 1 + l + mm], z, ldq)?;
+                dlasr('R', 'V', 'B', n, mm, &work[l..l + mm], &work[n - 1 + l..n - 1 + l + mm], z, n)?;
 
                 d[l] = d[l] - p;
                 e[l] = g;
