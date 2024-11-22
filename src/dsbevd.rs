@@ -1537,7 +1537,7 @@ fn dsteqr(
                     break;
                 }
                 if jtot == nmaxit {
-                    return Err((l + 1) as i32);
+                    return Err(Error((l + 1) as i32));
                 }
                 jtot += 1;
 
