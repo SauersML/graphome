@@ -2018,29 +2018,29 @@ pub fn dlaed0(
                 let mut rho = e[rho_index];
                 let mut info = 0;
                 
-                dlaed7(
-                    icompq,
-                    n,
-                    qsiz,
-                    tlvls,
-                    curlvl,
-                    curpbm,
-                    &mut d,
-                    &mut q,
-                    ldq,  // ldq is passed?
-                    &mut indxq,
-                    &mut rho,
-                    cutpnt,
-                    &mut qstore,
-                    &mut qptr,
-                    &mut prmptr,
-                    &mut perm,
-                    &mut givptr,
-                    &mut givcol,
-                    &mut givnum,
-                    &mut work,
-                    &mut iwork,
-                )?;
+               dlaed7(
+                   icompq,
+                   n,
+                   qsiz,
+                   tlvls,
+                   curlvl,
+                   curpbm,
+                   &mut d,
+                   &mut q,
+                   ldq,
+                   &mut indxq,
+                   &mut rho,
+                   cutpnt,
+                   &mut qstore,
+                   &mut qptr,
+                   &mut prmptr,
+                   &mut perm,
+                   &mut givptr,
+                   &mut givcol,
+                   &mut givnum,
+                   &mut work,
+                   &mut iwork,
+               )?;
             }
 
             iwork[i/2 + 1] = iwork[i+2];
