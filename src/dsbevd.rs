@@ -1934,7 +1934,7 @@ pub fn dlaed0(
         } else {
             // Compute eigenvalues only or with original vectors
             let work_offset = iq - 1 + iwork[iqptr+curr];
-            let z = create_workspace_matrix(matsiz);
+            let mut z = vec![vec![0.0; matsiz]; matsiz];
             dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
                    &mut z, work)?;
 
