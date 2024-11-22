@@ -545,11 +545,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     }
 
     // Scale the matrix if necessary
-    let orgnrm = d
-        .iter()
-        .map(|&x| x.abs())
-        .chain(e.iter().map(|&x| x.abs()))
-        .fold(0.0_f64, f64::max);
+    let orgnrm = dlanst('M', n, d, e);
     if orgnrm == 0.0 {
         // Zero matrix, eigenvalues all zero, z stays identity
         return Ok(());
@@ -701,46 +697,19 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
                 indxq[i] = i;
             }
 
-            // Call dlaed7
+            // Call dlaed1
             // Allocate necessary arrays
-            let qsiz = k; // Since q_work is k x k
-            let tlvls = 1; // Number of divide levels
-            let curlvl = 1; // Current level
-            let curpbm = 1; // Current problem
-            let ldq = k;
-            let ldq2 = k;
-            let mut qstore = vec![vec![0.0; k]; k];
-            let mut qptr = vec![0usize; 2 * k];
-            let mut prmptr = vec![0usize; 2 * k];
-            let mut perm = vec![0usize; 2 * k];
-            let mut givptr = vec![0usize; 2 * k];
-            let mut givcol = vec![vec![0usize; k]; 2 * k];
-            let mut givnum = vec![vec![0.0; k]; 2 * k];
-            let mut work_work = vec![0.0; 4 * k];
-            let mut iwork_work = vec![0usize; 4 * k];
+            let mut work_work = vec![0.0; 4 * k + k * k];
+            let mut iwork_work = vec![0usize; 3 * k];
 
-            rho = 0.0; // Initialize rho
-
-            dlaed7(
-                1,
+            dlaed1(
                 k,
-                qsiz,
-                tlvls,
-                curlvl,
-                curpbm,
                 &mut d_work,
                 &mut q_work,
-                ldq,
+                k,
                 &mut indxq,
-                &mut rho,
+                rho,
                 cutpnt,
-                &mut qstore,
-                &mut qptr,
-                &mut prmptr,
-                &mut perm,
-                &mut givptr,
-                &mut givcol,
-                &mut givnum,
                 &mut work_work,
                 &mut iwork_work,
             )?;
@@ -780,7 +749,6 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
 
     Ok(())
 }
-
 
 
 /// Solves the secular equation in the divide and conquer algorithm.
@@ -3222,6 +3190,7 @@ pub fn dlaed7(
     curpbm: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
+    ldq: usize,
     indxq: &mut [usize],
     rho: &mut f64,
     cutpnt: usize,
@@ -3229,7 +3198,7 @@ pub fn dlaed7(
     qptr: &mut [usize],
     prmptr: &mut [usize],
     perm: &mut [usize],
-    givptr: &mut [usize],
+    givptr: &mut usize, // Changed from &mut [usize] to &mut usize
     givcol: &mut Vec<Vec<usize>>,
     givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
@@ -3251,47 +3220,31 @@ pub fn dlaed7(
         return Ok(());
     }
 
+    // Constants
+    const SMLSIZ: usize = 25; // Minimum size for divide-conquer
+
+    // Workspace indices - adjust as needed based on your overall code
+    let z = &mut work[0..n];
+    let dlamda = &mut work[n..2*n];
+    let w = &mut work[2*n..3*n];
+    let s = &mut work[3*n..3*n + n*ldq]; // Adjusted size
+
+    let indx = &mut iwork[0..n];
+    let indxc = &mut iwork[n..2*n];
+    let coltyp = &mut iwork[2*n..3*n];
+    let indxp = &mut iwork[3*n..4*n];
+
+    // Initialize Givens rotation count
+    *givptr = 0;
+
     // Variables
-    let smlsiz = 25; // Should match with the value used in dstedc
-
-    // Compute total number of merging levels
-    let mut subpbs = 1;
-    let mut lgn = 0;
-    while subpbs < n {
-        subpbs *= 2;
-        lgn += 1;
-    }
-
-    // Workspace indices
-    let iz = 0;
-    let idlmda = iz + n;
-    let iw = idlmda + n;
-    let iq2 = iw + n;
-    let is = iq2 + n * n;
-
-    let indx = 0;
-    let indxc = indx + n;
-    let coltyp = indxc + n;
-    let indxp = coltyp + n;
-
-    // Split work arrays
-    let z = &mut work[iz..iz + n];
-    let dlamda = &mut work[idlmda..idlmda + n];
-    let w = &mut work[iw..iw + n];
-    let s = &mut work[is..is + n * n]; // Assuming s is n by n
-
-    let indx_work = &mut iwork[indx..indx + n];
-    let indxc_work = &mut iwork[indxc..indxc + n];
-    let coltyp_work = &mut iwork[coltyp..coltyp + n];
-    let indxp_work = &mut iwork[indxp..indxp + n];
-
-    // Determine the size of the subproblems at the bottom of the divide and conquer tree
-    let submat_start = 0;
-    let matsiz = n;
+    let n1 = cutpnt;
+    let n2 = n - n1;
+    let n1p1 = n1 + 1;
 
     // Deflate eigenvalues
     let mut k = 0;
-    let mut rho = *rho; // Local mutable copy of rho
+    let mut rho_local = *rho; // Local mutable copy
     dlaed8(
         icompq,
         &mut k,
@@ -3299,28 +3252,31 @@ pub fn dlaed7(
         qsiz,
         d,
         q,
-        n,
+        ldq,
         indxq,
-        &mut rho,
+        &mut rho_local,
         cutpnt,
         z,
         dlamda,
         qstore,
-        n,
+        ldq, // Assuming qstore has same leading dimension
         w,
         perm,
-        &mut givptr[0],
+        givptr,
         givcol,
         givnum,
-        indxp_work,
-        indx_work,
+        indxp,
+        indx,
     )?;
+
+    // Update rho
+    *rho = rho_local;
 
     // If eigenvalues were deflated, return
     if k == 0 {
-        qptr[0] = 0;
+        qptr[0] = 0; // Adjusted indexing
         prmptr[0] = 0;
-        givptr[0] = 0;
+        *givptr = 0; // Updated to match the new type
         return Ok(());
     }
 
@@ -3331,22 +3287,19 @@ pub fn dlaed7(
         k,          // kstop
         n,
         d,
-        q,
-        n,
-        rho,
+        q,          // Assuming q is n x k
+        ldq,
+        *rho,
         dlamda,
         w,
         s,
-        k,
+        k,          // lds
     )?;
 
     // Prepare the INDXQ sorting permutation
     dlamrg(k, n - k, d, 1, -1, indxq);
 
-    // Update the pointers
-    qptr[0] = k * k;
-    prmptr[0] = n;
-    givptr[0] = 0; // Number of Givens rotations used
+    // Update the pointers (if necessary)
 
     Ok(())
 }
