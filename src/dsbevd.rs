@@ -2170,7 +2170,7 @@ pub fn dlaed2(
                         }
                         coltyp[pj] = 4;
 
-                        drot(n, &mut q[pj], ldq as i32, &mut q[nj], ldq as i32, c, s);
+                        drot(n, &mut q[pj], 1, &mut q[nj], 1, c, s); // incx and incy are 1 here
                         let temp = d[pj] * c * c + d[nj] * s * s;
                         d[nj] = d[pj] * s * s + d[nj] * c * c;
                         d[pj] = temp;
