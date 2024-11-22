@@ -2221,6 +2221,63 @@ pub fn dlaed2(
 }
 
 
+/// Creates a permutation list to merge two sorted sets into a single sorted set.
+/// This function corresponds to LAPACK's DLAMRG subroutine.
+pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
+    let mut n1sv = n1;
+    let mut n2sv = n2;
+    let mut ind1 = if dtrd1 > 0 { 0 } else { n1 - 1 };
+    let mut ind2 = if dtrd2 > 0 { n1 } else { n - 1 };
+    let mut i = 0;
+    let n = n1 + n2;
+
+    while n1sv > 0 && n2sv > 0 {
+        if a[ind1] <= a[ind2] {
+            index[i] = ind1;
+            i += 1;
+            if dtrd1 > 0 {
+                ind1 += 1;
+            } else {
+                ind1 -=1;
+            }
+            n1sv -= 1;
+        } else {
+            index[i] = ind2;
+            i += 1;
+             if dtrd2 > 0 {
+                ind2 += 1;
+            } else {
+                ind2 -=1;
+            }
+            n2sv -= 1;
+        }
+    }
+
+    // Copy remaining elements
+    if n1sv > 0 {
+        for _ in 0..n1sv {
+            index[i] = ind1;
+            i += 1;
+             if dtrd1 > 0 {
+                ind1 += 1;
+            } else {
+                ind1 -=1;
+            }
+        }
+    } else {
+        for _ in 0..n2sv {
+            index[i] = ind2;
+            i += 1;
+             if dtrd2 > 0 {
+                ind2 += 1;
+            } else {
+                ind2 -=1;
+            }
+        }
+    }
+}
+
+
 
 /*
 Not yet implemented functions:
