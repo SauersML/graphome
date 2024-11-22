@@ -435,13 +435,22 @@ fn dlartv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &
     }
 }
 
-/// Apply plane rotation
-fn drot(dx: &mut [f64], dy: &mut [f64], c: f64, s: f64) {
-    assert_eq!(dx.len(), dy.len(), "Vector lengths must match");
-    for i in 0..dx.len() {
-        let temp = c * dx[i] + s * dy[i];
-        dy[i] = -s * dx[i] + c * dy[i];
-        dx[i] = temp;
+/// Performs a Givens rotation. (LAPACK's DROT)
+fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, s: f64) {
+    if n == 0 {
+        return;
+    }
+
+    let mut ix = if incx > 0 { 0 } else { (1-n as i32) * incx };
+    let mut iy = if incy > 0 { 0 } else { (1-n as i32) * incy };
+
+    for _ in 0..n {
+        let temp = c * dx[ix as usize] + s * dy[iy as usize];
+        dy[iy as usize] = c * dy[iy as usize] - s * dx[ix as usize];
+        dx[ix as usize] = temp;
+
+        ix += incx;
+        iy += incy;
     }
 }
 
