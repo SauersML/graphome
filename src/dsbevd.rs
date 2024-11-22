@@ -165,19 +165,21 @@ impl SymmetricBandedMatrix {
                     // Apply rotations based on number of diagonals
                     if nr > 2 * kd - 1 {
                         for l in 1..=kdm1 {
-                            if kd >= l {
+                            if (kd >= l) && ((kd - l) < ab.len()) {
                                 let mut v1 = vec![];
                                 let mut v2 = vec![];
-
+                        
                                 for idx in 0..nr {
                                     let j = j1 - kd + l + idx * kd;
-                                    if j < ab[0].len()
-                                        && j + 1 < ab[0].len()
-                                        && (kd - l) < ab.len()
-                                        && (kd - l + 1) < ab.len()
-                                    {
+                        
+                                    if j < ab[0].len() && (kd - l) < ab.len() {
                                         v1.push(ab[kd - l][j]);
-                                        v2.push(ab[kd - l + 1][j]);
+                        
+                                        if (kd - l + 1) < ab.len() {
+                                            v2.push(ab[kd - l + 1][j]);
+                                        } else {
+                                            v2.push(0.0);
+                                        }
                                     }
                                 }
 
@@ -194,14 +196,13 @@ impl SymmetricBandedMatrix {
                                         1,
                                     );
 
-                                    for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate()
-                                    {
-                                        let j = j1 - kd + l + idx * kd;
-                                        if j < ab[0].len()
-                                            && (kd - l) < ab.len()
-                                            && (kd - l + 1) < ab.len()
-                                        {
-                                            ab[kd - l][j] = *val1;
+                                for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+                                    let j = j1 - kd + l + idx * kd;
+                        
+                                    if j < ab[0].len() && (kd - l) < ab.len() {
+                                        ab[kd - l][j] = *val1;
+                        
+                                        if (kd - l + 1) < ab.len() {
                                             ab[kd - l + 1][j] = *val2;
                                         }
                                     }
