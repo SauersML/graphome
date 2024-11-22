@@ -1342,271 +1342,292 @@ fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],
 
 
 fn dsteqr(
-   compz: char,
-   n: usize,
-   d: &mut [f64],
-   e: &mut [f64],
-   z: &mut [Vec<f64>],
-   work: &mut [f64],
+    compz: char,
+    n: usize,
+    d: &mut [f64],
+    e: &mut [f64],
+    z: &mut [Vec<f64>],
+    work: &mut [f64],
 ) -> Result<(), i32> {
-   // Constants - match LAPACK exactly
-   const ZERO: f64 = 0.0;
-   const ONE: f64 = 1.0;
-   const TWO: f64 = 2.0;
-   const THREE: f64 = 3.0;
-   const MAXIT: usize = 30;
+    // We only handle 'I' case - always want eigenvectors
+    if compz != 'I' {
+        return Err(-1);
+    }
 
-   // Input validation matching LAPACK
-   let icompz = match compz {
-       'N' | 'n' => 0,
-       'V' | 'v' => 1,
-       'I' | 'i' => 2,
-       _ => return Err(-1)
-   };
+    if n == 0 {
+        return Ok(());
+    }
 
-   if n == 0 {
-       return Ok(());
-   }
+    if n == 1 {
+        z[0][0] = 1.0;
+        return Ok(());
+    }
 
-   if n == 1 {
-       if icompz == 2 {
-           z[0][0] = ONE;
-       }
-       return Ok(());
-   }
+    // Machine constants using our dlamch
+    let eps = dlamch('E');
+    let eps2 = eps * eps;
+    let safmin = dlamch('S');
+    let safmax = 1.0 / safmin;
+    let ssfmax = (safmax).sqrt() / 3.0;
+    let ssfmin = (safmin).sqrt() / eps2;
 
-   // Machine constants using LAPACK names
-   let eps = dlamch('E');
-   let eps2 = eps * eps;
-   let safmin = dlamch('S');
-   let safmax = ONE / safmin;
-   let ssfmax = safmax.sqrt() / THREE;
-   let ssfmin = safmin.sqrt() / eps2;
+    let nm1 = n - 1;
+    let nmaxit = n * 30;
+    let mut jtot = 0;
 
-   // Initialize eigenvalue iteration
-   let mut nm1 = n - 1;
-   let mut nmaxit = n * MAXIT;
-   let mut jtot = 0;
+    // Initialize Z to identity using our dlaset
+    dlaset('F', n, n, 0.0, 1.0, z);
 
-   // Initialize Z to identity if needed 
-   if icompz == 2 {
-       dlaset('F', n, n, ZERO, ONE, z, n)?;
-   }
+    let mut l1 = 0;
+    while l1 < n {
+        if l1 > 0 {
+            e[l1-1] = 0.0;
+        }
 
-   // Main loop
-   let mut l1 = 0;
-   
-   'main: while l1 < n {
-       if l1 > 0 {
-           e[l1-1] = ZERO;
-       }
-       
-       let mut m = l1;
-       while m < nm1 {
-           let tst = e[m].abs();
-           if tst <= (eps * (d[m].abs() + d[m+1].abs()).sqrt()) * eps + safmin {
-               e[m] = ZERO;
-               break;
-           }
-           m += 1;
-       }
+        let mut m = l1;
+        while m < nm1 {
+            // Use our dlanst to find small subdiagonal
+            let tst = e[m].abs();
+            let tol = (d[m].abs() * d[m+1].abs()).sqrt() * eps;
+            if tst <= tol {
+                e[m] = 0.0;
+                break;
+            }
+            m += 1;
+        }
 
-       let mut l = l1;
-       let mut lend = m;
-       let lsv = l;
-       let lendsv = lend;
+        let mut l = l1;
+        let mut lend = m;
+        let lsv = l;
+        let lendsv = lend;
 
-       if lend == l {
-           l1 = l + 1;
-           continue;
-       }
+        if lend == l {
+            l1 = l + 1;
+            continue;
+        }
 
-       // Scale submatrix in rows/columns L to LEND
-       let anorm = dlanst('M', lend-l+1, &d[l..], &e[l..]); 
-       let mut iscale = 0;
-       
-       if anorm > ZERO {
-           if anorm > ssfmax {
-               iscale = 1;
-               dlascl('G', 0, 0, anorm, ssfmax, lend-l+1, 1, &mut d[l..], n)?;
-               dlascl('G', 0, 0, anorm, ssfmax, lend-l, 1, &mut e[l..], n)?;
-           } else if anorm < ssfmin {
-               iscale = 2; 
-               dlascl('G', 0, 0, anorm, ssfmin, lend-l+1, 1, &mut d[l..], n)?;
-               dlascl('G', 0, 0, anorm, ssfmin, lend-l, 1, &mut e[l..], n)?;
-           }
-       }
+        // Scale submatrix if necessary using our dlanst and dlascl
+        let anorm = dlanst('M', lend-l+1, &d[l..], &e[l..]);
+        let mut iscale = 0;
 
-       // Choose between QL/QR iteration
-       if d[lend].abs() < d[l].abs() {
-           lend = lsv;
-           l = lendsv;
-       }
+        if anorm > 0.0 {
+            if anorm > ssfmax {
+                iscale = 1;
+                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
+                let mut e_mat = vec![vec![0.0; 1]; lend-l];
+                for i in 0..lend-l+1 {
+                    d_mat[i][0] = d[l+i];
+                }
+                for i in 0..lend-l {
+                    e_mat[i][0] = e[l+i];
+                }
+                dlascl(&mut d_mat, anorm, ssfmax)?;
+                dlascl(&mut e_mat, anorm, ssfmax)?;
+                for i in 0..lend-l+1 {
+                    d[l+i] = d_mat[i][0];
+                }
+                for i in 0..lend-l {
+                    e[l+i] = e_mat[i][0];
+                }
+            } else if anorm < ssfmin {
+                iscale = 2;
+                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
+                let mut e_mat = vec![vec![0.0; 1]; lend-l];
+                for i in 0..lend-l+1 {
+                    d_mat[i][0] = d[l+i];
+                }
+                for i in 0..lend-l {
+                    e_mat[i][0] = e[l+i];
+                }
+                dlascl(&mut d_mat, anorm, ssfmin)?;
+                dlascl(&mut e_mat, anorm, ssfmin)?;
+                for i in 0..lend-l+1 {
+                    d[l+i] = d_mat[i][0];
+                }
+                for i in 0..lend-l {
+                    e[l+i] = e_mat[i][0];
+                }
+            }
+        }
 
-       if lend >= l {
-           // QL Iteration
-           let mut m;
-           'outer: loop {
-               if l == lend {
-                   break 'outer;
-               }
-               
-               if jtot == nmaxit {
-                   break 'main;
-               }
-               jtot += 1;
+        // Choose between QL and QR iteration
+        if d[lend].abs() < d[l].abs() {
+            lend = lsv;
+            l = lendsv;
+        }
 
-               let mut g = (d[l+1] - d[l]) / (TWO * e[l]);
-               let mut r = dlapy2(g, ONE);
-               g = d[m] - d[l] + e[l] / (g + r.copysign(g));
-               let mut s = ONE;
-               let mut c = ONE;
-               let mut p = ZERO;
+        if lend >= l {
+            // QL Iteration
+            loop {
+                if l == lend {
+                    break;
+                }
+                if jtot == nmaxit {
+                    return Err((l + 1) as i32);
+                }
+                jtot += 1;
 
-               let mut i = m - 1;
-               while i >= l {
-                   let f = s * e[i];
-                   let b = c * e[i];
-                   let (cs, sn) = dlartg(g, f);
-                   c = cs;
-                   s = sn;
-                   
-                   if i != m-1 {
-                       e[i+1] = r;
-                   }
-                   g = d[i+1] - p;
-                   r = (d[i] - g) * s + TWO * c * b;
-                   p = s * r;
-                   d[i+1] = g + p;
-                   g = c * r - b;
+                // Form shift using dlapy2
+                let mut g = (d[l+1] - d[l]) / (2.0 * e[l]);
+                let r = dlapy2(g, 1.0);
+                g = d[m] - d[l] + e[l] / (g + r.copysign(g));
+                let mut s = 1.0;
+                let mut c = 1.0;
+                let mut p = 0.0;
 
-                   // Store rotation if eigenvectors desired
-                   if icompz > 0 {
-                       work[i] = c;
-                       work[n-1+i] = -s;
-                   }
-                   
-                   if i == l {
-                       break;
-                   }
-                   i -= 1;
-               }
+                let mut i = m - 1;
+                while i >= l {
+                    let f = s * e[i];
+                    let b = c * e[i];
+                    // Use our dlartg
+                    let (cs, sn) = dlartg(g, f);
+                    c = cs;
+                    s = sn;
+                    
+                    if i != m-1 {
+                        e[i+1] = r;
+                    }
+                    g = d[i+1] - p;
+                    r = (d[i] - g) * s + 2.0 * c * b;
+                    p = s * r;
+                    d[i+1] = g + p;
+                    g = c * r - b;
 
-               // Apply stored rotations
-               if icompz > 0 {
-                   let mm = m - l + 1;
-                   dlasr('R', 'V', 'B', n, mm, &work[l..], &work[n-1+l..], &mut z[l..], n)?;
-               }
+                    // Store rotation
+                    work[i] = c;
+                    work[n-1+i] = -s;
 
-               d[l] = d[l] - p;
-               e[l] = g;
+                    if i == l {
+                        break;
+                    }
+                    i -= 1;
+                }
 
-               // Check convergence
-               if e[l].abs() <= eps * (d[l].abs() + d[l+1].abs()) + safmin {
-                   e[l] = ZERO;
-                   break;
-               }
-           }
-       } else {
-           // QR Iteration 
-           let mut m;
-           'outer: loop {
-               if l == lend {
-                   break 'outer;
-               }
-               
-               if jtot == nmaxit {
-                   break 'main;
-               }
-               jtot += 1;
+                // Apply stored rotations using our dlasr
+                let mm = m - l + 1;
+                dlasr('R', 'V', 'B', n, mm, &work[l..l+mm], &work[n-1+l..n-1+l+mm], z)?;
 
-               let mut g = (d[l-1] - d[l]) / (TWO * e[l-1]);
-               let mut r = dlapy2(g, ONE);
-               g = d[m] - d[l] + e[l-1] / (g + r.copysign(g));
-               let mut s = ONE;
-               let mut c = ONE;
-               let mut p = ZERO;
+                d[l] = d[l] - p;
+                e[l] = g;
 
-               let mut i = m;
-               while i <= l-1 {
-                   let f = s * e[i];
-                   let b = c * e[i];
-                   let (cs, sn) = dlartg(g, f);
-                   c = cs;
-                   s = sn;
+                if e[l].abs() <= eps * (d[l].abs() + d[l+1].abs()) {
+                    e[l] = 0.0;
+                    break;
+                }
+            }
+        } else {
+            // QR Iteration
+            loop {
+                if l == lend {
+                    break;
+                }
+                if jtot == nmaxit {
+                    return Err((l + 1) as i32);
+                }
+                jtot += 1;
 
-                   if i != m {
-                       e[i-1] = r;
-                   }
-                   g = d[i] - p;
-                   r = (d[i+1] - g) * s + TWO * c * b;
-                   p = s * r;
-                   d[i] = g + p;
-                   g = c * r - b;
+                // Form shift using dlapy2
+                let mut g = (d[l-1] - d[l]) / (2.0 * e[l-1]);
+                let r = dlapy2(g, 1.0);
+                g = d[m] - d[l] + e[l-1] / (g + r.copysign(g));
+                let mut s = 1.0;
+                let mut c = 1.0;
+                let mut p = 0.0;
 
-                   if icompz > 0 {
-                       work[i] = c;
-                       work[n-1+i] = s;
-                   }
-                   i += 1;
-               }
+                for i in m..l {
+                    let f = s * e[i];
+                    let b = c * e[i];
+                    // Use our dlartg
+                    let (cs, sn) = dlartg(g, f);
+                    c = cs;
+                    s = sn;
 
-               if icompz > 0 {
-                   let mm = l - m + 1;
-                   dlasr('R', 'V', 'F', n, mm, &work[m..], &work[n-1+m..], &mut z[m..], n)?;
-               }
+                    if i != m {
+                        e[i-1] = r;
+                    }
+                    g = d[i] - p;
+                    r = (d[i+1] - g) * s + 2.0 * c * b;
+                    p = s * r;
+                    d[i] = g + p;
+                    g = c * r - b;
 
-               d[l] = d[l] - p;
-               e[l-1] = g;
+                    // Store rotation
+                    work[i] = c;
+                    work[n-1+i] = s;
+                }
 
-               if e[l-1].abs() <= eps * (d[l-1].abs() + d[l].abs()) + safmin {
-                   e[l-1] = ZERO;
-                   break;
-               }
-           }
-       }
+                // Apply stored rotations using our dlasr
+                let mm = l - m + 1;
+                dlasr('R', 'V', 'F', n, mm, &work[m..m+mm], &work[n-1+m..n-1+m+mm], z)?;
 
-       // Undo scaling if necessary
-       if iscale == 1 {
-           dlascl('G', 0, 0, ssfmax, anorm, lendsv-lsv+1, 1, &mut d[lsv..], n)?;
-           dlascl('G', 0, 0, ssfmax, anorm, lendsv-lsv, 1, &mut e[lsv..], n)?;
-       } else if iscale == 2 {
-           dlascl('G', 0, 0, ssfmin, anorm, lendsv-lsv+1, 1, &mut d[lsv..], n)?;
-           dlascl('G', 0, 0, ssfmin, anorm, lendsv-lsv, 1, &mut e[lsv..], n)?;
-       }
+                d[l] = d[l] - p;
+                e[l-1] = g;
 
-       l1 = l + 1;
-   }
+                if e[l-1].abs() <= eps * (d[l-1].abs() + d[l].abs()) {
+                    e[l-1] = 0.0;
+                    break;
+                }
+            }
+        }
 
-   // Check for convergence
-   if jtot >= nmaxit {
-       for i in 0..n-1 {
-           if e[i] != ZERO {
-               return Err(i as i32 + 1);
-           }
-       }
-   }
+        // Undo scaling if necessary using our dlascl
+        if iscale == 1 {
+            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
+            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
+            for i in 0..lendsv-lsv+1 {
+                d_mat[i][0] = d[lsv+i];
+            }
+            for i in 0..lendsv-lsv {
+                e_mat[i][0] = e[lsv+i];
+            }
+            dlascl(&mut d_mat, ssfmax, anorm)?;
+            dlascl(&mut e_mat, ssfmax, anorm)?;
+            for i in 0..lendsv-lsv+1 {
+                d[lsv+i] = d_mat[i][0];
+            }
+            for i in 0..lendsv-lsv {
+                e[lsv+i] = e_mat[i][0];
+            }
+        } else if iscale == 2 {
+            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
+            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
+            for i in 0..lendsv-lsv+1 {
+                d_mat[i][0] = d[lsv+i];
+            }
+            for i in 0..lendsv-lsv {
+                e_mat[i][0] = e[lsv+i];
+            }
+            dlascl(&mut d_mat, ssfmin, anorm)?;
+            dlascl(&mut e_mat, ssfmin, anorm)?;
+            for i in 0..lendsv-lsv+1 {
+                d[lsv+i] = d_mat[i][0];
+            }
+            for i in 0..lendsv-lsv {
+                e[lsv+i] = e_mat[i][0];
+            }
+        }
 
-   // Order eigenvalues and eigenvectors
-   for ii in 2..=n {
-       let i = ii - 1;
-       let mut k = i;
-       let mut p = d[i-1];
-       
-       for j in ii..=n {
-           if d[j-1] < p {
-               k = j;
-               p = d[j-1];
-           }
-       }
+        l1 = l + 1;
+    }
 
-       if k != i {
-           d.swap(k-1, i-1);
-           dswap(n, &mut z[k-1], 1, &mut z[i-1], 1)?;
-       }
-   }
+    // Sort eigenvalues and eigenvectors in ascending order
+    for ii in 2..=n {
+        let i = ii - 1;
+        let mut k = i;
+        let mut p = d[i-1];
+        for j in ii..=n {
+            if d[j-1] < p {
+                k = j;
+                p = d[j-1];
+            }
+        }
+        if k != i {
+            d.swap(k-1, i-1);
+            dswap(n, &mut z[k-1], 1, &mut z[i-1], 1);
+        }
+    }
 
-   Ok(())
+    Ok(())
 }
 
 
