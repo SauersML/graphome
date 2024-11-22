@@ -2309,9 +2309,7 @@ pub fn dlaed1(
         return info;
     }
 
-    // No need for input validation
-
-    // Workspace pointers
+    // Workspace pointers (adjusted for 0-based indexing)
     let iz = 0;
     let idlmda = iz + n;
     let iw = idlmda + n;
@@ -2322,40 +2320,27 @@ pub fn dlaed1(
     let coltyp = indxc + n;
     let indxp = coltyp + n;
 
-    // Form the z-vector
-    let zpp1 = cutpnt;
-
-    // More robust and efficient way to form the z-vector
+    // Form the z-vector (more efficient approach)
     let mut z = vec![0.0; n];
     for i in 0..cutpnt {
         z[i] = q[cutpnt - 1][i];
     }
     for i in cutpnt..n {
-        z[i] = q[zpp1][i];
+        z[i] = q[cutpnt][i];
     }
 
     // Deflate eigenvalues
     let mut k = 0;
-    let n2 = n - cutpnt;
+    let mut q2 = vec![vec![0.0; n]; n]; // Initialize q2 outside the conditional
 
-    // Initialize q2 conditionally based on the value of k
-    let mut q2 = if k > 0 {
-        vec![vec![0.0; n]; n]
-    } else {
-        // Provide a dummy value; q2 won't be used if k == 0. Can fix later
-        vec![vec![0.0; 1]; 1]
-    };
+    // Use slices for work and iwork
+    let work_dlamda = &mut work[idlmda..idlmda + n];
+    let work_w = &mut work[iw..iw + n];
+    let iwork_indx = &mut iwork[indx..indx + n];
+    let iwork_indxc = &mut iwork[indxc..indxc + n];
+    let iwork_indxp = &mut iwork[indxp..indxp + n];
+    let iwork_coltyp = &mut iwork[coltyp..coltyp + n];
 
-    // Split work and iwork to avoid multiple mutable borrows
-    let (work_z, work_dlamda_iw) = work.split_at_mut(idlmda);
-    let (work_dlamda, work_iw_q2) = work_dlamda_iw.split_at_mut(n);
-    let (work_iw, _) = work_iw_q2.split_at_mut(n);
-
-    let (iwork_indx, iwork_indxc_rest) = iwork.split_at_mut(indxc);
-    let (iwork_indxc, iwork_rest) = iwork_indxc_rest.split_at_mut(n);
-    let (iwork_indxp, iwork_coltyp) = iwork_rest.split_at_mut(n);
-    let iwork_coltyp = &mut iwork_coltyp[..n];
-    
     dlaed2(
         &mut k,
         n,
@@ -2367,26 +2352,18 @@ pub fn dlaed1(
         &mut rho,
         &mut z,
         work_dlamda,
-        work_iw,
+        work_w,
         &mut q2,
-        &mut iwork_indx[..n],
+        iwork_indx,
         iwork_indxc,
         iwork_indxp,
         iwork_coltyp,
     );
 
-
     // Solve Secular Equation
     if k > 0 {
-
-        let n1 = k;
-        let n2 = n - n1;
-        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt
-            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * n2
-            + iq2;
-
-        let (work_dlamda, work_iw_s) = work.split_at_mut(idlmda+k);
-        let (work_iw, work_s) = work_iw_s.split_at_mut(k); // Split to obtain a slice for s
+        let mut ctot = [0; 4]; // Declare ctot
+        let work_s = &mut work[iq2..]; // Slice for work_s
 
         dlaed3(
             k,
