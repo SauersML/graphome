@@ -56,7 +56,7 @@ impl SymmetricBandedMatrix {
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
 
-        let anrm = dlanst();
+        let anrm = dlanst('M', self.n, &self.d, &self.e);
         let mut scale = 1.0;
         let mut iscale = 0;
 
