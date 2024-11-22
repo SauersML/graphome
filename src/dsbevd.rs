@@ -2020,6 +2020,7 @@ pub fn dlaed0(
                 let mut info = 0;
                 let mut givptr: usize = 0;
                 let mut qstore_flat: Vec<f64> = qstore.iter().flatten().cloned().collect();
+                let mut indxq = vec![0usize; n]; // or let indxq = 4*n + 3;? Look earlier in the function
                 
                 dlaed7(
                     icompq,
@@ -2031,7 +2032,7 @@ pub fn dlaed0(
                     &mut d,          // &mut [f64]
                     &mut q,          // &mut [Vec<f64>]
                     ldq,
-                    &mut indxq,      // &mut [usize]
+                    &mut indxq[..],
                     &mut rho,
                     cutpnt,
                     &mut qstore_flat, // &mut [f64] (flattened qstore)
