@@ -560,7 +560,7 @@ pub fn dstedc(
     let mut subpbs = 1;
     let mut tlvls = 0;
     let mut iwork = vec![0usize; 4 * n];
-    let mut work = vec![0.0; n * n];
+    let mut work_matrix = vec![vec![0.0; n]; n];
 
     // Initialize z to identity
     for i in 0..n {
