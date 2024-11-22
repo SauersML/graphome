@@ -1999,11 +1999,8 @@ pub fn dlaed0(
                     &mut iwork[indxq + submat - 1..], &mut e[submat + msd2 - 2],
                     &mut iwork[iprmpt..], &mut iwork[iperm..],
                     &mut iwork[igivpt..], &mut iwork[igivcl..],
-                    &mut work[iq - 1..], &mut iwork[iqptr..],
-                    &mut work[igivnm - 1..], &mut work[iwrem - 1..],
-                    &mut iwork[subpbs..],
-                    &mut givcol,
-                    &mut givnum,
+                    &mut givcol, &mut givnum,
+                    &mut work[iwrem - 1..], &mut iwork[subpbs..]
                 )
             }
 
