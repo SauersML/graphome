@@ -1958,7 +1958,7 @@ pub fn dlaed0(
                 dcopy(n, &q[j-1], 1, &mut work[n*i..], 1);
             }
             dcopy(n, work, 1, d, 1);
-            dlacpy('A', n, n, &convert_to_matrix(&work[n..], n), q);
+            dlacpy('A', n, n, q, ldq, &mut work[n..], n);
         },
         _ => {
             for i in 0..n {
@@ -3633,6 +3633,98 @@ pub fn dlasr(
             }
         },
         _ => unreachable!(),
+    }
+
+    Ok(())
+}
+
+pub fn dlaed1(
+    n: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize],
+    rho: f64,
+    cutpnt: usize,
+    work: &mut [f64],
+    iwork: &mut [usize],
+) -> Result<(), i32> {
+    // Quick return if possible
+    if n == 0 {
+        return Ok(());
+    }
+
+    // Set up workspace pointers for arrays used in dlaed2/dlaed3
+    let iz = 0;
+    let idlmda = iz + n;
+    let iw = idlmda + n;
+    let iq2 = iw + n;
+
+    // Set up workspace pointers for iwork arrays
+    let indx = 0;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
+
+    // Form z-vector: last row of Q1 and first row of Q2
+    for i in 0..cutpnt {
+        work[iz + i] = q[cutpnt - 1][i];
+    }
+    let zpp1 = cutpnt;
+    for i in 0..n-cutpnt {
+        work[iz + cutpnt + i] = q[zpp1 + i][zpp1 + i];
+    }
+
+    // Deflate eigenvalues
+    let mut k = 0;
+    dlaed2(
+        &mut k,
+        n,
+        cutpnt,
+        d,
+        q,
+        ldq,
+        indxq,
+        &mut rho,
+        &work[iz..],
+        &mut work[idlmda..],
+        &mut work[iw..],
+        &mut work[iq2..],
+        &mut iwork[indx..],
+        &mut iwork[indxc..],
+        &mut iwork[indxp..],
+        &mut iwork[coltyp..],
+    )?;
+
+    if k != 0 {
+        // Solve Secular Equation
+        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt +
+                (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt) + iq2;
+
+        dlaed3(
+            k,
+            n,
+            cutpnt,
+            d,
+            q,
+            ldq,
+            rho,
+            &mut work[idlmda..],
+            &mut work[iq2..],
+            &mut iwork[indxc..],
+            &mut iwork[coltyp..],
+            &mut work[iw..],
+            &mut work[is..],
+        )?;
+
+        // Sort eigenvalues and corresponding eigenvectors
+        let n1 = k;
+        let n2 = n - k;
+        dlamrg(n1, n2, d, 1, -1, indxq);
+    } else {
+        for i in 0..n {
+            indxq[i] = i;
+        }
     }
 
     Ok(())
