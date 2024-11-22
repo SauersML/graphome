@@ -168,35 +168,38 @@ impl SymmetricBandedMatrix {
                     // Apply rotations based on number of diagonals
                     if nr > 2 * kd - 1 {
                         for l in 1..=kdm1 {
-                            let mut v1 = vec![];
-                            let mut v2 = vec![];
-    
-                            for idx in 0..nr {
-                                let j = j1 - kd + l + idx * kd;
-                                if j < ab[0].len() && j + 1 < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
-                                    v1.push(ab[kd - l][j]);
-                                    v2.push(ab[kd - l + 1][j]);
-                                }
-                            }
-    
-                            if !v1.is_empty() {
-                                let len = v1.len();
-                                dlartv(
-                                    len,
-                                    &mut v1,
-                                    inca,
-                                    &mut v2,
-                                    inca,
-                                    &work[..len],
-                                    &y_temp[..len],
-                                    1,
-                                );
-                                
-                                for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+                            if kd >= l {
+                                let mut v1 = vec![];
+                                let mut v2 = vec![];
+                        
+                                for idx in 0..nr {
                                     let j = j1 - kd + l + idx * kd;
-                                    if kd >= l && j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
-                                        ab[kd - l][j] = *val1;
-                                        ab[kd - l + 1][j] = *val2;
+                                    if j < ab[0].len() && j + 1 < ab[0].len() &&
+                                       (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
+                                        v1.push(ab[kd - l][j]);
+                                        v2.push(ab[kd - l + 1][j]);
+                                    }
+                                }
+                        
+                                if !v1.is_empty() {
+                                    let len = v1.len();
+                                    dlartv(
+                                        len,
+                                        &mut v1,
+                                        inca,
+                                        &mut v2,
+                                        inca,
+                                        &work[..len],
+                                        &y_temp[..len],
+                                        1,
+                                    );
+                                    
+                                    for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+                                        let j = j1 - kd + l + idx * kd;
+                                        if j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
+                                            ab[kd - l][j] = *val1;
+                                            ab[kd - l + 1][j] = *val2;
+                                        }
                                     }
                                 }
                             }
@@ -1220,7 +1223,7 @@ fn dlartg(f: f64, g: f64) -> (f64, f64) {
 
 fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],  e: &mut [f64], q: &mut [Vec<f64>]) {
    let kd1 = kd + 1;
-   let kdm1 = kd - 1;
+   let kdm1 = if kd >= 1 { kd - 1 } else { 0 };
    let mut nr: usize = 0;
    let mut j1: usize = kd1;
    let mut j2: usize = 1;
