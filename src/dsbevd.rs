@@ -2050,7 +2050,7 @@ pub fn dlaed0(
                     &mut rho,
                     cutpnt,
                     &mut qstore_flat, // &mut [f64] (flattened qstore)
-                    mut qptr,
+                    qptr,
                     prmptr,
                     perm,
                     &mut givptr,     // &mut usize
