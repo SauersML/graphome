@@ -1993,20 +1993,18 @@ pub fn dlaed0(
                     work,
                     &mut iwork[subpbs..])?;
             } else {
-                dlaed7(icompq, matsiz, qsiz, tlvls, curlvl, curprb,
-                       &mut d[submat-1..],
-                       &mut qstore[submat-1..], ldq,
-                       &mut iwork[indxq+submat-1..],
-                       &mut e[submat + msd2 - 2],
-                       &mut work[iq-1..],
-                       &mut iwork[iqptr..],
-                       &mut iwork[iprmpt..],
-                       &mut iwork[iperm..],
-                       &mut iwork[igivpt..],
-                       &mut iwork[igivcl..],
-                       &mut work[igivnm-1..],
-                       &mut work[iwrem-1..],
-                       &mut iwork[subpbs..])?;
+                dlaed7(
+                    icompq, matsiz, qsiz, tlvls, curlvl, curprb,
+                    &mut d[submat - 1..], &mut qstore[submat - 1..], ldq,
+                    &mut iwork[indxq + submat - 1..], &mut e[submat + msd2 - 2],
+                    &mut iwork[iprmpt..], &mut iwork[iperm..],
+                    &mut iwork[igivpt..], &mut iwork[igivcl..],
+                    &mut work[iq - 1..], &mut iwork[iqptr..],
+                    &mut work[igivnm - 1..], &mut work[iwrem - 1..],
+                    &mut iwork[subpbs..],
+                    &mut givcol,
+                    &mut givnum,
+                )
             }
 
             iwork[i/2 + 1] = iwork[i+2];
