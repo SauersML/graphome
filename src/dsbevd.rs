@@ -2748,6 +2748,246 @@ pub fn dlaed9(
     Ok(())
 }
 
+/// Merges eigenvalues and deflates secular equation. Used when the original matrix is dense.
+/// This function merges two sets of eigenvalues together into a single sorted set 
+/// and tries to deflate the problem size when eigenvalues are close or Z elements are tiny.
+pub fn dlaed8(
+    icompq: i32,
+    k: &mut usize,
+    n: usize, 
+    qsiz: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize],
+    rho: &mut f64,
+    cutpnt: usize,
+    z: &mut [f64],
+    dlamda: &mut [f64],
+    q2: &mut [Vec<f64>],
+    ldq2: usize,
+    w: &mut [f64],
+    perm: &mut [usize],
+    givptr: &mut usize,
+    givcol: &mut Vec<Vec<usize>>, // Changed from 2-d array to Vec of Vec
+    givnum: &mut Vec<Vec<f64>>,   // Changed from 2-d array to Vec of Vec
+    indxp: &mut [usize],
+    indx: &mut [usize],
+) -> Result<(), i32> {
+    // Constants
+    const MONE: f64 = -1.0;
+    const ZERO: f64 = 0.0;
+    const ONE: f64 = 1.0;
+    const TWO: f64 = 2.0;
+    const EIGHT: f64 = 8.0;
+
+    // Test the input parameters
+    if icompq < 0 || icompq > 1 {
+        return Err(-1);
+    }
+    if n < 0 {
+        return Err(-3);
+    }
+    if icompq == 1 && qsiz < n {
+        return Err(-4);
+    }
+    if ldq < n.max(1) {
+        return Err(-7);
+    }
+    if cutpnt < 1.min(n) || cutpnt > n {
+        return Err(-10);
+    }
+    if ldq2 < n.max(1) {
+        return Err(-14);
+    }
+
+    // Need to initialize GIVPTR to 0 to prevent undefined behavior
+    *givptr = 0;
+
+    // Quick return if possible
+    if n == 0 {
+        return Ok(());
+    }
+
+    let n1 = cutpnt;
+    let n2 = n - n1;
+    let n1p1 = n1 + 1;
+
+    // Normalize z vector
+    if *rho < ZERO {
+        dscal(n2, MONE, &mut z[n1p1..], 1);
+    }
+
+    let t = ONE / (TWO.sqrt());
+    for j in 0..n {
+        indx[j] = j;
+    }
+    dscal(n, t, z, 1);
+    *rho = (TWO * *rho).abs();
+
+    // Sort eigenvalues into increasing order
+    for i in cutpnt..n {
+        indxq[i] += cutpnt;
+    }
+    
+    // Copy values to work arrays
+    for i in 0..n {
+        dlamda[i] = d[indxq[i]];
+        w[i] = z[indxq[i]];
+    }
+
+    // Merge sorted subsets using dlamrg
+    dlamrg(n1, n2, dlamda, 1, 1, indx);
+
+    // Reorder based on sorted indices
+    for i in 0..n {
+        d[i] = dlamda[indx[i]];
+        z[i] = w[indx[i]];
+    }
+
+    // Calculate deflation tolerance
+    let imax = idamax(n, z, 1);
+    let jmax = idamax(n, d, 1);
+    let eps = dlamch('E');
+    let tol = EIGHT * eps * d[jmax].abs();
+
+    // If rank-1 modifier is small enough, only reorder Q
+    if *rho * z[imax].abs() <= tol {
+        *k = 0;
+        if icompq == 0 {
+            for j in 0..n {
+                perm[j] = indxq[indx[j]];
+            }
+        } else {
+            for j in 0..n {
+                perm[j] = indxq[indx[j]];
+                dcopy(qsiz, &q[perm[j]], 1, &mut q2[j], 1);
+            }
+            dlacpy('A', qsiz, n, q2, ldq2, q, ldq);
+        }
+        return Ok(());
+    }
+
+    // Handle deflation of eigenvalues
+    *k = 0;
+    let mut k2 = n + 1;
+    let mut jlam = 0;
+    let mut j = 0;
+
+    // Main deflation detection loop
+    'outer: while j < n {
+        if *rho * z[j].abs() <= tol {
+            // Deflate due to small z component
+            k2 -= 1;
+            indxp[k2 - 1] = j;
+            if j == n - 1 {
+                break;
+            }
+        } else {
+            jlam = j;
+            j += 1;
+
+            while j < n {
+                if *rho * z[j].abs() <= tol {
+                    k2 -= 1;
+                    indxp[k2 - 1] = j;
+                } else {
+                    // Check if eigenvalues are close enough to deflate
+                    let s = z[jlam];
+                    let c = z[j];
+                    let tau = dlapy2(c, s);
+                    let t = d[j] - d[jlam];
+                    let c = c / tau;
+                    let s = -s / tau;
+
+                    if (t * c * s).abs() <= tol {
+                        // Deflation is possible
+                        z[j] = tau;
+                        z[jlam] = ZERO;
+
+                        // Record Givens rotation
+                        *givptr += 1;
+                        givcol[0][*givptr - 1] = indxq[indx[jlam]];
+                        givcol[1][*givptr - 1] = indxq[indx[j]];
+                        givnum[0][*givptr - 1] = c;
+                        givnum[1][*givptr - 1] = s;
+
+                        if icompq == 1 {
+                            drot(qsiz, &mut q[indxq[indx[jlam]]], 1, &mut q[indxq[indx[j]]], 1, c, s);
+                        }
+
+                        let t = d[jlam] * c * c + d[j] * s * s;
+                        d[j] = d[jlam] * s * s + d[j] * c * c;
+                        d[jlam] = t;
+
+                        k2 -= 1;
+                        let mut i = 1;
+                        while k2 + i <= n {
+                            if d[jlam] < d[indxp[k2 + i - 1]] {
+                                indxp[k2 + i - 2] = indxp[k2 + i - 1];
+                                indxp[k2 + i - 1] = jlam;
+                                i += 1;
+                            } else {
+                                indxp[k2 + i - 2] = jlam;
+                                break;
+                            }
+                        }
+                        if k2 + i > n {
+                            indxp[k2 + i - 2] = jlam;
+                        }
+
+                        jlam = j;
+                    } else {
+                        *k += 1;
+                        w[*k - 1] = z[jlam];
+                        dlamda[*k - 1] = d[jlam];
+                        indxp[*k - 1] = jlam;
+                        jlam = j;
+                    }
+                }
+                j += 1;
+            }
+            
+            // Record last eigenvalue
+            *k += 1;
+            w[*k - 1] = z[jlam];
+            dlamda[*k - 1] = d[jlam];
+            indxp[*k - 1] = jlam;
+            
+            break 'outer;
+        }
+        j += 1;
+    }
+
+    // Sort eigenvalues and eigenvectors into dlamda and q2
+    if icompq == 0 {
+        for j in 0..n {
+            let jp = indxp[j];
+            dlamda[j] = d[jp];
+            perm[j] = indxq[indx[jp]];
+        }
+    } else {
+        for j in 0..n {
+            let jp = indxp[j];
+            dlamda[j] = d[jp];
+            perm[j] = indxq[indx[jp]];
+            dcopy(qsiz, &q[perm[j]], 1, &mut q2[j], 1);
+        }
+    }
+
+    // Copy deflated eigenvalues and vectors back
+    if *k < n {
+        if icompq == 0 {
+            dcopy(n - *k, &dlamda[*k..], 1, &mut d[*k..], 1);
+        } else {
+            dcopy(n - *k, &dlamda[*k..], 1, &mut d[*k..], 1);
+            dlacpy('A', qsiz, n - *k, &q2[*k..], ldq2, &mut q[*k..], ldq);
+        }
+    }
+
+    Ok(())
+}
+
 
 /*
 Not yet implemented functions:
@@ -2755,10 +2995,6 @@ Not yet implemented functions:
 - DLAED7
   - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix, used when the original matrix is dense. It specifically handles larger subproblems in the divide and conquer algorithm.
   - When it's called: Within `dstedc`, `dlaed7` is called during recursive steps of the divide and conquer process to update eigenvalues and eigenvectors after merging subproblems.
-
-- DLAED8
-  - Description: Merges eigenvalues and deflates the secular equation for dense matrices. It works alongside `dlaed7` to handle eigenvalue deflation and convergence during the divide and conquer algorithm.
-  - When it's called: Called by `dlaed7` to perform the merging and deflation steps necessary for efficiently computing the eigenvalues and eigenvectors of the updated matrix.
 
 - DLAEDA
   - Description: Computes the Z vector determining the rank-one modification of the diagonal matrix. It effectively prepares the data needed for the rank-one update in the divide step of the algorithm.
