@@ -3860,7 +3860,7 @@ pub fn dlaed1(
             &mut s_temp,
         );
         if info != 0 {
-            return Err(Error(info));
+            return Err(Error(info?));
         }
 
         // Sort eigenvalues and corresponding eigenvectors
