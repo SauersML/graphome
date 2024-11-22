@@ -4,7 +4,39 @@ use nalgebra::{DMatrix, SymmetricEigen};
 use std::time::Instant;
 use std::f64::EPSILON;
 use std::f64;
-use super::*;
+
+use graphome::dsbevd::EigenResults;
+use graphome::dsbevd::Error;
+use graphome::dsbevd::dlargv;
+use graphome::dsbevd::dlartv;
+use graphome::dsbevd::drot;
+use graphome::dsbevd::dlar2v;
+use graphome::dsbevd::dstedc;
+use graphome::dsbevd::dlaed4;
+use graphome::dsbevd::dgemm;
+use graphome::dsbevd::dlamc3;
+use graphome::dsbevd::dlanst as dlanst_function;
+use graphome::dsbevd::dlaev2;
+use graphome::dsbevd::dlapy2;
+use graphome::dsbevd::dlaset;
+use graphome::dsbevd::dgemv;
+use graphome::dsbevd::dnrm2;
+use graphome::dsbevd::dscal;
+use graphome::dsbevd::idamax;
+use graphome::dsbevd::dsbtrd_wrapper;
+use graphome::dsbevd::get_mut_bands;
+use graphome::dsbevd::dlartg;
+use graphome::dsbevd::dsteqr;
+use graphome::dsbevd::dlascl;
+use graphome::dsbevd::dswap;
+use graphome::dsbevd::dcopy;
+use graphome::dsbevd::dlassq;
+use graphome::dsbevd::ilaenv;
+use graphome::dsbevd::dlaed0;
+use graphome::dsbevd::dlamch;
+use graphome::dsbevd::dlacpy;
+use graphome::dsbevd::dlamrg;
+use graphome::dsbevd::dlaed5;
 
 // Helper function to convert banded storage to dense matrix
 fn banded_to_dense(n: usize, kd: usize, ab: &Vec<Vec<f64>>) -> DMatrix<f64> {
