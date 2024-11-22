@@ -625,7 +625,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
 
         if m <= smlsiz {
             // Small subproblem - use STEQR
-            let mut d_sub = d[start..end].to_vec();
+            let mut d_sub = d[start..=end].to_vec();
             let mut e_sub = e[start..end].to_vec();
             let mut z_sub = vec![vec![0.0; m]; m];
             for i in 0..m {
