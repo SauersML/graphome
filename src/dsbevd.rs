@@ -1921,7 +1921,7 @@ pub fn dlaed0(
             } else {
                 dlaed7(icompq, matsiz, qsiz, tlvls, curlvl, curprb,
                        &mut d[submat-1..],
-                       &mut qstore[submat-1..], ldqs,
+                       &mut qstore[submat-1..], ldq,
                        &mut iwork[indxq+submat-1..],
                        &mut e[submat+msd2-2..], msd2,
                        &mut work[iq-1..],
