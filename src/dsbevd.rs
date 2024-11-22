@@ -27,6 +27,12 @@ impl From<&'static str> for Error {
     }
 }
 
+impl From<i32> for Error {
+    fn from(e: i32) -> Error {
+        Error(e)
+    }
+}
+
 impl SymmetricBandedMatrix {
     /// Creates a new symmetric banded matrix.
     pub fn new(n: usize, kd: usize, ab: Vec<Vec<f64>>) -> Self {
@@ -1838,7 +1844,7 @@ pub fn dlaed0(
     givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
     iwork: &mut [usize],
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Constants
     const ZERO: f64 = 0.0;
     const ONE: f64 = 1.0;
