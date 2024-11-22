@@ -194,7 +194,7 @@ impl SymmetricBandedMatrix {
                                 
                                 for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
                                     let j = j1 - kd + l + idx * kd;
-                                    if j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
+                                    if kd >= l && j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
                                         ab[kd - l][j] = *val1;
                                         ab[kd - l + 1][j] = *val2;
                                     }
@@ -285,9 +285,10 @@ impl SymmetricBandedMatrix {
                 // Handle inner elements of band for current k
                 if k > 2 && k <= n - i {
                     // Safe indexing
-                    if kd - 2 < ab.len() && i < ab[kd - 2].len() {
+                    if kd >= 2 && i < ab[kd - 2].len() {
                         let f = ab[kd - 2][i];
                         let g = ab[kd - 1][i];
+
                         let (cs, sn) = dlartg(f, g);
                         ab[kd - 2][i] = cs * f + sn * g;
     
