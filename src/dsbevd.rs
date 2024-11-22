@@ -3804,22 +3804,13 @@ pub fn dlaed1(
 
     // Deflate eigenvalues
     let mut k = 0;
+    let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
+    
     dlaed2(
-        &mut k,
-        n,
-        cutpnt,
-        d,
-        q,
-        ldq,
-        indxq,
-        &mut rho,
-        &work[iz..],
-        &mut work[idlmda..],
-        &mut work[iw..],
-        &mut work[iq2..],
-        &mut iwork[indx..],
-        &mut iwork[indxc..],
-        &mut iwork[indxp..],
+        &mut k, n, n1, d, q, ldq, indxq, &mut rho,
+        &mut work[iz..], &mut work[idlmda..], &mut work[iw..],
+        &mut q2,
+        &mut iwork[indx..], &mut iwork[indxc..], &mut iwork[indxp..],
         &mut iwork[coltyp..],
     )?;
 
