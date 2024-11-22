@@ -18,9 +18,12 @@ pub struct EigenResults {
     pub eigenvectors: Vec<Vec<f64>>, // Eigenvectors corresponding to the eigenvalues
 }
 
-impl From<&'static str> for i32 {
-    fn from(_: &'static str) -> i32 {
-        -1  // Simple conversion of all string errors to -1
+#[derive(Debug)]
+pub struct Error(i32);
+
+impl From<&'static str> for Error {
+    fn from(_: &'static str) -> Error {
+        Error(-1)  // Simple conversion of all string errors to Error(-1)
     }
 }
 
@@ -1941,7 +1944,10 @@ pub fn dlaed0(
             if icompq == 1 {
                 // Multiply by original vectors if needed
                 let result = dgemm(&q[submat-1..], &z);
-                qstore[submat-1..].copy_from_slice(&result);
+                for (i, row) in result.iter().enumerate() {
+                    qstore[submat - 1 + i] = row.clone();
+                }
+
 
                 iwork[iqptr+curr+1] = iwork[iqptr+curr] + matsiz*matsiz;
                 curr += 1;
