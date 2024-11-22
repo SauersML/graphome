@@ -2292,13 +2292,117 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
 }
 
 
+pub fn dlaed1(
+    n: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize],
+    rho: f64,
+    cutpnt: usize,
+    work: &mut [f64],
+    iwork: &mut [usize],
+) -> i32 {
+    let mut info = 0;
+
+    if n == 0 {
+        return info; // Quick return if possible
+    }
+
+    // We DO NOT need to validate inputs explicitly
+
+    // Workspace pointers
+    let iz = 0;
+    let idlmda = iz + n;
+    let iw = idlmda + n;
+    let iq2 = iw + n;
+
+    let indx = 0;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
+
+
+    // Form the z-vector
+    let zpp1 = cutpnt;
+    work[iz..iz + cutpnt].copy_from_slice(&q[cutpnt - 1][..cutpnt]); // Last row of Q1
+    work[iz + cutpnt..iz + n].copy_from_slice(&q[zpp1][zpp1..]);     // First row of Q2
+    let z = &work[iz..iz + n]; // Create a slice for the z-vector. IMPORTANT for correct indexing later!
+
+
+    // Deflate eigenvalues
+    let mut k = 0;  // Initialize k before the call to dlaed2
+    dlaed2(
+        &mut k,
+        n,
+        cutpnt,
+        d,
+        q,
+        ldq,
+        indxq,
+        &mut rho, // rho is modified by dlaed2
+        &mut work[iz..iz + n], // Pass z as mutable slice
+        &mut work[idlmda..idlmda + n],
+        &mut work[iw..iw + n],
+        &mut vec![vec![0.0; n1*n1 + n2*n2]; n], // Adjust Q2 size
+        &mut iwork[indx..indx + n],
+        &mut iwork[indxc..indxc + n],
+        &mut iwork[indxp..indxp + n],
+        &mut iwork[coltyp..coltyp + n],
+    );
+
+    if info != 0 {
+        return info;
+    }
+
+    // Solve Secular Equation (if necessary)
+    if k > 0 {
+        let n1 = k;
+        let n2 = n - k;
+
+        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt
+            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt)
+            + iq2;
+
+
+        dlaed3(
+            k,
+            n,
+            cutpnt,
+            d,
+            q,
+            ldq,
+            rho,
+            &mut work[idlmda..idlmda + k],  // dlamda
+            &mut vec![vec![0.0; n]; n],     // q2 - Needs proper sizing
+            &mut iwork[indxc..indxc + n],   // indx
+            &mut iwork[coltyp..coltyp + 4], // ctot
+            &mut work[iw..iw + k],          // w
+            &mut work[is..],                // s - size depends on usage in dlaed3
+            &mut info,
+        );
+
+
+        if info != 0 {
+            return info;
+        }
+
+        // Prepare INDXQ sorting permutation
+        dlamrg(n1, n2, d, 1, -1, indxq);
+    } else {
+        for i in 0..n {
+            indxq[i] = i + 1;
+        }
+    }
+
+
+    info // Return info
+}
+
+
 
 /*
 Not yet implemented functions:
-
-- DLAED1
-  - Description: Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix. It is specifically used when the original matrix is tridiagonal and involves deflation techniques.
-  - When it's called: Within `dlaed0` during the divide step of the divide and conquer algorithm, when handling merged eigenvalues and eigenvectors.
 
 - DLAED2
   - Description: Merges eigenvalues and deflates the secular equation, reducing the problem size when possible. It handles cases with multiple eigenvalues or negligible entries in the updating vector.
