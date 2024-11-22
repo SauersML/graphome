@@ -2185,8 +2185,7 @@ pub fn dlaed2(
     indxc: &mut [usize],
     indxp: &mut [usize],
     coltyp: &mut [usize],
-) -> i32 {
-
+) -> Result<i32, Error> {
     let mut info = 0;
 
     if n == 0 {
@@ -3771,20 +3770,23 @@ pub fn dlaed1(
         let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt +
                 (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt) + iq2;
 
+        let mut q2_temp = vec![vec![0.0; k]; n];
+        let mut s_temp = vec![vec![0.0; k]; k];
+        
         dlaed3(
             k,
-            n,
+            n, 
             cutpnt,
             d,
             q,
             ldq,
             rho,
             &mut work[idlmda..],
-            &mut work[iq2..],
-            &mut iwork[indxc..],
-            &mut iwork[coltyp..],
+            &q2_temp,
+            &iwork[indxc..],
+            &iwork[coltyp..],
             &mut work[iw..],
-            &mut work[is..],
+            &mut s_temp,
         )?;
 
         // Sort eigenvalues and corresponding eigenvectors
