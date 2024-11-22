@@ -2028,7 +2028,7 @@ pub fn dlaed0(
                     &mut d,
                     &mut q,
                     ldq,  // ldq is passed?
-                    indxq,
+                    &mut indxq,
                     &mut rho,
                     cutpnt,
                     &mut qstore,
