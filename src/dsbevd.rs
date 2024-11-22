@@ -3132,21 +3132,18 @@ pub fn dlaed7(
         if icompq == 1 {
             // Compute eigenvectors of current problem
             // Rust way to handle matrix multiplication using dgemm:
-            dgemm(
-                false,
-                false,
-                qsiz,
-                k, 
-                k,
-                1.0,
-                &work[iq2..],
-                ldq2,
-                &qstore[qptr[curr]..],
-                k,
-                0.0,
-                q,
-                ldq,
-            );
+            let q_slice = &work[iq2..iq2 + qsiz * k].chunks(k)
+                .map(|chunk| chunk.to_vec())
+                .collect::<Vec<Vec<f64>>>();
+            let qstore_slice = &qstore[qptr[curr]..qptr[curr] + k];
+            let result = dgemm(q_slice, qstore_slice);
+
+            // Copy result back to q
+            for i in 0..qsiz {
+                for j in 0..k {
+                    q[i][j] = result[i][j];
+                }
+            }
         }
 
         qptr[curr + 1] = qptr[curr] + k * k;
