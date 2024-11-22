@@ -18,6 +18,12 @@ pub struct EigenResults {
     pub eigenvectors: Vec<Vec<f64>>, // Eigenvectors corresponding to the eigenvalues
 }
 
+impl From<&'static str> for i32 {
+    fn from(_: &'static str) -> i32 {
+        -1  // Simple conversion of all string errors to -1
+    }
+}
+
 impl SymmetricBandedMatrix {
     /// Creates a new symmetric banded matrix.
     pub fn new(n: usize, kd: usize, ab: Vec<Vec<f64>>) -> Self {
