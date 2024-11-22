@@ -3,14 +3,14 @@
 // We ONLY care about large matrices, and we ALWAYS want both eigenvectors and eigenvalues
 
 use rayon::prelude::*;
-use std::cmp::{min, max};
+use std::cmp::{max, min};
 
 /// Represents a real symmetric banded matrix.
 #[derive(Clone)]
 pub struct SymmetricBandedMatrix {
-    n: usize,           // Order of the matrix
-    kd: usize,          // Number of subdiagonals (assuming 'L' storage)
-    ab: Vec<Vec<f64>>,  // The lower triangle of the symmetric band matrix A, stored in banded format
+    n: usize,          // Order of the matrix
+    kd: usize,         // Number of subdiagonals (assuming 'L' storage)
+    ab: Vec<Vec<f64>>, // The lower triangle of the symmetric band matrix A, stored in banded format
 }
 
 pub struct EigenResults {
@@ -23,7 +23,7 @@ pub struct Error(i32);
 
 impl From<&'static str> for Error {
     fn from(_: &'static str) -> Error {
-        Error(-1)  // Simple conversion of all string errors to Error(-1)
+        Error(-1) // Simple conversion of all string errors to Error(-1)
     }
 }
 
@@ -36,25 +36,30 @@ impl From<i32> for Error {
 impl SymmetricBandedMatrix {
     /// Creates a new symmetric banded matrix.
     pub fn new(n: usize, kd: usize, ab: Vec<Vec<f64>>) -> Self {
-        assert!(ab.len() == kd + 1, "Incorrect number of rows in 'ab' matrix");
-        assert!(ab[0].len() == n, "Incorrect number of columns in 'ab' matrix");
+        assert!(
+            ab.len() == kd + 1,
+            "Incorrect number of rows in 'ab' matrix"
+        );
+        assert!(
+            ab[0].len() == n,
+            "Incorrect number of columns in 'ab' matrix"
+        );
         SymmetricBandedMatrix { n, kd, ab }
     }
 
     /// Computes all eigenvalues and eigenvectors of the symmetric banded matrix.
     pub fn dsbevd(&self) -> Result<EigenResults, Error> {
-    
         let safmin = f64::MIN_POSITIVE;
         let eps = f64::EPSILON;
         let smlnum = safmin / eps;
         let bignum = 1.0 / smlnum;
         let rmin = smlnum.sqrt();
         let rmax = bignum.sqrt();
-    
+
         let anrm = self.dlanst();
         let mut scale = 1.0;
         let mut iscale = 0;
-        
+
         if anrm > 0.0 && anrm < rmin {
             iscale = 1;
             scale = rmin / anrm;
@@ -62,15 +67,15 @@ impl SymmetricBandedMatrix {
             iscale = 2;
             scale = rmax / anrm;
         }
-    
+
         let working_matrix = if scale != 1.0 {
             self.dlascl(scale)
         } else {
             self.clone()
         };
-    
+
         let (mut d, mut e, mut q) = working_matrix.dsbtrd();
-    
+
         // Use reliable tridiagonal solver
         let mut d = d.to_vec();
         let mut e = e.to_vec();
@@ -78,14 +83,14 @@ impl SymmetricBandedMatrix {
         for i in 0..self.n {
             z[i][i] = 1.0;
         }
-        
+
         // Call dstedc with mutable references
         dstedc(&mut d, &mut e, &mut z)?;
-        
+
         // Convert results to required format
         let eigenvalues = d.clone();
         let eigenvectors = z.clone(); // Clone z here
-        
+
         // Rescale eigenvalues
         let mut eigenvalues = eigenvalues; // Use the cloned eigenvalues
         if scale != 1.0 {
@@ -93,7 +98,7 @@ impl SymmetricBandedMatrix {
                 *eigenval /= scale;
             }
         }
-    
+
         Ok(EigenResults {
             eigenvalues,
             eigenvectors,
@@ -104,46 +109,46 @@ impl SymmetricBandedMatrix {
         let n = self.n;
         let kd = self.kd;
         let mut ab = self.ab.clone();
-        
+
         // Output arrays
         let mut d = vec![0.0; n];
         let mut e = vec![0.0; n.saturating_sub(1)];
         let mut q = vec![vec![0.0; n]; n];
-        
+
         // Initialize Q to identity
         for i in 0..n {
             q[i][i] = 1.0;
         }
-        
+
         if kd == 0 {
             for i in 0..n {
                 d[i] = ab[0][i];
             }
             return (d, e, q);
         }
-        
+
         let kd1 = kd + 1;
         let kdm1 = if kd >= 1 { kd - 1 } else { 0 }; // Prevent negative kdm1
         let inca = kd1;
-        
+
         let mut nr = 0;
         let mut j1 = kd;
         let mut j2 = 1;
-    
+
         // Declare the work array
         let mut work = vec![0.0; n];
-    
+
         // Main reduction loop matching LAPACK's structure
         for i in 0..(n - 2) {
             for k in (2..=kd1).rev() {
                 j1 += kd;
                 j2 += kd;
-    
+
                 if nr > 0 {
                     // Work arrays for current k iteration
                     let mut x_temp = vec![0.0; nr];
                     let mut y_temp = vec![0.0; nr];
-    
+
                     // Generate plane rotations
                     for idx in 0..nr {
                         let j = j1 - kd - 1 + idx * kd;
@@ -154,33 +159,28 @@ impl SymmetricBandedMatrix {
                             }
                         }
                     }
-    
-                    dlargv(
-                        nr,
-                        &mut x_temp,
-                        1,
-                        &mut y_temp,
-                        1,
-                        &mut work[..nr],
-                        1,
-                    );
-    
+
+                    dlargv(nr, &mut x_temp, 1, &mut y_temp, 1, &mut work[..nr], 1);
+
                     // Apply rotations based on number of diagonals
                     if nr > 2 * kd - 1 {
                         for l in 1..=kdm1 {
                             if kd >= l {
                                 let mut v1 = vec![];
                                 let mut v2 = vec![];
-                        
+
                                 for idx in 0..nr {
                                     let j = j1 - kd + l + idx * kd;
-                                    if j < ab[0].len() && j + 1 < ab[0].len() &&
-                                       (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
+                                    if j < ab[0].len()
+                                        && j + 1 < ab[0].len()
+                                        && (kd - l) < ab.len()
+                                        && (kd - l + 1) < ab.len()
+                                    {
                                         v1.push(ab[kd - l][j]);
                                         v2.push(ab[kd - l + 1][j]);
                                     }
                                 }
-                        
+
                                 if !v1.is_empty() {
                                     let len = v1.len();
                                     dlartv(
@@ -193,10 +193,14 @@ impl SymmetricBandedMatrix {
                                         &y_temp[..len],
                                         1,
                                     );
-                                    
-                                    for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate() {
+
+                                    for (idx, (val1, val2)) in v1.iter().zip(v2.iter()).enumerate()
+                                    {
                                         let j = j1 - kd + l + idx * kd;
-                                        if j < ab[0].len() && (kd - l) < ab.len() && (kd - l + 1) < ab.len() {
+                                        if j < ab[0].len()
+                                            && (kd - l) < ab.len()
+                                            && (kd - l + 1) < ab.len()
+                                        {
                                             ab[kd - l][j] = *val1;
                                             ab[kd - l + 1][j] = *val2;
                                         }
@@ -207,26 +211,42 @@ impl SymmetricBandedMatrix {
                     } else {
                         let jend = j1 + kd1 * (nr - 1);
                         for jinc in (j1..=jend).step_by(kd1) {
-                        if jinc >= kd {
-                            let mut row1 = vec![];
-                            let mut row2 = vec![];
-                        
-                            for idx in 0..kdm1 {
-                                if kd >= 1 && jinc - kd + idx < ab[0].len() &&
-                                   kd < ab.len() && kd1 < ab.len() {
-                                    row1.push(ab[kd][jinc - kd + idx]);
-                                    row2.push(ab[kd1][jinc - kd + idx]);
+                            if jinc >= kd {
+                                let mut row1 = vec![];
+                                let mut row2 = vec![];
+
+                                for idx in 0..kdm1 {
+                                    if kd >= 1
+                                        && jinc - kd + idx < ab[0].len()
+                                        && kd < ab.len()
+                                        && kd1 < ab.len()
+                                    {
+                                        row1.push(ab[kd][jinc - kd + idx]);
+                                        row2.push(ab[kd1][jinc - kd + idx]);
+                                    }
                                 }
-                            }
-    
+
                                 if !row1.is_empty() {
                                     let jidx = (jinc - j1) / kd1;
                                     if jidx < work.len() && jidx < y_temp.len() {
                                         let n_rot = row1.len(); // Should we assume row1 and row2 have the same length?
-                                        drot(n_rot, &mut row1, 1, &mut row2, 1, work[jidx], y_temp[jidx]);
-    
-                                        for (idx, (val1, val2)) in row1.iter().zip(row2.iter()).enumerate() {
-                                            if jinc - kd + idx < ab[0].len() && (kd) < ab.len() && (kd1) < ab.len() {
+                                        drot(
+                                            n_rot,
+                                            &mut row1,
+                                            1,
+                                            &mut row2,
+                                            1,
+                                            work[jidx],
+                                            y_temp[jidx],
+                                        );
+
+                                        for (idx, (val1, val2)) in
+                                            row1.iter().zip(row2.iter()).enumerate()
+                                        {
+                                            if jinc - kd + idx < ab[0].len()
+                                                && (kd) < ab.len()
+                                                && (kd1) < ab.len()
+                                            {
                                                 ab[kd][jinc - kd + idx] = *val1;
                                                 ab[kd1][jinc - kd + idx] = *val2;
                                             }
@@ -236,7 +256,7 @@ impl SymmetricBandedMatrix {
                             }
                         }
                     }
-    
+
                     // Update Q matrix safely
                     for j in j1..=j2 {
                         if j + kd < n {
@@ -246,12 +266,12 @@ impl SymmetricBandedMatrix {
                                     block.push(ab[kd][jj]);
                                 }
                             }
-    
+
                             if block.len() >= 3 {
                                 let mut x = vec![block[0]];
                                 let mut y = vec![block[1]];
                                 let mut z = vec![block[2]];
-    
+
                                 let j_idx = (j - j1) / kd1;
                                 if j_idx + 1 <= work.len() && j_idx + 1 <= y_temp.len() {
                                     dlar2v(
@@ -264,28 +284,29 @@ impl SymmetricBandedMatrix {
                                         &y_temp[j_idx..j_idx + 1],
                                         1,
                                     );
-    
+
                                     ab[kd][j] = x[0];
                                     ab[kd][j + 1] = y[0];
                                     ab[kd][j + 2] = z[0];
                                 }
                             }
                         }
-    
+
                         // Update Q matrix
                         if j < n - 1 {
                             let j_idx = (j - j1) / kd1;
                             if j_idx < work.len() && j_idx < y_temp.len() {
                                 for k in 0..n {
                                     let temp = work[j_idx] * q[k][j] + y_temp[j_idx] * q[k][j + 1];
-                                    q[k][j + 1] = -y_temp[j_idx] * q[k][j] + work[j_idx] * q[k][j + 1];
+                                    q[k][j + 1] =
+                                        -y_temp[j_idx] * q[k][j] + work[j_idx] * q[k][j + 1];
                                     q[k][j] = temp;
                                 }
                             }
                         }
                     }
                 }
-    
+
                 // Handle inner elements of band for current k
                 if k > 2 && k <= n - i {
                     // Safe indexing
@@ -295,13 +316,17 @@ impl SymmetricBandedMatrix {
 
                         let (cs, sn) = dlartg(f, g);
                         ab[kd - 2][i] = cs * f + sn * g;
-    
+
                         // Apply from the left
                         let start = i + 1;
                         let end = (i + k - 1).min(n - 1);
                         if start <= end {
                             for j in start..=end {
-                                if kd - 2 < ab.len() && kd - 1 < ab.len() && j < ab[kd - 2].len() && j < ab[kd - 1].len() {
+                                if kd - 2 < ab.len()
+                                    && kd - 1 < ab.len()
+                                    && j < ab[kd - 2].len()
+                                    && j < ab[kd - 1].len()
+                                {
                                     let temp = cs * ab[kd - 2][j] + sn * ab[kd - 1][j];
                                     ab[kd - 1][j] = -sn * ab[kd - 2][j] + cs * ab[kd - 1][j];
                                     ab[kd - 2][j] = temp;
@@ -312,7 +337,7 @@ impl SymmetricBandedMatrix {
                     nr += 1;
                     j1 = j1.saturating_sub(kd + 1);
                 }
-    
+
                 // Adjust bounds
                 if j2 + kd > n {
                     nr = nr.saturating_sub(1);
@@ -320,7 +345,7 @@ impl SymmetricBandedMatrix {
                 }
             }
         }
-    
+
         // Copy final results
         for i in 0..n {
             d[i] = ab[0][i];
@@ -328,11 +353,9 @@ impl SymmetricBandedMatrix {
                 e[i] = ab[1][i + 1];
             }
         }
-    
+
         (d, e, q)
     }
-    
-        
 
     fn dlanst(&self) -> f64 {
         let mut value: f64 = 0.0;
@@ -343,7 +366,7 @@ impl SymmetricBandedMatrix {
             }
             return value;
         }
-    
+
         // Band matrix case
         for j in 0..self.n {
             let mut sum = 0.0;
@@ -356,9 +379,7 @@ impl SymmetricBandedMatrix {
         }
         value
     }
-    
 
-    
     fn dlascl(&self, scale: f64) -> Self {
         let mut scaled = (*self).clone();
         for row in &mut scaled.ab {
@@ -371,27 +392,27 @@ impl SymmetricBandedMatrix {
 }
 
 /// Generates a vector of plane rotations for 2-by-2 matrices.
-/// 
+///
 /// For i = 1,2,...,n:
 ///    [  c(i)  s(i) ] [ x(i) ] = [ a(i) ]
 ///    [ -s(i)  c(i) ] [ y(i) ] = [  0  ]
-/// 
+///
 /// Returns updated x values (now containing a(i)) and c,s rotation values
 fn dlargv(
     n: usize,
     x: &mut [f64],
     incx: usize,
-    y: &mut [f64], 
+    y: &mut [f64],
     incy: usize,
     c: &mut [f64],
     incc: usize,
 ) {
     debug_assert!(incx > 0, "incx must be positive");
-    debug_assert!(incy > 0, "incy must be positive"); 
+    debug_assert!(incy > 0, "incy must be positive");
     debug_assert!(incc > 0, "incc must be positive");
-    debug_assert!(x.len() >= 1 + (n-1)*incx, "x array too small");
-    debug_assert!(y.len() >= 1 + (n-1)*incy, "y array too small");
-    debug_assert!(c.len() >= 1 + (n-1)*incc, "c array too small");
+    debug_assert!(x.len() >= 1 + (n - 1) * incx, "x array too small");
+    debug_assert!(y.len() >= 1 + (n - 1) * incy, "y array too small");
+    debug_assert!(c.len() >= 1 + (n - 1) * incc, "c array too small");
 
     let mut ix = 0;
     let mut iy = 0;
@@ -418,7 +439,7 @@ fn dlargv(
             y[iy] = t * c[ic];
             x[ix] = f * tt;
         } else {
-            // Case |g| >= |f|: use g to calculate stable rotation  
+            // Case |g| >= |f|: use g to calculate stable rotation
             let t = f / g;
             let tt = (1.0 + t * t).sqrt();
             y[iy] = 1.0 / tt;
@@ -427,12 +448,21 @@ fn dlargv(
         }
 
         ix += incx;
-        iy += incy; 
+        iy += incy;
         ic += incc;
     }
 }
 
-fn dlartv(n: usize, x: &mut [f64], incx: usize, y: &mut [f64], incy: usize, c: &[f64], s: &[f64], incc: usize) {
+fn dlartv(
+    n: usize,
+    x: &mut [f64],
+    incx: usize,
+    y: &mut [f64],
+    incy: usize,
+    c: &[f64],
+    s: &[f64],
+    incc: usize,
+) {
     let mut ix = 0;
     let mut iy = 0;
     let mut ic = 0;
@@ -458,8 +488,8 @@ fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, 
         return;
     }
 
-    let mut ix = if incx > 0 { 0 } else { (1-n as i32) * incx };
-    let mut iy = if incy > 0 { 0 } else { (1-n as i32) * incy };
+    let mut ix = if incx > 0 { 0 } else { (1 - n as i32) * incx };
+    let mut iy = if incy > 0 { 0 } else { (1 - n as i32) * incy };
 
     for _ in 0..n {
         let temp = c * dx[ix as usize] + s * dy[iy as usize];
@@ -470,7 +500,6 @@ fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f64, 
         iy += incy;
     }
 }
-
 
 fn dlar2v(
     n: usize,
@@ -484,11 +513,11 @@ fn dlar2v(
 ) {
     debug_assert!(incx > 0, "incx must be positive");
     debug_assert!(incc > 0, "incc must be positive");
-    debug_assert!(x.len() >= 1 + (n-1)*incx, "x array too small");
-    debug_assert!(y.len() >= 1 + (n-1)*incx, "y array too small");
-    debug_assert!(z.len() >= 1 + (n-1)*incx, "z array too small");
-    debug_assert!(c.len() >= 1 + (n-1)*incc, "c array too small");
-    debug_assert!(s.len() >= 1 + (n-1)*incc, "s array too small");
+    debug_assert!(x.len() >= 1 + (n - 1) * incx, "x array too small");
+    debug_assert!(y.len() >= 1 + (n - 1) * incx, "y array too small");
+    debug_assert!(z.len() >= 1 + (n - 1) * incx, "z array too small");
+    debug_assert!(c.len() >= 1 + (n - 1) * incc, "c array too small");
+    debug_assert!(s.len() >= 1 + (n - 1) * incc, "s array too small");
 
     let mut ix = 0;
     let mut ic = 0;
@@ -516,8 +545,6 @@ fn dlar2v(
     }
 }
 
-
-
 /// Computes all eigenvalues and eigenvectors of a symmetric tridiagonal matrix using divide and conquer.
 ///
 /// # Arguments
@@ -529,11 +556,7 @@ fn dlar2v(
 /// # Returns
 /// * `Ok(())` on successful computation
 /// * `Err(Error)` if the algorithm failed to compute eigenvalues
-pub fn dstedc(
-    d: &mut [f64],
-    e: &mut [f64],
-    z: &mut [Vec<f64>],
-) -> Result<(), Error> {
+pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Error> {
     let n = d.len();
     if n == 0 {
         return Ok(());
@@ -732,7 +755,6 @@ pub fn dstedc(
     Ok(())
 }
 
-
 /// Solves the secular equation in the divide and conquer algorithm.
 /// `d1`, `d2`: Eigenvalues from the left and right subproblems.
 /// `z`: Combined z vector from left and right subproblems.
@@ -869,26 +891,20 @@ fn dlaed4(
     0 // Return 0 to indicate success
 }
 
-
-
 /// Multiplies q and z matrices to get the eigenvectors of the original matrix.
 fn dgemm(q: &[Vec<f64>], z: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = q.len();
     let mut result = vec![vec![0.0; n]; n];
 
     // Use parallelism for large matrices
-    result
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(i, row)| {
-            for j in 0..n {
-                row[j] = (0..n).map(|k| q[i][k] * z[k][j]).sum();
-            }
-        });
+    result.par_iter_mut().enumerate().for_each(|(i, row)| {
+        for j in 0..n {
+            row[j] = (0..n).map(|k| q[i][k] * z[k][j]).sum();
+        }
+    });
 
     result
 }
-
 
 /// Force a and b to be stored prior to addition
 fn dlamc3(a: f64, b: f64) -> f64 {
@@ -908,7 +924,7 @@ fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
                 result = result.max(val.abs());
             }
             result
-        },
+        }
         'O' | 'o' | '1' | 'I' | 'i' => {
             // One norm and Infinity norm are same for symmetric matrix
             if n == 0 {
@@ -917,40 +933,40 @@ fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
             if n == 1 {
                 return d[0].abs();
             }
-            
+
             let mut work = vec![0.0_f64; n];
             // First row
             work[0] = d[0].abs() + e[0].abs();
             // Middle rows
-            for i in 1..n-1 {
-                work[i] = e[i-1].abs() + d[i].abs() + e[i].abs();
+            for i in 1..n - 1 {
+                work[i] = e[i - 1].abs() + d[i].abs() + e[i].abs();
             }
             // Last row
-            work[n-1] = e[n-2].abs() + d[n-1].abs();
-            
+            work[n - 1] = e[n - 2].abs() + d[n - 1].abs();
+
             let mut max_val = 0.0_f64;
             for val in work.iter() {
                 max_val = max_val.max(*val);
             }
             max_val
-        },
+        }
         'F' | 'f' | 'E' | 'e' => {
             // Frobenius norm
             let mut scale = 0.0_f64;
             let mut sumsq = 1.0_f64;
-            
+
             // Add diagonal elements
             dlassq(n, d, 1, &mut scale, &mut sumsq);
-            
+
             // Add off-diagonal elements
             if n > 1 {
-                dlassq(n-1, e, 1, &mut scale, &mut sumsq);
+                dlassq(n - 1, e, 1, &mut scale, &mut sumsq);
                 sumsq *= 2.0_f64;
             }
-            
+
             scale * sumsq.sqrt()
-        },
-        _ => panic!("Invalid norm type for dlanst")
+        }
+        _ => panic!("Invalid norm type for dlanst"),
     }
 }
 
@@ -969,57 +985,69 @@ fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
         let adf = df.abs();
         let tb = b + b;
         let ab = tb.abs();
-        
-        let (acmx, acmn) = if a.abs() > c.abs() {
-            (a, c)
-        } else {
-            (c, a)
-        };
-        
+
+        let (acmx, acmn) = if a.abs() > c.abs() { (a, c) } else { (c, a) };
+
         let (rt1, rt2, cs1, sn1) = if adf > ab {
-            let rt = adf * (1.0_f64 + (ab/adf).powi(2)).sqrt();
+            let rt = adf * (1.0_f64 + (ab / adf).powi(2)).sqrt();
             if df >= 0.0 {
                 let rt1_val = sm + rt;
                 let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
                 let cs = df + rt;
                 let sn = tb;
                 let norm = (cs * cs + sn * sn).sqrt();
-                (rt1_val, rt2_val, cs/norm, sn/norm)
+                (rt1_val, rt2_val, cs / norm, sn / norm)
             } else {
                 let rt1_val = (acmx / (sm - rt)) * acmn - (b / (sm - rt)) * b;
                 let rt2_val = sm - rt;
                 let cs = tb;
                 let sn = df + rt;
                 let norm = (cs * cs + sn * sn).sqrt();
-                (rt1_val, rt2_val, cs/norm, sn/norm)
+                (rt1_val, rt2_val, cs / norm, sn / norm)
             }
         } else if ab == 0.0 {
             (sm, 0.0_f64, 1.0_f64, 0.0_f64)
         } else {
-            let rt = ab * (1.0_f64 + (adf/ab).powi(2)).sqrt();
+            let rt = ab * (1.0_f64 + (adf / ab).powi(2)).sqrt();
             if sm >= 0.0 {
                 let rt1_val = 0.5_f64 * (sm + rt);
-                let rt2_val = (acmx/rt1_val) * acmn - (b/rt1_val) * b;
+                let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
                 let sn = if tb >= 0.0 {
-                    if ab >= 0.0 { ab } else { -ab }
+                    if ab >= 0.0 {
+                        ab
+                    } else {
+                        -ab
+                    }
                 } else {
-                    if ab >= 0.0 { -ab } else { ab }
+                    if ab >= 0.0 {
+                        -ab
+                    } else {
+                        ab
+                    }
                 };
                 let norm = (1.0_f64 + sn * sn).sqrt();
-                (rt1_val, rt2_val, 1.0_f64/norm, sn/norm)
+                (rt1_val, rt2_val, 1.0_f64 / norm, sn / norm)
             } else {
                 let rt2_val = 0.5_f64 * (sm - rt);
-                let rt1_val = (acmx/rt2_val) * acmn - (b/rt2_val) * b;
+                let rt1_val = (acmx / rt2_val) * acmn - (b / rt2_val) * b;
                 let sn = if tb >= 0.0 {
-                    if ab >= 0.0 { ab } else { -ab }
+                    if ab >= 0.0 {
+                        ab
+                    } else {
+                        -ab
+                    }
                 } else {
-                    if ab >= 0.0 { -ab } else { ab }
+                    if ab >= 0.0 {
+                        -ab
+                    } else {
+                        ab
+                    }
                 };
                 let norm = (1.0_f64 + sn * sn).sqrt();
-                (rt1_val, rt2_val, 1.0_f64/norm, sn/norm)
+                (rt1_val, rt2_val, 1.0_f64 / norm, sn / norm)
             }
         };
-        
+
         (rt1, rt2, cs1, sn1, 0.0_f64)
     }
 }
@@ -1028,7 +1056,7 @@ fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
 fn dlapy2(x: f64, y: f64) -> f64 {
     let x_abs = x.abs();
     let y_abs = y.abs();
-    
+
     if x_abs > y_abs {
         let temp = y_abs / x_abs;
         x_abs * (1.0_f64 + temp * temp).sqrt()
@@ -1053,18 +1081,18 @@ fn dlaset(uplo: char, m: usize, n: usize, alpha: f64, beta: f64, a: &mut [Vec<f6
                     a[j][j] = beta;
                 }
             }
-        },
+        }
         'L' | 'l' => {
             // Lower triangle
             for j in 0..n {
-                for i in j+1..m {
+                for i in j + 1..m {
                     a[i][j] = alpha;
                 }
                 if j < m {
                     a[j][j] = beta;
                 }
             }
-        },
+        }
         _ => {
             // Full matrix
             for i in 0..m {
@@ -1086,8 +1114,16 @@ const RMIN: f64 = f64::MIN_POSITIVE;
 
 /// Matrix-vector multiplication
 /// Computes y := alpha*A*x + beta*y or y := alpha*A^T*x + beta*y
-pub fn dgemv(trans: bool, m: usize, n: usize, alpha: f64, a: &[Vec<f64>], 
-             x: &[f64], beta: f64, y: &mut [f64]) {
+pub fn dgemv(
+    trans: bool,
+    m: usize,
+    n: usize,
+    alpha: f64,
+    a: &[Vec<f64>],
+    x: &[f64],
+    beta: f64,
+    y: &mut [f64],
+) {
     if !trans {
         // y := alpha*A*x + beta*y
         for i in 0..m {
@@ -1122,9 +1158,9 @@ pub fn dnrm2(n: usize, x: &[f64], incx: usize) -> f64 {
 
     let mut scale = 0.0;
     let mut ssq = 1.0;
-    
+
     // Computing the scaled sum of squares
-    for i in (0..n*incx).step_by(incx) {
+    for i in (0..n * incx).step_by(incx) {
         if x[i] != 0.0 {
             let absxi = x[i].abs();
             if scale < absxi {
@@ -1145,7 +1181,7 @@ pub fn dscal(n: usize, alpha: f64, x: &mut [f64], incx: usize) {
     if n < 1 || incx < 1 {
         return;
     }
-    for i in (0..n*incx).step_by(incx) {
+    for i in (0..n * incx).step_by(incx) {
         x[i] *= alpha;
     }
 }
@@ -1162,10 +1198,10 @@ pub fn idamax(n: usize, x: &[f64], incx: usize) -> usize {
     let mut max_idx = 0;
     let mut max_val = x[0].abs();
 
-    for i in (incx..n*incx).step_by(incx) {
+    for i in (incx..n * incx).step_by(incx) {
         let abs_val = x[i].abs();
         if abs_val > max_val {
-            max_idx = i/incx;
+            max_idx = i / incx;
             max_val = abs_val;
         }
     }
@@ -1173,16 +1209,19 @@ pub fn idamax(n: usize, x: &[f64], incx: usize) -> usize {
 }
 
 // Helper function to pass workspace arrays and handle error conditions safely
-pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>]) 
-    -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) 
-{
+pub fn dsbtrd_wrapper(
+    uplo: char,
+    n: usize,
+    kd: usize,
+    ab: &mut [Vec<f64>],
+) -> (Vec<f64>, Vec<f64>, Vec<Vec<f64>>) {
     assert!(n > 0, "Matrix dimension must be positive");
     assert!(kd >= 0 && kd < n, "Band width must be valid");
     assert!(ab.len() >= kd + 1, "Invalid array dimension for ab");
     assert!(ab[0].len() >= n, "Invalid array dimension for ab");
 
     let mut d = vec![0.0; n];
-    let mut e = vec![0.0; n-1];
+    let mut e = vec![0.0; n - 1];
     let mut q = vec![vec![0.0; n]; n];
 
     dsbtrd(uplo, n, kd, ab, &mut d, &mut e, &mut q);
@@ -1191,197 +1230,217 @@ pub fn dsbtrd_wrapper(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>])
 }
 
 // Helper function for safe mutable band access
-fn get_mut_bands(ab: &mut [Vec<f64>], k1: usize, k2: usize, start: usize, len: usize) 
-   -> (&mut [f64], &mut [f64]) 
-{
-   assert!(k1 != k2, "Cannot borrow same band twice");
-   let (min_k, max_k) = if k1 < k2 { (k1, k2) } else { (k2, k1) };
-   let (lower, upper) = ab.split_at_mut(max_k);
-   if k1 < k2 {
-       (&mut lower[k1][start..start+len], &mut upper[0][start..start+len])
-   } else {
-       (&mut upper[0][start..start+len], &mut lower[k2][start..start+len])
-   }
+fn get_mut_bands(
+    ab: &mut [Vec<f64>],
+    k1: usize,
+    k2: usize,
+    start: usize,
+    len: usize,
+) -> (&mut [f64], &mut [f64]) {
+    assert!(k1 != k2, "Cannot borrow same band twice");
+    let (min_k, max_k) = if k1 < k2 { (k1, k2) } else { (k2, k1) };
+    let (lower, upper) = ab.split_at_mut(max_k);
+    if k1 < k2 {
+        (
+            &mut lower[k1][start..start + len],
+            &mut upper[0][start..start + len],
+        )
+    } else {
+        (
+            &mut upper[0][start..start + len],
+            &mut lower[k2][start..start + len],
+        )
+    }
 }
 
 fn dlartg(f: f64, g: f64) -> (f64, f64) {
-   if g == 0.0 {
-       (1.0, 0.0)
-   } else if f == 0.0 {
-       (0.0, 1.0)
-   } else {
-       let abs_f = f.abs();
-       let abs_g = g.abs();
-       let scale = abs_f.max(abs_g);
-       let fs = f / scale;
-       let gs = g / scale;
-       let norm = (fs * fs + gs * gs).sqrt();
-       let c = fs / norm;
-       let s = gs / norm;
-       (c, s)
-   }
+    if g == 0.0 {
+        (1.0, 0.0)
+    } else if f == 0.0 {
+        (0.0, 1.0)
+    } else {
+        let abs_f = f.abs();
+        let abs_g = g.abs();
+        let scale = abs_f.max(abs_g);
+        let fs = f / scale;
+        let gs = g / scale;
+        let norm = (fs * fs + gs * gs).sqrt();
+        let c = fs / norm;
+        let s = gs / norm;
+        (c, s)
+    }
 }
 
-fn dsbtrd(uplo: char, n: usize, kd: usize, ab: &mut [Vec<f64>], d: &mut [f64],  e: &mut [f64], q: &mut [Vec<f64>]) {
-   let kd1 = kd + 1;
-   let kdm1 = if kd >= 1 { kd - 1 } else { 0 };
-   let mut nr: usize = 0;
-   let mut j1: usize = kd1;
-   let mut j2: usize = 1;
-   let mut work = vec![0.0; n];
-   let mut rotations = Vec::new();
+fn dsbtrd(
+    uplo: char,
+    n: usize,
+    kd: usize,
+    ab: &mut [Vec<f64>],
+    d: &mut [f64],
+    e: &mut [f64],
+    q: &mut [Vec<f64>],
+) {
+    let kd1 = kd + 1;
+    let kdm1 = if kd >= 1 { kd - 1 } else { 0 };
+    let mut nr: usize = 0;
+    let mut j1: usize = kd1;
+    let mut j2: usize = 1;
+    let mut work = vec![0.0; n];
+    let mut rotations = Vec::new();
 
-   // Initialize Q to identity
-   dlaset('F', n, n, 0.0, 1.0, q);
+    // Initialize Q to identity
+    dlaset('F', n, n, 0.0, 1.0, q);
 
-   if uplo == 'U' {
-       for j in 0..n-2 {
-           for k in (0..kd-1).rev() {
-               j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
-               j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
+    if uplo == 'U' {
+        for j in 0..n - 2 {
+            for k in (0..kd - 1).rev() {
+                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
 
-               if nr > 0 {
-                   let j_start = j1.saturating_sub(1);
-                   let len = nr.min(ab[0].len() - j_start);
+                if nr > 0 {
+                    let j_start = j1.saturating_sub(1);
+                    let len = nr.min(ab[0].len() - j_start);
 
-                   // Store rotations
-                   rotations.clear();
-                   for idx in 0..nr {
+                    // Store rotations
+                    rotations.clear();
+                    for idx in 0..nr {
                         let j = j1 - kd - 1 + idx * kd;
-                    
+
                         // j is within the bounds of BOTH ab[kd] AND ab[kd-1]
-                        if j < ab[kd].len() && j < ab[kd - 1].len() {  // bound check
+                        if j < ab[kd].len() && j < ab[kd - 1].len() {
+                            // bound check
                             rotations.push((ab[kd][j], ab[kd - 1][j]));
                         }
                     }
 
-                   // Apply stored rotations
-                   for (idx, &(x, y)) in rotations.iter().enumerate() {
-                       let (cs, sn) = dlartg(x, y);
-                       let start = j_start + idx;
-                       if start + 1 < ab[0].len() {
-                           let (band1, band2) = get_mut_bands(ab, k, k+1, start, 1);
-                           band1[0] = cs * x + sn * y;
-                           band2[0] = -sn * x + cs * y;
-                       }
-                   }
+                    // Apply stored rotations
+                    for (idx, &(x, y)) in rotations.iter().enumerate() {
+                        let (cs, sn) = dlartg(x, y);
+                        let start = j_start + idx;
+                        if start + 1 < ab[0].len() {
+                            let (band1, band2) = get_mut_bands(ab, k, k + 1, start, 1);
+                            band1[0] = cs * x + sn * y;
+                            band2[0] = -sn * x + cs * y;
+                        }
+                    }
 
-                   for l in 0..k {
-                       let mut v1 = Vec::new();
-                       let mut v2 = Vec::new();
-                       for idx in 0..len {
-                           let j = j_start + idx;
-                           if j < ab[0].len() {
-                               v1.push(ab[kd-l][j]);
-                               v2.push(ab[kd-l+1][j]);
-                           }
-                       }
-                       
-                       for i in 0..v1.len() {
-                           let (cs, sn) = dlartg(v1[i], v2[i]);
-                           let j = j_start + i;
-                           if j < ab[0].len() {
-                               ab[kd-l][j] = cs * v1[i] + sn * v2[i];
-                               ab[kd-l+1][j] = -sn * v1[i] + cs * v2[i];
-                           }
-                       }
-                   }
-               }
+                    for l in 0..k {
+                        let mut v1 = Vec::new();
+                        let mut v2 = Vec::new();
+                        for idx in 0..len {
+                            let j = j_start + idx;
+                            if j < ab[0].len() {
+                                v1.push(ab[kd - l][j]);
+                                v2.push(ab[kd - l + 1][j]);
+                            }
+                        }
 
-               if k < kdm1 {
-                   let x = ab[kd-k][j+k];
-                   let y = ab[kd-k-1][j+k+1];
-                   let (cs, sn) = dlartg(x, y);
-                   
-                   // Apply rotation
-                   let len = k.min(n - (j+k) - 1);
-                   let mut temp_row1 = Vec::new();
-                   let mut temp_row2 = Vec::new();
-                   
-                   for i in 0..len {
-                       temp_row1.push(ab[kd-k][j+k+i]);
-                       temp_row2.push(ab[kd-k-1][j+k+1+i]);
-                   }
-                   
-                   for i in 0..len {
-                       ab[kd-k][j+k+i] = cs * temp_row1[i] + sn * temp_row2[i];
-                       ab[kd-k-1][j+k+1+i] = -sn * temp_row1[i] + cs * temp_row2[i];
-                   }
-                   
-                   ab[kd-k-1][j+k+1] = 0.0;
-               }
+                        for i in 0..v1.len() {
+                            let (cs, sn) = dlartg(v1[i], v2[i]);
+                            let j = j_start + i;
+                            if j < ab[0].len() {
+                                ab[kd - l][j] = cs * v1[i] + sn * v2[i];
+                                ab[kd - l + 1][j] = -sn * v1[i] + cs * v2[i];
+                            }
+                        }
+                    }
+                }
 
-               nr += 1;
-           }
+                if k < kdm1 {
+                    let x = ab[kd - k][j + k];
+                    let y = ab[kd - k - 1][j + k + 1];
+                    let (cs, sn) = dlartg(x, y);
 
-           if j < n-1 {
-               d[j] = ab[kd][j];
-               e[j] = ab[kdm1][j+1];
-           }
-       }
-       d[n-1] = ab[kd][n-1];
-   } else {
-       for j in 0..n-2 {
-           for k in (0..kd-1).rev() {
-               j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
-               j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
+                    // Apply rotation
+                    let len = k.min(n - (j + k) - 1);
+                    let mut temp_row1 = Vec::new();
+                    let mut temp_row2 = Vec::new();
 
-               if nr > 0 {
-                   let j_start = j1;
-                   let len = nr.min(ab[0].len() - j_start);
-                   
-                   let mut temp_bands = Vec::new();
-                   for l in 0..=k {
-                       let mut band = Vec::new();
-                       for idx in 0..len {
-                           band.push(ab[l][j_start+idx]);
-                       }
-                       temp_bands.push(band);
-                   }
+                    for i in 0..len {
+                        temp_row1.push(ab[kd - k][j + k + i]);
+                        temp_row2.push(ab[kd - k - 1][j + k + 1 + i]);
+                    }
 
-                   for l in 0..k {
-                       for i in 0..len {
-                           let (cs, sn) = dlartg(temp_bands[l][i], temp_bands[l+1][i]);
-                           if j_start + i < ab[0].len() {
-                               ab[l][j_start+i] = cs * temp_bands[l][i] + sn * temp_bands[l+1][i];
-                               ab[l+1][j_start+i] = -sn * temp_bands[l][i] + cs * temp_bands[l+1][i];
-                           }
-                       }
-                   }
-               }
+                    for i in 0..len {
+                        ab[kd - k][j + k + i] = cs * temp_row1[i] + sn * temp_row2[i];
+                        ab[kd - k - 1][j + k + 1 + i] = -sn * temp_row1[i] + cs * temp_row2[i];
+                    }
 
-               if k < kdm1 {
-                   let (cs, sn) = dlartg(ab[k+1][j], ab[k+2][j]);
-                   
-                   let len = k.min(n - j - 1);
-                   let mut temp1 = Vec::new();
-                   let mut temp2 = Vec::new();
-                   
-                   for i in 0..len {
-                       temp1.push(ab[k+2][j+i]);
-                       temp2.push(ab[k+1][j+1+i]);
-                   }
-                   
-                   for i in 0..len {
-                       ab[k+2][j+i] = cs * temp1[i] + sn * temp2[i];
-                       ab[k+1][j+1+i] = -sn * temp1[i] + cs * temp2[i];
-                   }
-                   
-                   ab[k+2][j] = 0.0;
-               }
+                    ab[kd - k - 1][j + k + 1] = 0.0;
+                }
 
-               nr += 1;
-           }
+                nr += 1;
+            }
 
-           if j < n-1 {
-               d[j] = ab[0][j];
-               e[j] = ab[1][j];
-           }
-       }
-       d[n-1] = ab[0][n-1];
-   }
+            if j < n - 1 {
+                d[j] = ab[kd][j];
+                e[j] = ab[kdm1][j + 1];
+            }
+        }
+        d[n - 1] = ab[kd][n - 1];
+    } else {
+        for j in 0..n - 2 {
+            for k in (0..kd - 1).rev() {
+                j1 = if j1 > kd1 { j1 - kd1 } else { 0 };
+                j2 = if j2 > kd1 { j2 - kd1 } else { 0 };
+
+                if nr > 0 {
+                    let j_start = j1;
+                    let len = nr.min(ab[0].len() - j_start);
+
+                    let mut temp_bands = Vec::new();
+                    for l in 0..=k {
+                        let mut band = Vec::new();
+                        for idx in 0..len {
+                            band.push(ab[l][j_start + idx]);
+                        }
+                        temp_bands.push(band);
+                    }
+
+                    for l in 0..k {
+                        for i in 0..len {
+                            let (cs, sn) = dlartg(temp_bands[l][i], temp_bands[l + 1][i]);
+                            if j_start + i < ab[0].len() {
+                                ab[l][j_start + i] =
+                                    cs * temp_bands[l][i] + sn * temp_bands[l + 1][i];
+                                ab[l + 1][j_start + i] =
+                                    -sn * temp_bands[l][i] + cs * temp_bands[l + 1][i];
+                            }
+                        }
+                    }
+                }
+
+                if k < kdm1 {
+                    let (cs, sn) = dlartg(ab[k + 1][j], ab[k + 2][j]);
+
+                    let len = k.min(n - j - 1);
+                    let mut temp1 = Vec::new();
+                    let mut temp2 = Vec::new();
+
+                    for i in 0..len {
+                        temp1.push(ab[k + 2][j + i]);
+                        temp2.push(ab[k + 1][j + 1 + i]);
+                    }
+
+                    for i in 0..len {
+                        ab[k + 2][j + i] = cs * temp1[i] + sn * temp2[i];
+                        ab[k + 1][j + 1 + i] = -sn * temp1[i] + cs * temp2[i];
+                    }
+
+                    ab[k + 2][j] = 0.0;
+                }
+
+                nr += 1;
+            }
+
+            if j < n - 1 {
+                d[j] = ab[0][j];
+                e[j] = ab[1][j];
+            }
+        }
+        d[n - 1] = ab[0][n - 1];
+    }
 }
-
 
 fn dsteqr(
     compz: char,
@@ -1423,14 +1482,14 @@ fn dsteqr(
     let mut l1 = 0;
     while l1 < n {
         if l1 > 0 {
-            e[l1-1] = 0.0;
+            e[l1 - 1] = 0.0;
         }
 
         let mut m = l1;
         while m < nm1 {
             // Use our dlanst to find small subdiagonal
             let tst = e[m].abs();
-            let tol = (d[m].abs() * d[m+1].abs()).sqrt() * eps;
+            let tol = (d[m].abs() * d[m + 1].abs()).sqrt() * eps;
             if tst <= tol {
                 e[m] = 0.0;
                 break;
@@ -1449,45 +1508,45 @@ fn dsteqr(
         }
 
         // Scale submatrix if necessary using our dlanst and dlascl
-        let anorm = dlanst('M', lend-l+1, &d[l..], &e[l..]);
+        let anorm = dlanst('M', lend - l + 1, &d[l..], &e[l..]);
         let mut iscale = 0;
 
         if anorm > 0.0 {
             if anorm > ssfmax {
                 iscale = 1;
-                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
-                let mut e_mat = vec![vec![0.0; 1]; lend-l];
-                for i in 0..lend-l+1 {
-                    d_mat[i][0] = d[l+i];
+                let mut d_mat = vec![vec![0.0; 1]; lend - l + 1];
+                let mut e_mat = vec![vec![0.0; 1]; lend - l];
+                for i in 0..lend - l + 1 {
+                    d_mat[i][0] = d[l + i];
                 }
-                for i in 0..lend-l {
-                    e_mat[i][0] = e[l+i];
+                for i in 0..lend - l {
+                    e_mat[i][0] = e[l + i];
                 }
                 dlascl(&mut d_mat, anorm, ssfmax)?;
                 dlascl(&mut e_mat, anorm, ssfmax)?;
-                for i in 0..lend-l+1 {
-                    d[l+i] = d_mat[i][0];
+                for i in 0..lend - l + 1 {
+                    d[l + i] = d_mat[i][0];
                 }
-                for i in 0..lend-l {
-                    e[l+i] = e_mat[i][0];
+                for i in 0..lend - l {
+                    e[l + i] = e_mat[i][0];
                 }
             } else if anorm < ssfmin {
                 iscale = 2;
-                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
-                let mut e_mat = vec![vec![0.0; 1]; lend-l];
-                for i in 0..lend-l+1 {
-                    d_mat[i][0] = d[l+i];
+                let mut d_mat = vec![vec![0.0; 1]; lend - l + 1];
+                let mut e_mat = vec![vec![0.0; 1]; lend - l];
+                for i in 0..lend - l + 1 {
+                    d_mat[i][0] = d[l + i];
                 }
-                for i in 0..lend-l {
-                    e_mat[i][0] = e[l+i];
+                for i in 0..lend - l {
+                    e_mat[i][0] = e[l + i];
                 }
                 dlascl(&mut d_mat, anorm, ssfmin)?;
                 dlascl(&mut e_mat, anorm, ssfmin)?;
-                for i in 0..lend-l+1 {
-                    d[l+i] = d_mat[i][0];
+                for i in 0..lend - l + 1 {
+                    d[l + i] = d_mat[i][0];
                 }
-                for i in 0..lend-l {
-                    e[l+i] = e_mat[i][0];
+                for i in 0..lend - l {
+                    e[l + i] = e_mat[i][0];
                 }
             }
         }
@@ -1510,7 +1569,7 @@ fn dsteqr(
                 jtot += 1;
 
                 // Form shift using dlapy2
-                let mut g = (d[l+1] - d[l]) / (2.0 * e[l]);
+                let mut g = (d[l + 1] - d[l]) / (2.0 * e[l]);
                 let mut r = dlapy2(g, 1.0);
                 g = d[m] - d[l] + e[l] / (g + r.copysign(g));
                 let mut s = 1.0;
@@ -1525,19 +1584,19 @@ fn dsteqr(
                     let (cs, sn) = dlartg(g, f);
                     c = cs;
                     s = sn;
-                    
-                    if i != m-1 {
-                        e[i+1] = r;
+
+                    if i != m - 1 {
+                        e[i + 1] = r;
                     }
-                    g = d[i+1] - p;
+                    g = d[i + 1] - p;
                     r = (d[i] - g) * s + 2.0 * c * b;
                     p = s * r;
-                    d[i+1] = g + p;
+                    d[i + 1] = g + p;
                     g = c * r - b;
 
                     // Store rotation
                     work[i] = c;
-                    work[n-1+i] = -s;
+                    work[n - 1 + i] = -s;
 
                     if i == l {
                         break;
@@ -1547,12 +1606,22 @@ fn dsteqr(
 
                 // Apply stored rotations using our dlasr
                 let mm = m - l + 1;
-                dlasr('R', 'V', 'B', n, mm, &work[l..l + mm], &work[n - 1 + l..n - 1 + l + mm], z, n)?;
+                dlasr(
+                    'R',
+                    'V',
+                    'B',
+                    n,
+                    mm,
+                    &work[l..l + mm],
+                    &work[n - 1 + l..n - 1 + l + mm],
+                    z,
+                    n,
+                )?;
 
                 d[l] = d[l] - p;
                 e[l] = g;
 
-                if e[l].abs() <= eps * (d[l].abs() + d[l+1].abs()) {
+                if e[l].abs() <= eps * (d[l].abs() + d[l + 1].abs()) {
                     e[l] = 0.0;
                     break;
                 }
@@ -1569,9 +1638,9 @@ fn dsteqr(
                 jtot += 1;
 
                 // Form shift using dlapy2
-                let mut g = (d[l-1] - d[l]) / (2.0 * e[l-1]);
+                let mut g = (d[l - 1] - d[l]) / (2.0 * e[l - 1]);
                 let mut r = dlapy2(g, 1.0);
-                g = d[m] - d[l] + e[l-1] / (g + r.copysign(g));
+                g = d[m] - d[l] + e[l - 1] / (g + r.copysign(g));
                 let mut s = 1.0;
                 let mut c = 1.0;
                 let mut p = 0.0;
@@ -1585,28 +1654,38 @@ fn dsteqr(
                     s = sn;
 
                     if i != m {
-                        e[i-1] = r;
+                        e[i - 1] = r;
                     }
                     g = d[i] - p;
-                    r = (d[i+1] - g) * s + 2.0 * c * b;
+                    r = (d[i + 1] - g) * s + 2.0 * c * b;
                     p = s * r;
                     d[i] = g + p;
                     g = c * r - b;
 
                     // Store rotation
                     work[i] = c;
-                    work[n-1+i] = s;
+                    work[n - 1 + i] = s;
                 }
 
                 // Apply stored rotations using our dlasr
                 let mm = l - m + 1;
-                dlasr('R', 'V', 'F', n, mm, &work[m..m + mm], &work[n - 1 + m..n - 1 + m + mm], z, n)?;
+                dlasr(
+                    'R',
+                    'V',
+                    'F',
+                    n,
+                    mm,
+                    &work[m..m + mm],
+                    &work[n - 1 + m..n - 1 + m + mm],
+                    z,
+                    n,
+                )?;
 
                 d[l] = d[l] - p;
-                e[l-1] = g;
+                e[l - 1] = g;
 
-                if e[l-1].abs() <= eps * (d[l-1].abs() + d[l].abs()) {
-                    e[l-1] = 0.0;
+                if e[l - 1].abs() <= eps * (d[l - 1].abs() + d[l].abs()) {
+                    e[l - 1] = 0.0;
                     break;
                 }
             }
@@ -1614,38 +1693,38 @@ fn dsteqr(
 
         // Undo scaling if necessary using our dlascl
         if iscale == 1 {
-            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
-            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
-            for i in 0..lendsv-lsv+1 {
-                d_mat[i][0] = d[lsv+i];
+            let mut d_mat = vec![vec![0.0; 1]; lendsv - lsv + 1];
+            let mut e_mat = vec![vec![0.0; 1]; lendsv - lsv];
+            for i in 0..lendsv - lsv + 1 {
+                d_mat[i][0] = d[lsv + i];
             }
-            for i in 0..lendsv-lsv {
-                e_mat[i][0] = e[lsv+i];
+            for i in 0..lendsv - lsv {
+                e_mat[i][0] = e[lsv + i];
             }
             dlascl(&mut d_mat, ssfmax, anorm)?;
             dlascl(&mut e_mat, ssfmax, anorm)?;
-            for i in 0..lendsv-lsv+1 {
-                d[lsv+i] = d_mat[i][0];
+            for i in 0..lendsv - lsv + 1 {
+                d[lsv + i] = d_mat[i][0];
             }
-            for i in 0..lendsv-lsv {
-                e[lsv+i] = e_mat[i][0];
+            for i in 0..lendsv - lsv {
+                e[lsv + i] = e_mat[i][0];
             }
         } else if iscale == 2 {
-            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
-            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
-            for i in 0..lendsv-lsv+1 {
-                d_mat[i][0] = d[lsv+i];
+            let mut d_mat = vec![vec![0.0; 1]; lendsv - lsv + 1];
+            let mut e_mat = vec![vec![0.0; 1]; lendsv - lsv];
+            for i in 0..lendsv - lsv + 1 {
+                d_mat[i][0] = d[lsv + i];
             }
-            for i in 0..lendsv-lsv {
-                e_mat[i][0] = e[lsv+i];
+            for i in 0..lendsv - lsv {
+                e_mat[i][0] = e[lsv + i];
             }
             dlascl(&mut d_mat, ssfmin, anorm)?;
             dlascl(&mut e_mat, ssfmin, anorm)?;
-            for i in 0..lendsv-lsv+1 {
-                d[lsv+i] = d_mat[i][0];
+            for i in 0..lendsv - lsv + 1 {
+                d[lsv + i] = d_mat[i][0];
             }
-            for i in 0..lendsv-lsv {
-                e[lsv+i] = e_mat[i][0];
+            for i in 0..lendsv - lsv {
+                e[lsv + i] = e_mat[i][0];
             }
         }
 
@@ -1656,15 +1735,15 @@ fn dsteqr(
     for ii in 2..=n {
         let i = ii - 1;
         let mut k = i;
-        let mut p = d[i-1];
+        let mut p = d[i - 1];
         for j in ii..=n {
-            if d[j-1] < p {
+            if d[j - 1] < p {
                 k = j;
-                p = d[j-1];
+                p = d[j - 1];
             }
         }
         if k != i {
-            d.swap(k-1, i-1);
+            d.swap(k - 1, i - 1);
             let (left_z, right_z) = z.split_at_mut(max(k - 1, i - 1));
             if k - 1 < i - 1 {
                 dswap(n, &mut left_z[k - 1], 1, &mut right_z[i - k - 1], 1);
@@ -1677,14 +1756,13 @@ fn dsteqr(
     Ok(())
 }
 
-
 /// Scales a matrix by cto/cfrom without over/underflow.
 /// Translated from LAPACK's DLASCL for the general matrix case (type 'G').
 fn dlascl(a: &mut [Vec<f64>], cfrom: f64, cto: f64) -> Result<(), Error> {
     if cfrom == 0.0 {
         return Err(Error(-1));
     }
-    
+
     let smlnum = f64::MIN_POSITIVE;
     let bignum = 1.0 / smlnum;
 
@@ -1771,7 +1849,6 @@ fn dswap(n: usize, dx: &mut [f64], incx: usize, dy: &mut [f64], incy: usize) {
     }
 }
 
-
 /// Updates a sum of squares represented in scaled form.
 /// This function computes values `scale` and `sumsq` such that
 /// `(scale**2) * sumsq = x(1)**2 + x(2)**2 + ... + x(n)**2 + (scale_in**2)*sumsq_in`,
@@ -1813,8 +1890,6 @@ fn dlassq(n: usize, x: &[f64], incx: usize, scale: &mut f64, sumsq: &mut f64) {
     }
 }
 
-
-
 /// Query function for machine-dependent parameters
 fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32) -> i32 {
     // - For ispec = 9 (used in DLAED0), return the block size for the D&C algorithm.
@@ -1825,7 +1900,6 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
         1
     }
 }
-
 
 /// Computes all eigenvalues and corresponding eigenvectors of an unreduced
 /// symmetric tridiagonal matrix using the divide and conquer method.
@@ -1859,7 +1933,7 @@ fn ilaenv(ispec: i32, name: &str, opts: &str, n1: i32, n2: i32, n3: i32, n4: i32
 pub fn dlaed0(
     icompq: i32,
     n: usize,
-    qsiz: usize, 
+    qsiz: usize,
     tlvls: usize,
     curlvl: usize,
     curpbm: usize,
@@ -1871,7 +1945,7 @@ pub fn dlaed0(
     qptr: &mut [usize],
     prmptr: &mut [usize],
     perm: &mut [usize],
-    givptr: &mut [usize], 
+    givptr: &mut [usize],
     givcol: &mut Vec<Vec<usize>>,
     givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
@@ -1896,10 +1970,10 @@ pub fn dlaed0(
     let mut tlvls = 0;
 
     // Determine number of levels and subproblem sizes
-    while iwork[subpbs-1] > smlsiz {
+    while iwork[subpbs - 1] > smlsiz {
         for j in (0..subpbs).rev() {
-            iwork[2*j] = (iwork[j] + 1) / 2;
-            iwork[2*j-1] = iwork[j] / 2;
+            iwork[2 * j] = (iwork[j] + 1) / 2;
+            iwork[2 * j - 1] = iwork[j] / 2;
         }
         tlvls += 1;
         subpbs *= 2;
@@ -1907,15 +1981,14 @@ pub fn dlaed0(
 
     // Calculate cumulative sizes
     for j in 1..subpbs {
-        iwork[j] = iwork[j] + iwork[j-1];
+        iwork[j] = iwork[j] + iwork[j - 1];
     }
 
     // Set up workspaces
-    let indxq = 4*n + 3;
+    let indxq = 4 * n + 3;
 
     // Different workspace setup based on ICOMPQ
-    let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = 
-    if icompq != 2 {
+    let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = if icompq != 2 {
         // Compute workspace sizes for eigenvalues/accumulate vectors
         let temp = (n as f64).ln() / TWO.ln();
         let mut lgn = temp as i32;
@@ -1923,7 +1996,7 @@ pub fn dlaed0(
             lgn += 1;
         }
         if 2i32.pow(lgn as u32) < n as i32 {
-            lgn += 1; 
+            lgn += 1;
         }
 
         let iprmpt = indxq + n + 1;
@@ -1935,10 +2008,10 @@ pub fn dlaed0(
         let iq = igivnm + 2 * n * lgn as usize;
         let iwrem = iq + n * n + 1;
 
-        // Initialize pointers 
+        // Initialize pointers
         for i in 0..=subpbs {
-            iwork[iprmpt+i] = 1;
-            iwork[igivpt+i] = 1;
+            iwork[iprmpt + i] = 1;
+            iwork[igivpt + i] = 1;
         }
         iwork[iqptr] = 1;
 
@@ -1950,7 +2023,7 @@ pub fn dlaed0(
     // Solve each subproblem at the bottom of divide-conquer tree
     let mut curr = 0;
     let spm1 = subpbs - 1;
-    
+
     // Divide matrix using rank-1 modifications
     for i in 0..spm1 {
         let submat = iwork[i] + 1;
@@ -1964,38 +2037,48 @@ pub fn dlaed0(
         let (submat, matsiz) = if i == 0 {
             (1, iwork[0])
         } else {
-            (iwork[i] + 1, iwork[i+1] - iwork[i])
+            (iwork[i] + 1, iwork[i + 1] - iwork[i])
         };
 
         if icompq == 2 {
             // Compute eigenvalues and vectors
-            dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
-                   &mut q[submat-1..], work)?;
-            
+            dsteqr(
+                'I',
+                matsiz,
+                &mut d[submat - 1..],
+                &mut e[submat - 1..],
+                &mut q[submat - 1..],
+                work,
+            )?;
         } else {
             // Compute eigenvalues only or with original vectors
-            let work_offset = iq - 1 + iwork[iqptr+curr];
+            let work_offset = iq - 1 + iwork[iqptr + curr];
             let mut z = vec![vec![0.0; matsiz]; matsiz];
-            dsteqr('I', matsiz, &mut d[submat-1..], &mut e[submat-1..],
-                   &mut z, work)?;
+            dsteqr(
+                'I',
+                matsiz,
+                &mut d[submat - 1..],
+                &mut e[submat - 1..],
+                &mut z,
+                work,
+            )?;
 
             if icompq == 1 {
                 // Multiply by original vectors if needed
-                let result = dgemm(&q[submat-1..], &z);
+                let result = dgemm(&q[submat - 1..], &z);
                 for (i, row) in result.iter().enumerate() {
                     qstore[submat - 1 + i] = row.clone();
                 }
 
-
-                iwork[iqptr+curr+1] = iwork[iqptr+curr] + matsiz*matsiz;
+                iwork[iqptr + curr + 1] = iwork[iqptr + curr] + matsiz * matsiz;
                 curr += 1;
             }
         }
 
         // Set up index mapping
         let mut k = 1;
-        for j in submat..=iwork[i+1] {
-            iwork[indxq+j-1] = k;
+        for j in submat..=iwork[i + 1] {
+            iwork[indxq + j - 1] = k;
             k += 1;
         }
     }
@@ -2008,25 +2091,26 @@ pub fn dlaed0(
             let (submat, matsiz, msd2, curprb) = if i == 0 {
                 (1, iwork[1], iwork[0], 0)
             } else {
-                (iwork[i] + 1,
-                 iwork[i+2] - iwork[i],
-                 (iwork[i+2] - iwork[i])/2,
-                 i/2 + 1)
+                (
+                    iwork[i] + 1,
+                    iwork[i + 2] - iwork[i],
+                    (iwork[i + 2] - iwork[i]) / 2,
+                    i / 2 + 1,
+                )
             };
 
             if icompq == 2 {
-
                 let split_point = indxq + submat - 1;
                 let (iwork_left, iwork_right) = iwork.split_at_mut(split_point);
-                
+
                 // Adjust the indices relative to the split slices
                 let iwork_slice1 = &mut iwork_left[(submat - 1)..];
                 let iwork_slice2 = &mut iwork_right[(subpbs - split_point)..];
-    
+
                 dlaed1(
                     matsiz,
-                    &mut d[submat-1..],
-                    &mut q[submat-1..],
+                    &mut d[submat - 1..],
+                    &mut q[submat - 1..],
                     ldq,
                     iwork_slice1,
                     &mut e[submat + msd2 - 2],
@@ -2042,7 +2126,7 @@ pub fn dlaed0(
                 let mut givptr: usize = 0;
                 let mut qstore_flat: Vec<f64> = qstore.iter().flatten().cloned().collect();
                 let mut indxq = vec![0usize; n]; // or let indxq = 4*n + 3;? Look earlier in the function
-                
+
                 dlaed7(
                     icompq,
                     n,
@@ -2060,7 +2144,7 @@ pub fn dlaed0(
                     qptr,
                     prmptr,
                     perm,
-                    &mut givptr,     // &mut usize
+                    &mut givptr, // &mut usize
                     givcol,
                     givnum,
                     work,
@@ -2068,7 +2152,7 @@ pub fn dlaed0(
                 )?;
             }
 
-            iwork[i/2 + 1] = iwork[i+2];
+            iwork[i / 2 + 1] = iwork[i + 2];
         }
         subpbs /= 2;
         curlvl += 1;
@@ -2078,12 +2162,12 @@ pub fn dlaed0(
     match icompq {
         1 => {
             for i in 0..n {
-                let j = iwork[indxq+i];
-                work[i] = d[j-1];
-                dcopy(qsiz, &qstore[j-1], 1, &mut q[i], 1);
+                let j = iwork[indxq + i];
+                work[i] = d[j - 1];
+                dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
             }
             dcopy(n, work, 1, d, 1);
-        },
+        }
         2 => {
             for i in 0..n {
                 let j = iwork[indxq + i];
@@ -2094,18 +2178,18 @@ pub fn dlaed0(
                 work[start..end].copy_from_slice(&q[j - 1][..n]); // Replace dcopy with direct copy
             }
             dcopy(n, work, 1, d, 1);
-            
+
             // Declare `work_matrix` here with limited scope
             {
                 let mut work_matrix = vec![vec![0.0; n]; n];
                 dlacpy('A', n, n, &q, ldq, &mut work_matrix, n);
             }
             // Any mutable borrow of `q` ends here
-        },
+        }
         _ => {
             for i in 0..n {
-                let j = iwork[indxq+i];
-                work[i] = d[j-1];
+                let j = iwork[indxq + i];
+                work[i] = d[j - 1];
             }
             dcopy(n, work, 1, d, 1);
         }
@@ -2113,7 +2197,6 @@ pub fn dlaed0(
 
     Ok(())
 }
-
 
 /// Determines double-precision real machine parameters.
 /// This function corresponds to LAPACK's DLAMCH subroutine.
@@ -2141,19 +2224,17 @@ pub fn dlamch(cmach: char) -> f64 {
             }
             sfmin
         }
-        'B' | 'b' => 2.0f64, // radix(zero). We assume base 2.
+        'B' | 'b' => 2.0f64,       // radix(zero). We assume base 2.
         'P' | 'p' => eps * 2.0f64, // eps * radix(zero)
         'N' | 'n' => f64::MANTISSA_DIGITS as f64, // digits(zero)
         'R' | 'r' => rnd,
         'M' | 'm' => f64::MIN_EXP as f64, // minexponent(zero)
-        'U' | 'u' => f64::MIN_POSITIVE, // tiny(zero)
+        'U' | 'u' => f64::MIN_POSITIVE,   // tiny(zero)
         'L' | 'l' => f64::MAX_EXP as f64, // maxexponent(zero)
-        'O' | 'o' => f64::MAX, // huge(zero)
+        'O' | 'o' => f64::MAX,            // huge(zero)
         _ => zero,
     }
 }
-
-
 
 /// Copies a vector, x, to a vector, y.
 ///
@@ -2187,7 +2268,6 @@ pub fn dcopy(n: usize, dx: &[f64], incx: i32, dy: &mut [f64], incy: i32) {
     }
 }
 
-
 /// Copies all or part of a 2D matrix A to another matrix B.
 ///
 /// This function corresponds to LAPACK's DLACPY subroutine.
@@ -2204,7 +2284,15 @@ pub fn dcopy(n: usize, dx: &[f64], incx: i32, dy: &mut [f64], incy: i32) {
 /// * `lda` - The leading dimension of the array A. lda >= max(1,m).
 /// * `b` - On exit, B = A in the locations specified by uplo.
 /// * `ldb` - The leading dimension of the array B. ldb >= max(1,m).
-pub fn dlacpy(uplo: char, m: usize, n: usize, a: &[Vec<f64>], lda: usize, b: &mut [Vec<f64>], ldb: usize) {
+pub fn dlacpy(
+    uplo: char,
+    m: usize,
+    n: usize,
+    a: &[Vec<f64>],
+    lda: usize,
+    b: &mut [Vec<f64>],
+    ldb: usize,
+) {
     if m == 0 || n == 0 {
         return; // Quick return if possible
     }
@@ -2236,7 +2324,6 @@ pub fn dlacpy(uplo: char, m: usize, n: usize, a: &[Vec<f64>], lda: usize, b: &mu
         }
     }
 }
-
 
 /// Merges eigenvalues and deflates the secular equation.
 /// This function corresponds to LAPACK's DLAED2 subroutine.
@@ -2279,7 +2366,6 @@ pub fn dlaed2(
 
     // Update rho
     *rho = (2.0 * *rho).abs();
-
 
     // Sort eigenvalues into increasing order
     for i in n1..n {
@@ -2330,7 +2416,7 @@ pub fn dlaed2(
         if *rho * z[nj].abs() <= tol {
             k2 -= 1;
             coltyp[nj] = 4;
-            indxp[k2-1] = nj;
+            indxp[k2 - 1] = nj;
             j += 1;
         } else {
             let mut pj = nj;
@@ -2340,8 +2426,8 @@ pub fn dlaed2(
                 if *rho * z[nj].abs() <= tol {
                     k2 -= 1;
                     coltyp[nj] = 4;
-                    indxp[k2-1] = nj;
-                    j+=1;
+                    indxp[k2 - 1] = nj;
+                    j += 1;
                 } else {
                     // Check if eigenvalues are close enough to allow deflation
                     let mut s = z[pj];
@@ -2368,7 +2454,7 @@ pub fn dlaed2(
                             drot(n, &mut q_nj, 1, &mut q[pj], 1, c, s);
                             q[nj] = q_nj;
                         }
-                        
+
                         let temp = d[pj] * c * c + d[nj] * s * s;
                         d[nj] = d[pj] * s * s + d[nj] * c * c;
                         d[pj] = temp;
@@ -2377,22 +2463,22 @@ pub fn dlaed2(
                         let mut i = 1;
 
                         while k2 - 1 + i <= n {
-                           if d[pj] < d[indxp[k2 - 1 + i - 1]] {
-                               indxp[k2 - 1 + i - 2] = indxp[k2 - 1 + i - 1];
-                               indxp[k2 - 1 + i - 1] = pj;
-                           } else {
-                               indxp[k2 - 1 + i - 2] = pj;
-                               break;
-                           }
-                           i += 1;
+                            if d[pj] < d[indxp[k2 - 1 + i - 1]] {
+                                indxp[k2 - 1 + i - 2] = indxp[k2 - 1 + i - 1];
+                                indxp[k2 - 1 + i - 1] = pj;
+                            } else {
+                                indxp[k2 - 1 + i - 2] = pj;
+                                break;
+                            }
+                            i += 1;
                         }
                         pj = nj;
                         j += 1;
                     } else {
                         *k += 1;
-                        dlamda[*k-1] = d[pj];
-                        w[*k-1] = z[pj];
-                        indxp[*k-1] = pj;
+                        dlamda[*k - 1] = d[pj];
+                        w[*k - 1] = z[pj];
+                        indxp[*k - 1] = pj;
                         pj = nj;
                         j += 1;
                     }
@@ -2411,13 +2497,12 @@ pub fn dlaed2(
     }
 
     *k += 1;
-    dlamda[*k-1] = d[indx[j-1]];
-    w[*k-1] = z[indx[j-1]];
-    indxp[*k-1] = indx[j-1];
+    dlamda[*k - 1] = d[indx[j - 1]];
+    w[*k - 1] = z[indx[j - 1]];
+    indxp[*k - 1] = indx[j - 1];
 
     Ok(info)
 }
-
 
 /// Creates a permutation list to merge two sorted sets into a single sorted set.
 /// This function corresponds to LAPACK's DLAMRG subroutine.
@@ -2436,16 +2521,16 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
             if dtrd1 > 0 {
                 ind1 += 1;
             } else {
-                ind1 -=1;
+                ind1 -= 1;
             }
             n1sv -= 1;
         } else {
             index[i] = ind2;
             i += 1;
-             if dtrd2 > 0 {
+            if dtrd2 > 0 {
                 ind2 += 1;
             } else {
-                ind2 -=1;
+                ind2 -= 1;
             }
             n2sv -= 1;
         }
@@ -2456,25 +2541,24 @@ pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &m
         for _ in 0..n1sv {
             index[i] = ind1;
             i += 1;
-             if dtrd1 > 0 {
+            if dtrd1 > 0 {
                 ind1 += 1;
             } else {
-                ind1 -=1;
+                ind1 -= 1;
             }
         }
     } else {
         for _ in 0..n2sv {
             index[i] = ind2;
             i += 1;
-             if dtrd2 > 0 {
+            if dtrd2 > 0 {
                 ind2 += 1;
             } else {
-                ind2 -=1;
+                ind2 -= 1;
             }
         }
     }
 }
-
 
 /// Computes the i-th eigenvalue and eigenvector of a symmetric rank-one
 /// modification of a 2-by-2 diagonal matrix.
@@ -2533,7 +2617,6 @@ pub fn dlaed5(
     Ok(())
 }
 
-
 pub fn dlaed6(
     kniter: i32,
     orgati: bool,
@@ -2547,14 +2630,13 @@ pub fn dlaed6(
     *info = 0;
     let mut lbd = if orgati { d[1] } else { d[0] };
     let mut ubd = if orgati { d[2] } else { d[1] };
-    
+
     if finit < 0.0 {
         lbd = 0.0;
     } else {
         ubd = 0.0;
     }
-    
-    
+
     *tau = 0.0;
     if kniter == 2 {
         if orgati {
@@ -2574,7 +2656,7 @@ pub fn dlaed6(
             let c = rho + z[2] / ((d[2] - d[1]) - temp);
             let a = c * (d[0] + d[1]) + z[0] + z[1];
             let b = c * d[0] * d[1] + z[0] * d[1] + z[1] * d[0];
-             *tau = if c == 0.0 {
+            *tau = if c == 0.0 {
                 b / a
             } else if a <= 0.0 {
                 (a - (a * a - 4.0 * b * c).abs().sqrt()) / (2.0 * c)
@@ -2590,12 +2672,17 @@ pub fn dlaed6(
         if d[0] == *tau || d[1] == *tau || d[2] == *tau {
             *tau = 0.0;
         } else {
-            let temp = finit + *tau*z[0]/(d[0]*(d[0] - *tau)) + *tau*z[1]/(d[1]*(d[1]-*tau)) + *tau*z[2]/(d[2]*(d[2]-*tau));
-            if temp <= 0.0 { lbd = *tau; } else { ubd = *tau; };
+            let temp = finit
+                + *tau * z[0] / (d[0] * (d[0] - *tau))
+                + *tau * z[1] / (d[1] * (d[1] - *tau))
+                + *tau * z[2] / (d[2] * (d[2] - *tau));
+            if temp <= 0.0 {
+                lbd = *tau;
+            } else {
+                ubd = *tau;
+            };
         }
-        
     }
-
 
     let eps = dlamch('E');
     let base = dlamch('B');
@@ -2636,53 +2723,81 @@ pub fn dlaed6(
     let mut df = 0.0;
     let mut ddf = 0.0;
     for j in 0..3 {
-        let temp = if scale { 1.0 / (dscale[j] - *tau) } else { 1.0 / (d[j] - *tau) };
-        if !temp.is_finite() { continue; }
+        let temp = if scale {
+            1.0 / (dscale[j] - *tau)
+        } else {
+            1.0 / (d[j] - *tau)
+        };
+        if !temp.is_finite() {
+            continue;
+        }
         let temp1 = if scale { zscale[j] * temp } else { z[j] * temp };
         f += *tau * temp1 / if scale { dscale[j] } else { d[j] };
         df += temp1 * temp;
         ddf += df * temp;
     }
-    
+
     let maxit = 20;
     for _ in 0..maxit {
-         if f.abs() <= eps * finit.abs() || ubd-lbd <= 2.0*eps { break; };
+        if f.abs() <= eps * finit.abs() || ubd - lbd <= 2.0 * eps {
+            break;
+        };
 
-         // Gragg-Thornton-Warner cubic convergent scheme
-         let temp1 = if orgati { dscale[1] - *tau } else { dscale[0] - *tau };
-         let temp2 = if orgati { dscale[2] - *tau } else { dscale[1] - *tau };
+        // Gragg-Thornton-Warner cubic convergent scheme
+        let temp1 = if orgati {
+            dscale[1] - *tau
+        } else {
+            dscale[0] - *tau
+        };
+        let temp2 = if orgati {
+            dscale[2] - *tau
+        } else {
+            dscale[1] - *tau
+        };
 
-         let a = (temp1 + temp2) * f - temp1 * temp2 * df;
-         let b = temp1 * temp2 * f;
-         let c = f - (temp1 + temp2) * df + temp1 * temp2 * ddf;
+        let a = (temp1 + temp2) * f - temp1 * temp2 * df;
+        let b = temp1 * temp2 * f;
+        let c = f - (temp1 + temp2) * df + temp1 * temp2 * ddf;
 
-         let temp = a.abs().max(b.abs()).max(c.abs());
-         let a = a/temp; let b = b/temp; let c=c/temp;
-        
-        let eta = if c==0.0 {
-             b/a
-         } else if a <= 0.0 {
-             (a - (a*a - 4.0*b*c).sqrt()) / (2.0*c)
-         } else {
-             2.0*b / (a + (a*a-4.0*b*c).sqrt())
-         };
-        
-        if f*eta >= 0.0 {
-            *tau = -f/df;
+        let temp = a.abs().max(b.abs()).max(c.abs());
+        let a = a / temp;
+        let b = b / temp;
+        let c = c / temp;
+
+        let eta = if c == 0.0 {
+            b / a
+        } else if a <= 0.0 {
+            (a - (a * a - 4.0 * b * c).sqrt()) / (2.0 * c)
+        } else {
+            2.0 * b / (a + (a * a - 4.0 * b * c).sqrt())
+        };
+
+        if f * eta >= 0.0 {
+            *tau = -f / df;
         }
 
         *tau += eta;
-        if *tau < lbd || *tau > ubd { *tau = (lbd + ubd) / 2.0 };
+        if *tau < lbd || *tau > ubd {
+            *tau = (lbd + ubd) / 2.0
+        };
 
         // Update f, df, ddf for next iteration
-        f = finit; df = 0.0; ddf=0.0;
+        f = finit;
+        df = 0.0;
+        ddf = 0.0;
         for j in 0..3 {
-             let temp = if scale { 1.0 / (dscale[j] - *tau) } else { 1.0 / (d[j] - *tau) };
-             if !temp.is_finite() { continue; }
-             let temp1 = if scale { zscale[j] * temp } else { z[j] * temp };
-             f += *tau * temp1 / if scale { dscale[j] } else { d[j] };
-             df += temp1 * temp;
-             ddf += df * temp;
+            let temp = if scale {
+                1.0 / (dscale[j] - *tau)
+            } else {
+                1.0 / (d[j] - *tau)
+            };
+            if !temp.is_finite() {
+                continue;
+            }
+            let temp1 = if scale { zscale[j] * temp } else { z[j] * temp };
+            f += *tau * temp1 / if scale { dscale[j] } else { d[j] };
+            df += temp1 * temp;
+            ddf += df * temp;
         }
     }
 
@@ -2694,7 +2809,6 @@ pub fn dlaed6(
         *tau /= scalfac;
     }
 }
-
 
 /// Finds the roots of the secular equation and updates the eigenvectors.
 /// This function corresponds to LAPACK's DLAED3 subroutine.  It's used when the original matrix is tridiagonal.
@@ -2725,18 +2839,18 @@ pub fn dlaed3(
     }
 
     for j in 0..k {
-        let mut info_dlaed4 = 0;  // Initialize info before calling dlaed4
+        let mut info_dlaed4 = 0; // Initialize info before calling dlaed4
 
         let mut q_col = vec![0.0; k];
         for i in 0..k {
             q_col[i] = q[i][j];
         }
         info_dlaed4 = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q);
-        
+
         // If dlaed4 failed, set info and return
         if info_dlaed4 != 0 {
             info = 1; // Or potentially more specific error code
-            return Ok(info); 
+            return Ok(info);
         }
     }
 
@@ -2748,17 +2862,16 @@ pub fn dlaed3(
     if k == 2 {
         // Handle the 2x2 case by sorting eigenvectors
         for j in 0..k {
-            let ii1 = indx[0]-1;
-            let ii2 = indx[1]-1;
+            let ii1 = indx[0] - 1;
+            let ii2 = indx[1] - 1;
             let w1 = q[0][j];
             let w2 = q[1][j];
             q[0][j] = w1.min(w2); // Ascending order
             q[1][j] = w1.max(w2);
         }
 
-         return Ok(info);
+        return Ok(info);
     }
-
 
     // Update w
     dcopy(k, w, 1, &mut s[0], 1);
@@ -2775,7 +2888,6 @@ pub fn dlaed3(
         w[i] = -w[i].sqrt().copysign(s[0][i]);
     }
 
-
     for j in 0..k {
         for i in 0..k {
             s[0][i] = w[i] / q[i][j];
@@ -2787,15 +2899,12 @@ pub fn dlaed3(
         }
     }
 
-
     // Compute the updated eigenvectors
     let n2 = n - n1;
     let n12 = ctot[0] + ctot[1];
     let n23 = ctot[1] + ctot[2];
 
-
     dlacpy('A', n23, k, &q[ctot[0]..], ldq, &mut s[..n23], n23);
-
 
     if n23 > 0 {
         let result = dgemm(&q2[n1 * n12..], &s[..n23]);
@@ -2811,10 +2920,8 @@ pub fn dlaed3(
     dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
     let result = dgemm(q2, &mut s[..n12]);
 
-
     Ok(info)
 }
-
 
 /// Finds the roots of the secular equation and updates the eigenvectors.
 /// Used when the original matrix is dense.
@@ -2862,19 +2969,19 @@ pub fn dlaed9(
     }
 
     // Compute eigenvalues of the modified secular equation
-    for j in kstart-1..kstop {
+    for j in kstart - 1..kstop {
         let mut d_sub = vec![0.0; k];
         let mut z_out = vec![vec![0.0; k]; k];
-        
+
         // Call dlaed4 with the correct arguments
         // Note: dlaed4 takes the secular equation parameters and returns eigenvalue/vectors
         if dlaed4(&dlamda, &dlamda, w, rho, &mut d_sub, &mut z_out) != 0 {
             return Err(1); // Eigenvalue did not converge
         }
-        
+
         // Copy the computed eigenvalue
         d[j] = d_sub[0];
-        
+
         // Copy the computed eigenvector to Q
         for i in 0..k {
             q[i][j] = z_out[i][0];
@@ -2905,7 +3012,7 @@ pub fn dlaed9(
         for i in 0..j {
             w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
         }
-        for i in j+1..k {
+        for i in j + 1..k {
             w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
         }
     }
@@ -2935,7 +3042,7 @@ pub fn dlaed9(
 pub fn dlaed8(
     icompq: i32,
     k: &mut usize,
-    n: usize, 
+    n: usize,
     qsiz: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
@@ -3009,7 +3116,7 @@ pub fn dlaed8(
     for i in cutpnt..n {
         indxq[i] += cutpnt;
     }
-    
+
     // Copy values to work arrays
     for i in 0..n {
         dlamda[i] = d[indxq[i]];
@@ -3136,13 +3243,13 @@ pub fn dlaed8(
                 }
                 j += 1;
             }
-            
+
             // Record last eigenvalue
             *k += 1;
             w[*k - 1] = z[jlam];
             dlamda[*k - 1] = d[jlam];
             indxp[*k - 1] = jlam;
-            
+
             break 'outer;
         }
         j += 1;
@@ -3178,7 +3285,6 @@ pub fn dlaed8(
 
     Ok(())
 }
-
 
 /// Computes the updated eigensystem of a diagonal matrix after modification by a
 /// rank-one symmetric matrix. Used when the original matrix is dense.
@@ -3273,7 +3379,7 @@ pub fn dlaed7(
     let (work_iz, work_rest) = work.split_at_mut(idlmda);
     let (work_dlamda, work_rest) = work_rest.split_at_mut(iw - idlmda);
     let (work_w, work_q2) = work_rest.split_at_mut(iq2 - iw);
-    
+
     // Now assign the slices accordingly
     let z = work_iz;
     let dlamda = work_dlamda;
@@ -3294,11 +3400,7 @@ pub fn dlaed7(
 
     // Form the z-vector which consists of the last row of Q_1 and the first row of Q_2
     for i in 0..n {
-        z[i] = if i < n1 {
-            q[n1 - 1][i]
-        } else {
-            q[i][i]
-        };
+        z[i] = if i < n1 { q[n1 - 1][i] } else { q[i][i] };
     }
 
     // Deflate eigenvalues
@@ -3306,11 +3408,11 @@ pub fn dlaed7(
 
     // Declarations of givcol and givnum
     let mut givcol = vec![vec![0usize; 2]; n]; // Are these appropriate dimensions?
-    let mut givnum = vec![vec![0.0; 2]; n];    // Are these appropriate dimensions?
+    let mut givnum = vec![vec![0.0; 2]; n]; // Are these appropriate dimensions?
 
     let mut indxp = vec![0usize; n];
     let mut indx = vec![0usize; n];
-    let mut q2 = vec![vec![0.0; n]; n]; // Are dimensions correct? 
+    let mut q2 = vec![vec![0.0; n]; n]; // Are dimensions correct?
 
     let ldq2 = if icompq == 1 { qsiz } else { n };
     dlaed8(
@@ -3336,23 +3438,14 @@ pub fn dlaed7(
         &mut indxp,
         &mut indx,
     )?;
-    
+
     if k != 0 {
         // Solve the secular equation
         let mut s = vec![vec![0.0; k]; k];
         dlaed9(
-            k,
-            1, // kstart
+            k, 1, // kstart
             k, // kstop
-            n,
-            d,
-            q,
-            ldq,
-            *rho,
-            dlamda,
-            w,
-            &mut s,
-            k,
+            n, d, q, ldq, *rho, dlamda, w, &mut s, k,
         )?;
 
         if icompq == 1 {
@@ -3385,18 +3478,17 @@ pub fn dlaed7(
     Ok(())
 }
 
-
 /// Computes the Z vector determining the rank-one modification of the diagonal matrix
 /// during the merge phase of the divide and conquer algorithm.
-/// 
-/// This function is used by DSTEDC when computing eigenvectors of a symmetric 
+///
+/// This function is used by DSTEDC when computing eigenvectors of a symmetric
 /// tridiagonal matrix using divide and conquer. It specifically handles computing
 /// the parts of eigenvectors needed during merging of subproblems.
 ///
 /// # Arguments
 /// * `n` - The dimension of the symmetric tridiagonal matrix
 /// * `tlvls` - The total number of levels in the divide & conquer tree
-/// * `curlvl` - The current level in the divide & conquer tree (0 <= curlvl <= tlvls) 
+/// * `curlvl` - The current level in the divide & conquer tree (0 <= curlvl <= tlvls)
 /// * `curpbm` - The current problem in the current level
 /// * `prmptr` - Array of pointers to permutations at each level
 /// * `perm` - The permutations used to form deflation sets
@@ -3405,7 +3497,7 @@ pub fn dlaed7(
 /// * `givnum` - The cosines and sines of the Givens rotations
 /// * `q` - The eigenvectors of the subproblems at the current level
 /// * `qptr` - Array of pointers into Q for the different splits
-/// * `z` - The final Z vector on output 
+/// * `z` - The final Z vector on output
 /// * `ztemp` - Temporary workspace array for Z computations
 ///
 /// # Returns
@@ -3441,22 +3533,22 @@ pub fn dlaeda(
     let bsiz2 = ((qptr[curr + 2] - qptr[curr + 1]) as f64).sqrt() as usize;
 
     // Initialize z to zero
-    for k in 0..mid-bsiz1 {
+    for k in 0..mid - bsiz1 {
         z[k] = 0.0;
     }
 
     // Copy last row of first eigenblock
     for k in 0..bsiz1 {
-        z[mid-bsiz1+k] = q[qptr[curr] + bsiz1*k + bsiz1-1];
+        z[mid - bsiz1 + k] = q[qptr[curr] + bsiz1 * k + bsiz1 - 1];
     }
 
     // Copy first row of second eigenblock
     for k in 0..bsiz2 {
-        z[mid+k] = q[qptr[curr+1] + bsiz2*k];
+        z[mid + k] = q[qptr[curr + 1] + bsiz2 * k];
     }
 
     // Zero out remainder
-    for k in mid+bsiz2..n {
+    for k in mid + bsiz2..n {
         z[k] = 0.0;
     }
 
@@ -3464,8 +3556,8 @@ pub fn dlaeda(
     let mut ptr = 1 << tlvls;
     for k in 1..=curlvl {
         // Calculate indices for current level
-        let level_curr = ptr + curpbm * (1 << (curlvl-k)) + (1 << (curlvl-k-1)) - 1;
-        
+        let level_curr = ptr + curpbm * (1 << (curlvl - k)) + (1 << (curlvl - k - 1)) - 1;
+
         // Get sizes for the blocks at this level
         let psiz1 = prmptr[level_curr + 1] - prmptr[level_curr];
         let psiz2 = prmptr[level_curr + 2] - prmptr[level_curr + 1];
@@ -3474,24 +3566,24 @@ pub fn dlaeda(
         // Apply Givens rotations
         for i in givptr[level_curr]..givptr[level_curr + 1] {
             // Get rotation columns
-            let c1 = givcol[0][i-1] - 1;
-            let c2 = givcol[1][i-1] - 1;
-            
+            let c1 = givcol[0][i - 1] - 1;
+            let c2 = givcol[1][i - 1] - 1;
+
             // Apply rotation
             let temp = z[zptr1 + c1];
-            z[zptr1 + c1] = givnum[0][i-1] * temp + givnum[1][i-1] * z[zptr1 + c2];
-            z[zptr1 + c2] = -givnum[1][i-1] * temp + givnum[0][i-1] * z[zptr1 + c2];
+            z[zptr1 + c1] = givnum[0][i - 1] * temp + givnum[1][i - 1] * z[zptr1 + c2];
+            z[zptr1 + c2] = -givnum[1][i - 1] * temp + givnum[0][i - 1] * z[zptr1 + c2];
         }
 
         for i in givptr[level_curr + 1]..givptr[level_curr + 2] {
             // Get rotation columns for second block
-            let c1 = givcol[0][i-1] - 1; 
-            let c2 = givcol[1][i-1] - 1;
-            
+            let c1 = givcol[0][i - 1] - 1;
+            let c2 = givcol[1][i - 1] - 1;
+
             // Apply rotation to second block
             let temp = z[mid - 1 + c1];
-            z[mid - 1 + c1] = givnum[0][i-1] * temp + givnum[1][i-1] * z[mid - 1 + c2];
-            z[mid - 1 + c2] = -givnum[1][i-1] * temp + givnum[0][i-1] * z[mid - 1 + c2];
+            z[mid - 1 + c1] = givnum[0][i - 1] * temp + givnum[1][i - 1] * z[mid - 1 + c2];
+            z[mid - 1 + c2] = -givnum[1][i - 1] * temp + givnum[0][i - 1] * z[mid - 1 + c2];
         }
 
         // Permute the vector by copying to temporary space
@@ -3512,7 +3604,7 @@ pub fn dlaeda(
                     qmat[i][j] = q[qptr[level_curr] + i * bsiz + j];
                 }
             }
-            
+
             // Perform matrix-vector multiplication
             let mut temp = vec![0.0; bsiz];
             for i in 0..bsiz {
@@ -3521,7 +3613,7 @@ pub fn dlaeda(
                     temp[i] += qmat[j][i] * ztemp[j];
                 }
             }
-            
+
             // Copy result back
             for i in 0..bsiz {
                 z[zptr1 + i] = temp[i];
@@ -3543,7 +3635,7 @@ pub fn dlaeda(
                     qmat[i][j] = q[qptr[level_curr + 1] + i * bsiz + j];
                 }
             }
-            
+
             // Perform matrix-vector multiplication
             let mut temp = vec![0.0; bsiz];
             for i in 0..bsiz {
@@ -3552,7 +3644,7 @@ pub fn dlaeda(
                     temp[i] += qmat[j][i] * ztemp[psiz1 + j];
                 }
             }
-            
+
             // Copy result back
             for i in 0..bsiz {
                 z[mid + i] = temp[i];
@@ -3571,10 +3663,9 @@ pub fn dlaeda(
     Ok(())
 }
 
-
 /// Applies a sequence of plane rotations to a real matrix A from either the left or right.
 /// This function corresponds to LAPACK's DLASR routine.
-/// 
+///
 /// # Arguments
 /// * `side` - Specifies whether P is applied from the left ('L') or right ('R')
 /// * `pivot` - Specifies rotation plane:
@@ -3638,38 +3729,38 @@ pub fn dlasr(
                     // Variable pivot
                     if direct == 'F' {
                         // Forward sequence
-                        for j in 0..m-1 {
+                        for j in 0..m - 1 {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
-                                    let temp = a[j+1][i];
-                                    a[j+1][i] = ctemp * temp - stemp * a[j][i];
+                                    let temp = a[j + 1][i];
+                                    a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
                                 }
                             }
                         }
                     } else {
                         // Backward sequence
-                        for j in (0..m-1).rev() {
+                        for j in (0..m - 1).rev() {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
-                                    let temp = a[j+1][i];
-                                    a[j+1][i] = ctemp * temp - stemp * a[j][i];
+                                    let temp = a[j + 1][i];
+                                    a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
                                 }
                             }
                         }
                     }
-                },
+                }
                 'T' => {
                     // Top pivot
                     if direct == 'F' {
                         for j in 1..m {
-                            let ctemp = c[j-1];
-                            let stemp = s[j-1];
+                            let ctemp = c[j - 1];
+                            let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
                                     let temp = a[j][i];
@@ -3680,8 +3771,8 @@ pub fn dlasr(
                         }
                     } else {
                         for j in (1..m).rev() {
-                            let ctemp = c[j-1];
-                            let stemp = s[j-1];
+                            let ctemp = c[j - 1];
+                            let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
                                     let temp = a[j][i];
@@ -3691,75 +3782,75 @@ pub fn dlasr(
                             }
                         }
                     }
-                },
+                }
                 'B' => {
                     // Bottom pivot
                     if direct == 'F' {
-                        for j in 0..m-1 {
+                        for j in 0..m - 1 {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
                                     let temp = a[j][i];
-                                    a[j][i] = stemp * a[m-1][i] + ctemp * temp;
-                                    a[m-1][i] = ctemp * a[m-1][i] - stemp * temp;
+                                    a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
+                                    a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
                                 }
                             }
                         }
                     } else {
-                        for j in (0..m-1).rev() {
+                        for j in (0..m - 1).rev() {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..n {
                                     let temp = a[j][i];
-                                    a[j][i] = stemp * a[m-1][i] + ctemp * temp;
-                                    a[m-1][i] = ctemp * a[m-1][i] - stemp * temp;
+                                    a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
+                                    a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
                                 }
                             }
                         }
                     }
-                },
+                }
                 _ => unreachable!(),
             }
-        },
+        }
         'R' => {
             // Form A * P^T
             match pivot {
                 'V' => {
                     // Variable pivot
                     if direct == 'F' {
-                        for j in 0..n-1 {
+                        for j in 0..n - 1 {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
-                                    let temp = a[i][j+1];
-                                    a[i][j+1] = ctemp * temp - stemp * a[i][j];
+                                    let temp = a[i][j + 1];
+                                    a[i][j + 1] = ctemp * temp - stemp * a[i][j];
                                     a[i][j] = stemp * temp + ctemp * a[i][j];
                                 }
                             }
                         }
                     } else {
-                        for j in (0..n-1).rev() {
+                        for j in (0..n - 1).rev() {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
-                                    let temp = a[i][j+1];
-                                    a[i][j+1] = ctemp * temp - stemp * a[i][j];
+                                    let temp = a[i][j + 1];
+                                    a[i][j + 1] = ctemp * temp - stemp * a[i][j];
                                     a[i][j] = stemp * temp + ctemp * a[i][j];
                                 }
                             }
                         }
                     }
-                },
+                }
                 'T' => {
                     // Top pivot
                     if direct == 'F' {
                         for j in 1..n {
-                            let ctemp = c[j-1];
-                            let stemp = s[j-1];
+                            let ctemp = c[j - 1];
+                            let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
                                     let temp = a[i][j];
@@ -3770,8 +3861,8 @@ pub fn dlasr(
                         }
                     } else {
                         for j in (1..n).rev() {
-                            let ctemp = c[j-1];
-                            let stemp = s[j-1];
+                            let ctemp = c[j - 1];
+                            let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
                                     let temp = a[i][j];
@@ -3781,38 +3872,38 @@ pub fn dlasr(
                             }
                         }
                     }
-                },
+                }
                 'B' => {
                     // Bottom pivot
                     if direct == 'F' {
-                        for j in 0..n-1 {
+                        for j in 0..n - 1 {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
                                     let temp = a[i][j];
-                                    a[i][j] = stemp * a[i][n-1] + ctemp * temp;
-                                    a[i][n-1] = ctemp * a[i][n-1] - stemp * temp;
+                                    a[i][j] = stemp * a[i][n - 1] + ctemp * temp;
+                                    a[i][n - 1] = ctemp * a[i][n - 1] - stemp * temp;
                                 }
                             }
                         }
                     } else {
-                        for j in (0..n-1).rev() {
+                        for j in (0..n - 1).rev() {
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
                                 for i in 0..m {
                                     let temp = a[i][j];
-                                    a[i][j] = stemp * a[i][n-1] + ctemp * temp;
-                                    a[i][n-1] = ctemp * a[i][n-1] - stemp * temp;
+                                    a[i][j] = stemp * a[i][n - 1] + ctemp * temp;
+                                    a[i][n - 1] = ctemp * a[i][n - 1] - stemp * temp;
                                 }
                             }
                         }
                     }
-                },
+                }
                 _ => unreachable!(),
             }
-        },
+        }
         _ => unreachable!(),
     }
 
@@ -3852,20 +3943,20 @@ pub fn dlaed1(
         work[iz + i] = q[cutpnt - 1][i];
     }
     let zpp1 = cutpnt;
-    for i in 0..n-cutpnt {
+    for i in 0..n - cutpnt {
         work[iz + cutpnt + i] = q[zpp1 + i][zpp1 + i];
     }
 
     // Deflate eigenvalues
     let mut k = 0;
     let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
-    
+
     let n1 = cutpnt; // Is `cutpnt` declared and in scope?
 
     // Split `work` into non-overlapping mutable slices
     let (work_iz, work_rest) = work.split_at_mut(idlmda);
     let (work_idlmda, work_iw) = work_rest.split_at_mut(iw - idlmda);
-    
+
     // Similarly, split `iwork`
     let (iwork_indx, iwork_rest) = iwork.split_at_mut(indxc);
     let (iwork_indxc, iwork_rest) = iwork_rest.split_at_mut(indxp - indxc);
@@ -3890,24 +3981,24 @@ pub fn dlaed1(
         iwork_coltyp,
     )?;
 
-
     if k != 0 {
         // Solve Secular Equation
-        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt +
-                (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt) + iq2;
+        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt
+            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt)
+            + iq2;
 
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
-        
+
         // Split `work` into non-overlapping slices
         let (work_iz, work_rest) = work.split_at_mut(idlmda);
         let (work_idlmda, work_rest) = work_rest.split_at_mut(iw - idlmda);
         let (work_iw, _) = work_rest.split_at_mut(iq2 - iw);
-        
+
         // Now use the non-overlapping slices in the function call
         let info = dlaed3(
             k,
-            n, 
+            n,
             cutpnt,
             d,
             q,
