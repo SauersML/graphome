@@ -2350,6 +2350,167 @@ pub fn dlaed5(
 }
 
 
+pub fn dlaed6(
+    kniter: i32,
+    orgati: bool,
+    rho: f64,
+    d: &mut [f64],
+    z: &mut [f64],
+    finit: f64,
+    tau: &mut f64,
+    info: &mut i32,
+) {
+    *info = 0;
+    let mut lbd = if orgati { d[1] } else { d[0] };
+    let mut ubd = if orgati { d[2] } else { d[1] };
+    
+    if finit < 0.0 {
+        lbd = 0.0;
+    } else {
+        ubd = 0.0;
+    }
+    
+    
+    *tau = 0.0;
+    if kniter == 2 {
+        if orgati {
+            let temp = (d[2] - d[1]) / 2.0;
+            let c = rho + z[0] / ((d[0] - d[1]) - temp);
+            let a = c * (d[1] + d[2]) + z[1] + z[2];
+            let b = c * d[1] * d[2] + z[1] * d[2] + z[2] * d[1];
+            *tau = if c == 0.0 {
+                b / a
+            } else if a <= 0.0 {
+                (a - (a * a - 4.0 * b * c).abs().sqrt()) / (2.0 * c)
+            } else {
+                2.0 * b / (a + (a * a - 4.0 * b * c).abs().sqrt())
+            };
+        } else {
+            let temp = (d[0] - d[1]) / 2.0;
+            let c = rho + z[2] / ((d[2] - d[1]) - temp);
+            let a = c * (d[0] + d[1]) + z[0] + z[1];
+            let b = c * d[0] * d[1] + z[0] * d[1] + z[1] * d[0];
+             *tau = if c == 0.0 {
+                b / a
+            } else if a <= 0.0 {
+                (a - (a * a - 4.0 * b * c).abs().sqrt()) / (2.0 * c)
+            } else {
+                2.0 * b / (a + (a * a - 4.0 * b * c).abs().sqrt())
+            };
+        }
+
+        if *tau < lbd || *tau > ubd {
+            *tau = (lbd + ubd) / 2.0;
+        }
+
+        if d[0] == *tau || d[1] == *tau || d[2] == *tau {
+            *tau = 0.0;
+        } else {
+            let temp = finit + *tau*z[0]/(d[0]*(d[0] - *tau)) + *tau*z[1]/(d[1]*(d[1]-*tau)) + *tau*z[2]/(d[2]*(d[2]-*tau));
+            if temp <= 0.0 { lbd = *tau; } else { ubd = *tau; };
+        }
+        
+    }
+
+
+    let eps = dlamch('E');
+    let base = dlamch('B');
+    let small1 = base.powf(dlamch('S').log(base) / 3.0);
+    let sminv1 = 1.0 / small1;
+    let small2 = small1 * small1;
+    let sminv2 = sminv1 * sminv1;
+
+    let mut dscale = d.to_vec();
+    let mut zscale = z.to_vec();
+    let mut scale = false;
+
+    let temp = if orgati {
+        (d[1] - *tau).abs().min((d[2] - *tau).abs())
+    } else {
+        (d[0] - *tau).abs().min((d[1] - *tau).abs())
+    };
+
+    if temp <= small1 {
+        scale = true;
+        let (scalfac, sclinv) = if temp <= small2 {
+            (sminv2, small2)
+        } else {
+            (sminv1, small1)
+        };
+
+        for i in 0..3 {
+            dscale[i] *= scalfac;
+            zscale[i] *= scalfac;
+        }
+        *tau *= scalfac;
+        lbd *= scalfac;
+        ubd *= scalfac;
+    }
+
+    let mut f = finit;
+    let mut df = 0.0;
+    let mut ddf = 0.0;
+    for j in 0..3 {
+        let temp = if scale { 1.0 / (dscale[j] - *tau) } else { 1.0 / (d[j] - *tau) };
+        if !temp.is_finite() { continue; }
+        let temp1 = if scale { zscale[j] * temp } else { z[j] * temp };
+        f += *tau * temp1 / if scale { dscale[j] } else { d[j] };
+        df += temp1 * temp;
+        ddf += df * temp;
+    }
+    
+    let maxit = 20;
+    for _ in 0..maxit {
+         if f.abs() <= eps * finit.abs() || ubd-lbd <= 2.0*eps { break; };
+
+         // Gragg-Thornton-Warner cubic convergent scheme
+         let temp1 = if orgati { dscale[1] - *tau } else { dscale[0] - *tau };
+         let temp2 = if orgati { dscale[2] - *tau } else { dscale[1] - *tau };
+
+         let a = (temp1 + temp2) * f - temp1 * temp2 * df;
+         let b = temp1 * temp2 * f;
+         let c = f - (temp1 + temp2) * df + temp1 * temp2 * ddf;
+
+         let temp = a.abs().max(b.abs()).max(c.abs());
+         let a = a/temp; let b = b/temp; let c=c/temp;
+        
+        let eta = if c==0.0 {
+             b/a
+         } else if a <= 0.0 {
+             (a - (a*a - 4.0*b*c).sqrt()) / (2.0*c)
+         } else {
+             2.0*b / (a + (a*a-4.0*b*c).sqrt())
+         };
+        
+        if f*eta >= 0.0 {
+            *tau = -f/df;
+        }
+
+        *tau += eta;
+        if *tau < lbd || *tau > ubd { *tau = (lbd + ubd) / 2.0 };
+
+        // Update f, df, ddf for next iteration
+        f = finit; df = 0.0; ddf=0.0;
+        for j in 0..3 {
+             let temp = if scale { 1.0 / (dscale[j] - *tau) } else { 1.0 / (d[j] - *tau) };
+             if !temp.is_finite() { continue; }
+             let temp1 = if scale { zscale[j] * temp } else { z[j] * temp };
+             f += *tau * temp1 / if scale { dscale[j] } else { d[j] };
+             df += temp1 * temp;
+             ddf += df * temp;
+        }
+    }
+
+    if *tau < lbd || *tau > ubd {
+        *info = 1;
+    };
+
+    if scale {
+        *tau /= scalfac;
+    }
+}
+
+
 
 /*
 Not yet implemented functions:
