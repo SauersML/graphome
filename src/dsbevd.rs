@@ -1983,11 +1983,16 @@ pub fn dlaed0(
             };
 
             if icompq == 2 {
-                dlaed1(matsiz, &mut d[submat-1..], 
-                       &mut q[submat-1..], ldq,
-                       &mut iwork[indxq+submat-1..],
-                       &mut e[submat+msd2-2..], msd2,
-                       work, &mut iwork[subpbs..])?;
+                dlaed1(
+                    matsiz,
+                    &mut d[submat-1..],
+                    &mut q[submat-1..],
+                    ldq,
+                    &mut iwork[indxq+submat-1..],
+                    e[submat+msd2-2],
+                    msd2,
+                    work,
+                    &mut iwork[subpbs..])?;
             } else {
                 dlaed7(icompq, matsiz, qsiz, tlvls, curlvl, curprb,
                        &mut d[submat-1..],
@@ -3132,7 +3137,7 @@ pub fn dlaed7(
     givnum: &mut Vec<Vec<f64>>,
     work: &mut [f64],
     iwork: &mut [usize],
-) -> Result<(), i32> {
+) -> Result<(), Error>
     // Test the input parameters
     if icompq < 0 || icompq > 1 {
         return Err(-1);
