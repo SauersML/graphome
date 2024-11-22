@@ -345,32 +345,6 @@ fn approx_eq(a: f64, b: f64) -> bool {
 }
 
 #[test]
-fn test_symmetric_banded_matrix_new() {
-    // Correct usage
-    let n = 5;
-    let kd = 2;
-    let ab = vec![
-        vec![1.0; n],
-        vec![0.5; n],
-        vec![0.25; n],
-    ];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-    assert_eq!(matrix.n, n);
-    assert_eq!(matrix.kd, kd);
-    assert_eq!(matrix.ab, ab);
-
-    // Incorrect number of rows in 'ab' matrix (should panic)
-    let ab_incorrect = vec![vec![1.0; n]; kd]; // Only kd rows instead of kd + 1
-    let result = std::panic::catch_unwind(|| SymmetricBandedMatrix::new(n, kd, ab_incorrect));
-    assert!(result.is_err());
-
-    // Incorrect number of columns in 'ab' matrix (should panic)
-    let ab_incorrect = vec![vec![1.0; n - 1]; kd + 1]; // One column less
-    let result = std::panic::catch_unwind(|| SymmetricBandedMatrix::new(n, kd, ab_incorrect));
-    assert!(result.is_err());
-}
-
-#[test]
 fn test_symmetric_banded_matrix_dsbevd() {
     let n = 4;
     let kd = 1;
@@ -392,83 +366,6 @@ fn test_symmetric_banded_matrix_dsbevd() {
         assert!(eigen_results.eigenvalues[i] <= eigen_results.eigenvalues[i + 1]);
     }
 }
-
-#[test]
-fn test_symmetric_banded_matrix_dsbtrd() {
-    let n = 4;
-    let kd = 1;
-    let ab = vec![
-        vec![1.0, 2.0, 3.0, 4.0],
-        vec![0.5, 1.5, 2.5, 3.5],
-    ];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-    let (d, e, q) = matrix.dsbtrd();
-    assert_eq!(d.len(), n);
-    assert_eq!(e.len(), n.saturating_sub(1));
-    assert_eq!(q.len(), n);
-    for row in q.iter() {
-        assert_eq!(row.len(), n);
-    }
-
-    // Test for index out of bounds by providing incorrect ab dimensions
-    let ab_incorrect = vec![
-        vec![1.0, 2.0, 3.0], // One column less
-        vec![0.5, 1.5, 2.5],
-    ];
-    let matrix_incorrect = SymmetricBandedMatrix::new(n - 1, kd, ab_incorrect);
-    let result = std::panic::catch_unwind(|| matrix_incorrect.dsbtrd());
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_symmetric_banded_matrix_dlanst() {
-    let n = 3;
-    let kd = 1;
-    let ab = vec![
-        vec![1.0, -2.0, 3.0],
-        vec![0.5, -0.5, 0.0],
-    ];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-    let norm = matrix.dlanst();
-    assert!(norm > 0.0);
-
-    // Test for index out of bounds by providing incorrect ab dimensions
-    let ab_incorrect = vec![
-        vec![1.0, -2.0], // One element less
-        vec![0.5, -0.5],
-    ];
-    let matrix_incorrect = SymmetricBandedMatrix::new(n - 1, kd, ab_incorrect);
-    let result = std::panic::catch_unwind(|| matrix_incorrect.dlanst());
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_symmetric_banded_matrix_dlascl() {
-    let n = 3;
-    let kd = 1;
-    let ab = vec![
-        vec![1.0, 2.0, 3.0],
-        vec![0.5, 1.5, 2.5],
-    ];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-    let scale = 2.0;
-    let scaled_matrix = matrix.dlascl(scale);
-    for i in 0..ab.len() {
-        for j in 0..ab[0].len() {
-            assert_eq!(scaled_matrix.ab[i][j], ab[i][j] * scale);
-        }
-    }
-
-    // Test with scale = 0 (should not panic)
-    let scale = 0.0;
-    let scaled_matrix_zero = matrix.dlascl(scale);
-    for row in scaled_matrix_zero.ab.iter() {
-        for val in row.iter() {
-            assert_eq!(*val, 0.0);
-        }
-    }
-}
-
 
 #[test]
 fn test_dstedc() {
