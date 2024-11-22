@@ -1057,7 +1057,7 @@ pub fn dsbtrd(
                     for idx in 0..nr {
                         j1.checked_sub(kd).and_then(|x| x.checked_sub(1))
                            .and_then(|x| x.checked_add(idx.checked_mul(kd)?))
-                           .ok_or("Arithmetic overflow")?
+                           .ok_or("Arithmetic overflow")?;
 
                         // j is within the bounds of BOTH ab[kd] AND ab[kd-1]
                         if j < ab[kd].len() && j < ab[kd - 1].len() {
