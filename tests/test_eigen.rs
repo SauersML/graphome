@@ -11,7 +11,8 @@ use graphome::eigen::{
     save_nalgebra_vector_to_csv,
 };
 
-
+use std::io::ErrorKind;
+use tempfile::NamedTempFile;
 
 const TOLERANCE: f64 = 1e-6;
 
@@ -87,4 +88,43 @@ fn test_adjacency_matrix_to_ndarray() {
 
     assert_eq!(adj_matrix, expected);
 
+}
+
+
+#[test]
+fn test_compute_ngec_valid_eigenvalues() {
+    // Test with a valid set of non-negative eigenvalues
+    let eigenvalues = array![2.0, 1.0, 0.5];
+    let expected_ngec = {
+        let sum = 3.5;
+        let normalized = array![2.0/sum, 1.0/sum, 0.5/sum];
+        let entropy = -(normalized[0] * normalized[0].ln() + normalized[1] * normalized[1].ln() + normalized[2] * normalized[2].ln());
+        entropy / (3 as f64).ln()
+    };
+    let ngec = compute_ngec(&eigenvalues).expect("NGEC calculation failed");
+    assert!((ngec - expected_ngec).abs() < TOLERANCE, "NGEC value is not as expected. Got: {}, Expected: {}", ngec, expected_ngec);
+}
+
+#[test]
+fn test_save_and_load_vector_csv() {
+    // Test saving and loading an nalgebra::DVector<f64> to/from a CSV file
+    let vector = nalgebra::DVector::from_vec(vec![1.0, 2.0, 3.0, 4.0]);
+    let tmp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let csv_path = tmp_file.path();
+
+    // Save the vector to CSV
+    save_nalgebra_vector_to_csv(&vector, csv_path).expect("Failed to save vector to CSV");
+
+    // Load the vector from CSV
+    let mut rdr = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_path(csv_path)
+        .expect("Failed to create CSV reader");
+
+     let loaded_row: Vec<f64> = rdr.deserialize().next().expect("Failed to read row").expect("Failed to deserialize");
+
+    let loaded_vector = nalgebra::DVector::from_vec(loaded_row);
+
+    // Compare the loaded vector with the original
+    assert_eq!(vector, loaded_vector, "Loaded vector does not match the original vector.");
 }
