@@ -465,18 +465,101 @@ fn test_idamax() {
 
 #[test]
 fn test_dswap() {
-    let mut dx = vec![1.0, 2.0, 3.0];
-    let mut dy = vec![4.0, 5.0, 6.0];
-    dswap(3, &mut dx, 1, &mut dy, 1);
-    assert_eq!(dx, vec![4.0, 5.0, 6.0]);
-    assert_eq!(dy, vec![1.0, 2.0, 3.0]);
+    // Test 1: Basic swap with increment 1
+    {
+        let mut x = vec![1.0, 2.0, 3.0, 4.0];
+        let mut y = vec![5.0, 6.0, 7.0, 8.0];
+        let n = 4;
+        dswap(n, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(y, vec![1.0, 2.0, 3.0, 4.0]);
+    }
 
-    // Test with zero increments (should do nothing)
-    let mut dx = vec![1.0, 2.0, 3.0];
-    let mut dy = vec![4.0, 5.0, 6.0];
-    dswap(3, &mut dx, 0, &mut dy, 0);
-    assert_eq!(dx, vec![1.0, 2.0, 3.0]);
-    assert_eq!(dy, vec![4.0, 5.0, 6.0]);
+    // Test 2: Empty vectors (n=0)
+    {
+        let mut x = vec![1.0, 2.0];
+        let mut y = vec![3.0, 4.0];
+        dswap(0, &mut x, 1, &mut y, 1);
+        // Should remain unchanged
+        assert_eq!(x, vec![1.0, 2.0]);
+        assert_eq!(y, vec![3.0, 4.0]);
+    }
+
+    // Test 3: Single element (n=1)
+    {
+        let mut x = vec![1.0];
+        let mut y = vec![2.0];
+        dswap(1, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![2.0]);
+        assert_eq!(y, vec![1.0]);
+    }
+
+    // Test 4: Two elements (n=2, tests partial unrolling)
+    {
+        let mut x = vec![1.0, 2.0];
+        let mut y = vec![3.0, 4.0];
+        dswap(2, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![3.0, 4.0]);
+        assert_eq!(y, vec![1.0, 2.0]);
+    }
+
+    // Test 5: Three elements (tests full unrolling)
+    {
+        let mut x = vec![1.0, 2.0, 3.0];
+        let mut y = vec![4.0, 5.0, 6.0];
+        dswap(3, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![4.0, 5.0, 6.0]);
+        assert_eq!(y, vec![1.0, 2.0, 3.0]);
+    }
+
+    // Test 6: Increment > 1
+    {
+        let mut x = vec![1.0, -1.0, 2.0, -1.0, 3.0];
+        let mut y = vec![4.0, -1.0, 5.0, -1.0, 6.0];
+        // Swap elements at positions 0,2,4
+        dswap(3, &mut x, 2, &mut y, 2);
+        assert_eq!(x, vec![4.0, -1.0, 5.0, -1.0, 6.0]);
+        assert_eq!(y, vec![1.0, -1.0, 2.0, -1.0, 3.0]);
+    }
+
+    // Test 7: Different increments for x and y
+    {
+        let mut x = vec![1.0, -1.0, 2.0, -1.0, 3.0];
+        let mut y = vec![4.0, 5.0, 6.0];
+        // x uses increment 2, y uses increment 1
+        dswap(2, &mut x, 2, &mut y, 1);
+        assert_eq!(x, vec![4.0, -1.0, 5.0, -1.0, 3.0]);
+        assert_eq!(y, vec![1.0, 2.0, 6.0]);
+    }
+
+    // Test 8: Negative increments
+    {
+        let mut x = vec![1.0, 2.0, 3.0];
+        let mut y = vec![4.0, 5.0, 6.0];
+        // Swap in reverse order
+        dswap(3, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![4.0, 5.0, 6.0]);
+        assert_eq!(y, vec![1.0, 2.0, 3.0]);
+    }
+
+    // Test 9: Large vectors to test loop unrolling
+    {
+        let mut x = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0];
+        let mut y = vec![8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0];
+        dswap(7, &mut x, 1, &mut y, 1);
+        assert_eq!(x, vec![8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0]);
+        assert_eq!(y, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    }
+
+    // Test 10: Mixed increments with larger vectors
+    {
+        let mut x = vec![1.0, -1.0, 2.0, -1.0, 3.0, -1.0, 4.0];
+        let mut y = vec![5.0, -1.0, 6.0, -1.0, 7.0, -1.0, 8.0];
+        // Swap every other element
+        dswap(4, &mut x, 2, &mut y, 2);
+        assert_eq!(x, vec![5.0, -1.0, 6.0, -1.0, 7.0, -1.0, 8.0]);
+        assert_eq!(y, vec![1.0, -1.0, 2.0, -1.0, 3.0, -1.0, 4.0]);
+    }
 }
 
 #[test]
