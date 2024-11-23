@@ -5,6 +5,7 @@ use std::f64;
 use std::f64::EPSILON;
 use std::time::Instant;
 use approx::assert_relative_eq;
+use approx::assert_abs_diff_eq;
 use std::f64::consts::PI;
 
 use graphome::dsbevd::dcopy;
