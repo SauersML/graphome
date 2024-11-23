@@ -3728,75 +3728,107 @@ pub fn dlasr(
 }
 
 
+/// Computes the updated eigensystem of a diagonal matrix after modification by a rank-one symmetric matrix.
+/// This routine is used only for the eigenproblem which requires all eigenvalues and eigenvectors of a tridiagonal matrix.
+///
+/// The algorithm consists of three stages:
+/// 1. Deflation: Reduces the size of the problem when there are multiple eigenvalues or if there is a zero in the Z vector.
+/// 2. Secular Equation Solve: Calculates the updated eigenvalues.
+/// 3. Eigenvector Update: Computes the updated eigenvectors directly using the updated eigenvalues.
+///
+/// # Parameters
+/// - `n`: The dimension of the symmetric tridiagonal matrix (`n >= 0`).
+/// - `d`: On entry, the eigenvalues of the rank-1-perturbed matrix. On exit, the eigenvalues of the repaired matrix (`d.len() == n`).
+/// - `q`: On entry, the eigenvectors of the rank-1-perturbed matrix. On exit, the eigenvectors of the repaired tridiagonal matrix (`q.len() == n`, `q[i].len() == n`).
+/// - `ldq`: The leading dimension of the array `q` (`ldq >= n`).
+/// - `indxq`: On entry, the permutation which separately sorts the two subproblems in `d` into ascending order.
+///            On exit, the permutation which will reintegrate the subproblems back into sorted order (`indxq.len() == n`).
+/// - `rho`: The subdiagonal entry used to create the rank-1 modification.
+/// - `cutpnt`: The location of the last eigenvalue in the leading sub-matrix (`min(1,n) <= cutpnt <= n/2`).
+/// - `work`: Workspace array (`work.len() >= 4*n + n^2`).
+/// - `iwork`: Workspace array (`iwork.len() >= 4*n`).
+///
+/// # Returns
+/// - `Result<(), Error>` indicating success or an error.
 pub fn dlaed1(
     n: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
     ldq: usize,
-    indxq: &mut [usize], 
+    indxq: &mut [usize],
     rho: &mut f64,
     cutpnt: usize,
     work: &mut [f64],
-    iwork: &mut [usize]
+    iwork: &mut [usize],
 ) -> Result<(), Error> {
     // Input validation
+    if n < 0 {
+        return Err(Error(-1));
+    }
+    if ldq < n.max(1) {
+        return Err(Error(-4));
+    }
+    if cutpnt < 1.min(n) || cutpnt > n / 2 {
+        return Err(Error(-7));
+    }
+    if work.len() < 4 * n + n * n {
+        return Err(Error(-8));
+    }
+    if iwork.len() < 4 * n {
+        return Err(Error(-9));
+    }
+
+    // Quick return if possible
     if n == 0 {
         return Ok(());
     }
-    if ldq < n {
-        return Err(Error(-4));
-    }
-    if n == 1 {
-        if cutpnt > 1 {
-            return Err(Error(-7));
-        }
-        indxq[0] = 0;
-        return Ok(());
-    }
-    if cutpnt == 0 || cutpnt > n/2 {
-        return Err(Error(-7));
-    }
-    if work.len() < 4*n + n*n {
-        return Err(Error(-8));
-    }
-    if iwork.len() < 4*n {
-        return Err(Error(-9)); 
-    }
 
-    // Form z-vector with corrected indexing
+    // Workspace pointers
     let iz = 0;
-    let idlmda = n;
-    let iw = 2*n;
-    let iq2 = 3*n;
+    let idlmda = iz + n;
+    let iw = idlmda + n;
+    let iq2 = iw + n;
 
+    // Integer workspace indices
+    let indx = 0;
+    let indxc = indx + n;
+    let coltyp = indxc + n;
+    let indxp = coltyp + n;
+
+    // Form the z-vector which consists of the last row of Q1 and the first row of Q2
+    let z = &mut work[iz..iz + n];
+    // Copy the last row of Q1 (up to cutpnt)
     for i in 0..cutpnt {
-        work[iz + i] = q[cutpnt-1][i];
+        z[i] = q[cutpnt - 1][i];
     }
-    for i in 0..n.saturating_sub(cutpnt) {
-        work[iz + cutpnt + i] = q[cutpnt+i][cutpnt+i];
+    // Copy the first row of Q2 (from cutpnt to n)
+    for i in cutpnt..n {
+        z[i] = q[i][i];
     }
-
-    // Split workspace arrays safely
-    let (work_left, work_right) = work.split_at_mut(idlmda);
-    let work_z = work_left;
-    let (work_mid, work_last) = work_right.split_at_mut(n);
-    let work_dlamda = work_mid;
-    let (work_w, work_q2) = work_last.split_at_mut(n);
-
-    // Split integer workspace safely
-    let (iwork_left, iwork_right) = iwork.split_at_mut(n);
-    let iwork_indx = iwork_left;
-    let (iwork_mid, iwork_last) = iwork_right.split_at_mut(n);
-    let iwork_indxc = iwork_mid;
-    let (iwork_indxp, iwork_coltyp) = iwork_last.split_at_mut(n);
-
-    // Initialize Q2
-    let mut q2 = vec![vec![0.0; n]; n];
 
     // Deflate eigenvalues
+    let dlamda = &mut work[idlmda..idlmda + n];
+    let w = &mut work[iw..iw + n];
+    let q2_storage = &mut work[iq2..iq2 + n * n];
+
+    // Prepare q2 as a 2D array
+    let mut q2: Vec<Vec<f64>> = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        q2[i].copy_from_slice(&q2_storage[i * n..(i + 1) * n]);
+    }
+
+    // Prepare integer work arrays
+    let indxv = &mut iwork[indx..indx + n];
+    let indxcv = &mut iwork[indxc..indxc + n];
+    let indxpv = &mut iwork[indxp..indxp + n];
+    let coltypv = &mut iwork[coltyp..coltyp + n];
+
+    // Initialize k (number of non-deflated eigenvalues)
     let mut k = 0;
-    dlaed2(
-        &mut k,
+
+    // Call dlaed2 to deflate eigenvalues
+    let info_dlaed2 = dlaed2(
+        &mut k, // k will be updated by dlaed2
         n,
         cutpnt,
         d,
@@ -3804,36 +3836,34 @@ pub fn dlaed1(
         ldq,
         indxq,
         rho,
-        work_z,
-        work_dlamda,
-        work_w,
+        z,
+        dlamda,
+        w,
         &mut q2,
-        iwork_indx,
-        iwork_indxc,
-        iwork_indxp,
-        iwork_coltyp,
-    )?;
+        indxv,
+        indxcv,
+        indxpv,
+        coltypv,
+    );
+    if let Err(e) = info_dlaed2 {
+        return Err(e);
+    }
 
     if k != 0 {
-        // Calculate IS value
-        let col1 = iwork_coltyp[0];
-        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
-        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
+        // Solve the secular equation
+        // Prepare s for dlaed3 (size k * k)
+        let s_size = k * k;
+        let s_start = iq2 + n * n;
+        if work.len() < s_start + s_size {
+            return Err(Error(-8)); // Ensure work array is large enough
+        }
+        let s = &mut work[s_start..s_start + s_size];
+        let mut s_matrix: Vec<Vec<f64>> = vec![vec![0.0; k]; k];
+        for i in 0..k {
+            s_matrix[i].copy_from_slice(&s[i * k..(i + 1) * k]);
+        }
 
-        let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
-        let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
-        let is = term1.saturating_add(term2).saturating_add(iq2);
-
-        // Create appropriately sized temporary arrays
-        let mut q2_k = vec![vec![0.0; k]; n];
-        let mut s = vec![vec![0.0; k]; k];
-
-        // Split work arrays for dlaed3 with correct sizes
-        let (dlamda_k, _) = work_dlamda.split_at_mut(k);
-        let (w_k, _) = work_w.split_at_mut(k);
-
-        // Solve secular equation
-        dlaed3(
+        let info_dlaed3 = dlaed3(
             k,
             n,
             cutpnt,
@@ -3841,26 +3871,28 @@ pub fn dlaed1(
             q,
             ldq,
             *rho,
-            dlamda_k,
-            &q2_k,
-            iwork_indxc,
-            iwork_coltyp,
-            w_k,
-            &mut s
-        )?;
+            dlamda,
+            &q2,
+            indxv,
+            coltypv,
+            w,
+            &mut s_matrix,
+        );
+        if let Err(e) = info_dlaed3 {
+            return Err(e);
+        }
 
-        // Merge eigenvalues with 0-based indexing
-        let n2 = n.saturating_sub(k);
-        dlamrg(k, n2, d, 1, -1, indxq);
+        // Prepare the indxq sorting permutation
+        let n1 = k;
+        let n2 = n - k;
+        dlamrg(n1, n2, d, 1, -1, indxq);
 
-        // Adjust indxq values for 0-based indexing
+        // Adjust indxq to be 0-based (since dlamrg may produce 1-based indices)
         for i in 0..n {
-            if indxq[i] > 0 {
-                indxq[i] -= 1;
-            }
+            indxq[i] -= 1;
         }
     } else {
-        // Set 0-based identity permutation
+        // All eigenvalues were deflated; set indxq to identity permutation
         for i in 0..n {
             indxq[i] = i;
         }
