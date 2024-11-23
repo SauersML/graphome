@@ -3729,128 +3729,126 @@ pub fn dlasr(
 
 
 pub fn dlaed1(
-    n: usize,
-    d: &mut [f64],
-    q: &mut [Vec<f64>],
-    ldq: usize,
-    indxq: &mut [usize],
-    rho: &mut f64,
-    cutpnt: usize,
-    work: &mut [f64],
-    iwork: &mut [usize],
+   n: usize,
+   d: &mut [f64],
+   q: &mut [Vec<f64>],
+   ldq: usize, 
+   indxq: &mut [usize],
+   rho: &mut f64,
+   cutpnt: usize,
+   work: &mut [f64],
+   iwork: &mut [usize]
 ) -> Result<(), Error> {
-    // Input validation
-    if n == 0 {
-        return Ok(());
-    }
-    if ldq < n {
-        return Err(Error(-4));
-    }
-    if n == 1 {
-        if cutpnt > 1 {
-            return Err(Error(-7));
-        }
-        indxq[0] = 0;
-        return Ok(());
-    }
-    if cutpnt == 0 || cutpnt > n/2 {
-        return Err(Error(-7));
-    }
-    if work.len() < 4*n + n*n {
-        return Err(Error(-8));
-    }
-    if iwork.len() < 4*n {
-        return Err(Error(-9));
-    }
+   // Input validation
+   if n == 0 {
+       return Ok(());
+   }
+   if ldq < n {
+       return Err(Error(-4));
+   }
+   if n == 1 {
+       if cutpnt > 1 {
+           return Err(Error(-7));
+       }
+       indxq[0] = 0;
+       return Ok(());
+   }
+   if cutpnt == 0 || cutpnt > n/2 {
+       return Err(Error(-7));
+   }
+   if work.len() < 4*n + n*n {
+       return Err(Error(-8)); 
+   }
+   if iwork.len() < 4*n {
+       return Err(Error(-9));
+   }
 
-    // Setup workspace indexes
-    let iz = 0;
-    let idlmda = n;
-    let iw = 2*n;
-    let iq2 = 3*n;
+   // Form z-vector in the first n elements of work
+   for i in 0..cutpnt {
+       work[i] = q[cutpnt - 1][i];
+   }
+   for i in 0..n.saturating_sub(cutpnt) {
+       work[cutpnt + i] = q[cutpnt + i][cutpnt + i];
+   }
 
-    // Form z-vector
-    for i in 0..cutpnt {
-        work[i] = q[cutpnt - 1][i];
-    }
-    for i in 0..n.saturating_sub(cutpnt) {
-        work[cutpnt + i] = q[cutpnt + i][cutpnt + i];
-    }
+   // Split work array into non-overlapping sections
+   let (work_z, rest) = work.split_at_mut(n);
+   let (work_dlamda, rest) = rest.split_at_mut(n);
+   let (work_w, work_q2) = rest.split_at_mut(n);
 
-    // Split work array into non-overlapping mutable slices
-    let (work_z, rest1) = work.split_at_mut(idlmda);
-    let (work_dlamda, rest2) = rest1.split_at_mut(n);
-    let (work_w, work_q2) = rest2.split_at_mut(n);
+   // Split iwork array into non-overlapping sections
+   let (iwork_indx, rest) = iwork.split_at_mut(n);
+   let (iwork_indxc, rest) = rest.split_at_mut(n);
+   let (iwork_indxp, iwork_coltyp) = rest.split_at_mut(n);
 
-    // Split iwork array into non-overlapping mutable slices
-    let (iwork_indx, rest3) = iwork.split_at_mut(n);
-    let (iwork_indxc, rest4) = rest3.split_at_mut(n);
-    let (iwork_indxp, iwork_coltyp) = rest4.split_at_mut(n);
+   // Create temporary Q2 matrix
+   let mut q2 = vec![vec![0.0; n]; n];
 
-    let mut q2 = vec![vec![0.0; n]; n];
+   // Deflate eigenvalues
+   let mut k = 0;
+   dlaed2(
+       &mut k,
+       n,
+       cutpnt,
+       d,
+       q,
+       ldq,
+       indxq,
+       rho,
+       work_z,
+       work_dlamda,
+       work_w,
+       &mut q2,
+       iwork_indx,
+       iwork_indxc,
+       iwork_indxp,
+       iwork_coltyp,
+   )?;
 
-    // Call dlaed2 with properly split arrays
-    let mut k = 0;
-    dlaed2(
-        &mut k,
-        n,
-        cutpnt,
-        d,
-        q,
-        ldq,
-        indxq,
-        rho,
-        work_z,
-        work_dlamda,
-        work_w,
-        &mut q2,
-        iwork_indx,
-        iwork_indxc,
-        iwork_indxp,
-        iwork_coltyp,
-    )?;
+   if k != 0 {
+       // Calculate is using coltyp values
+       let col1 = iwork_coltyp[0];
+       let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
+       let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
+       
+       let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
+       let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
+       let is = term1.saturating_add(term2);
 
-    if k != 0 {
-        // Calculate is safely
-        let col1 = iwork_coltyp[0];
-        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
-        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
-        
-        let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
-        let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
-        let is = term1.saturating_add(term2);
+       // Create temporary arrays for dlaed3
+       let mut q2_k = vec![vec![0.0; k]; n];
+       let mut s = vec![vec![0.0; k]; k];
 
-        let mut q2_temp = vec![vec![0.0; k]; n];
-        let mut s_temp = vec![vec![0.0; k]; k];
+       // Split work arrays for dlaed3
+       let (dlamda_k, _) = work_dlamda.split_at_mut(k);
+       let (w_k, _) = work_w.split_at_mut(k);
 
-        // Split work arrays for dlaed3 with proper sizes
-        let (dlamda_k, _) = work_dlamda.split_at_mut(k);
-        let (w_k, _) = work_w.split_at_mut(k);
+       // Solve secular equation
+       dlaed3(
+           k,
+           n, 
+           cutpnt,
+           d,
+           q,
+           ldq,
+           *rho,
+           dlamda_k,
+           &q2_k,
+           iwork_indxc,
+           iwork_coltyp,
+           w_k,
+           &mut s
+       )?;
 
-        dlaed3(
-            k,
-            n,
-            cutpnt,
-            d,
-            q,
-            ldq,
-            *rho,
-            dlamda_k,
-            &q2_temp,
-            iwork_indxc,
-            iwork_coltyp,
-            w_k,
-            &mut s_temp,
-        )?;
+       // Merge eigenvalues
+       let n2 = n.saturating_sub(k);
+       dlamrg(k, n2, d, 1, -1, indxq);
+   } else {
+       // If k=0, just set identity permutation
+       for i in 0..n {
+           indxq[i] = i;
+       }
+   }
 
-        // Merge eigenvalues
-        let n2 = n.saturating_sub(k);
-        dlamrg(k, n2, d, 1, -1, indxq);
-    } else {
-        for i in 0..n {
-            indxq[i] = i;
-        }
-    }
-
-    Ok(())
+   Ok(())
 }
