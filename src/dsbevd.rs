@@ -2641,8 +2641,11 @@ pub fn dlaed3(
         for i in 0..k {
             q_col[i] = q[i][j];
         }
-        info_dlaed4 = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q)?;
-
+        let result = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q);
+        if let Err(err) = result {
+            info = 1;
+            return Err(err); // Propagate the error
+        }
         // If dlaed4 failed, set info and return
         if info_dlaed4 != 0 {
             info = 1; // Or potentially more specific error code
