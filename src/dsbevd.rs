@@ -2748,7 +2748,7 @@ pub fn dlaed9(
         return Err(Error(-7));
     }
     if lds < k.max(1) {
-        return Err(-12);
+        return Err(Error(-12));
     }
 
     // Quick return if possible
@@ -2771,7 +2771,7 @@ pub fn dlaed9(
         // Call dlaed4 with the correct arguments
         // Note: dlaed4 takes the secular equation parameters and returns eigenvalue/vectors
         if dlaed4(&dlamda, &dlamda, w, rho, &mut d_sub, &mut z_out) != 0 {
-            return Err(1); // Eigenvalue did not converge
+            return Err(Error(1)); // Eigenvalue did not converge
         }
 
         // Copy the computed eigenvalue
@@ -2881,7 +2881,7 @@ pub fn dlaed8(
         return Err(Error(-10));
     }
     if ldq2 < n.max(1) {
-        return Err(-14);
+        return Err(Error(-14));
     }
 
     *givptr = 0;
@@ -3492,10 +3492,10 @@ pub fn dlasr(
 ) -> Result<(), Error> {
     // Parameter validation
     if !matches!(side, 'L' | 'R') {
-        return Err(1);
+        return Err(Error(1));
     }
     if !matches!(pivot, 'V' | 'T' | 'B') {
-        return Err(2);
+        return Err(Error(2));
     }
     if !matches!(direct, 'F' | 'B') {
         return Err(3);
