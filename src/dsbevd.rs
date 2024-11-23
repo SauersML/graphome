@@ -515,9 +515,9 @@ pub fn dlaed4(
     d2: &[f64],
     z: &[f64],
     rho: f64,
-    d: &mut [f64],
+    d: &mut [f64], 
     z_out: &mut [Vec<f64>],
--> Result<(), Error> {
+) -> Result<(), Error> {
     let safmin: f64 = f64::MIN_POSITIVE;
     let n = d1.len() + d2.len();
     let eps = f64::EPSILON;
