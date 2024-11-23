@@ -375,7 +375,7 @@ fn test_dlaed4() {
     let mut d = vec![0.0; 4];
     let mut z_out = vec![vec![0.0; 4]; 4];
     let info = dlaed4(&d1, &d2, &z, rho, &mut d, &mut z_out);
-    assert_eq!(result.is_ok())
+    assert_eq!(result.is_ok());
     assert_eq!(d.len(), 4);
     assert_eq!(z_out.len(), 4);
 }
