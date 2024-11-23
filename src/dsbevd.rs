@@ -2202,7 +2202,7 @@ pub fn dlaed2(
 
     *k = 0;
     if n >= isize::MAX as usize - 1 {
-        return Err(-1);
+        return Err(Error(-1));
     }
     let mut k2 = n + 1;
     let mut j = 0;
@@ -2736,16 +2736,16 @@ pub fn dlaed9(
 ) -> Result<(), Error> {
     // Test the input parameters
     if k > n {
-        return Err(-4); // N must be >= K
+        return Err(Error(-4)); // N must be >= K
     }
     if kstart < 1 || kstart > k.max(1) {
-        return Err(-2);
+        return Err(Error(-2));
     }
     if kstop < kstart || kstop > k.max(1) {
-        return Err(-3);
+        return Err(Error(-3));
     }
     if ldq < n.max(1) {
-        return Err(-7);
+        return Err(Error(-7));
     }
     if lds < k.max(1) {
         return Err(-12);
@@ -2866,19 +2866,19 @@ pub fn dlaed8(
 
     // Test the input parameters
     if icompq < 0 || icompq > 1 {
-        return Err(-1);
+        return Err(Error(-1));
     }
     if n < 0 {
-        return Err(-3);
+        return Err(Error(-3));
     }
     if icompq == 1 && qsiz < n {
-        return Err(-4);
+        return Err(Error(-4));
     }
     if ldq < n.max(1) {
-        return Err(-7);
+        return Err(Error(-7));
     }
     if cutpnt < 1.min(n) || cutpnt > n {
-        return Err(-10);
+        return Err(Error(-10));
     }
     if ldq2 < n.max(1) {
         return Err(-14);
