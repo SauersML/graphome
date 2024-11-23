@@ -636,7 +636,7 @@ pub fn dlaed4(
         }
     }
 
-    0 // Return 0 to indicate success
+    Ok(())
 }
 
 /// Multiplies q and z matrices to get the eigenvectors of the original matrix.
