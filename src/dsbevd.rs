@@ -316,7 +316,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
-        let mut work = vec![0.0; 2 * n - 2];
+        let mut work = vec![0.0; 2 * n - 1];
         dsteqr('I', n, d, e, z, &mut work)?;
         return Ok(());
     }
@@ -587,7 +587,7 @@ pub fn dlaed4(
 
             // Newton update with bounds
             if df == 0.0 {
-                break;
+                break; // Is this wrong?
             }
             let delta_lambda = f / df;
             let new_lambda = lambda - delta_lambda;
@@ -1455,8 +1455,9 @@ pub fn dsteqr(
             }
             dlascl(&mut d_mat, ssfmax, anorm)?;
             dlascl(&mut e_mat, ssfmax, anorm)?;
-            for i in 0..lendsv - lsv + 1 {
-                d[lsv + i] = d_mat[i][0];
+            let len = min(lendsv - lsv + 1, d.len() - lsv);
+            for i in 0..len {
+                d[lsv + i] = d_mat[i][0]; 
             }
             for i in 0..lendsv - lsv {
                 e[lsv + i] = e_mat[i][0];
@@ -1472,8 +1473,9 @@ pub fn dsteqr(
             }
             dlascl(&mut d_mat, ssfmin, anorm)?;
             dlascl(&mut e_mat, ssfmin, anorm)?;
-            for i in 0..lendsv - lsv + 1 {
-                d[lsv + i] = d_mat[i][0];
+            let len = min(lendsv - lsv + 1, d.len() - lsv);
+            for i in 0..len {
+                d[lsv + i] = d_mat[i][0]; 
             }
             for i in 0..lendsv - lsv {
                 e[lsv + i] = e_mat[i][0];
@@ -1818,7 +1820,9 @@ pub fn dlaed0(
             )?;
         } else {
             // Compute eigenvalues only or with original vectors
-            let work_offset = iq - 1 + iwork[iqptr + curr];
+            if iq > 0 {
+                let work_offset = iq - 1 + iwork[iqptr + curr];
+            }
             let mut z = vec![vec![0.0; matsiz]; matsiz];
             dsteqr(
                 'I',
@@ -2197,7 +2201,10 @@ pub fn dlaed2(
     }
 
     *k = 0;
-    let mut k2 = n + 1;
+    if n >= isize::MAX as usize - 1 {
+        return Err(Error(-1));
+    }
+    let k2 = n + 1;
     let mut j = 0;
     while j < n {
         let nj = indx[j];
@@ -2947,7 +2954,10 @@ pub fn dlaed8(
 
     // Handle deflation of eigenvalues
     *k = 0;
-    let mut k2 = n + 1;
+    if n >= isize::MAX as usize - 1 {
+        return Err(Error(-1));
+    }
+    let k2 = n + 1;
     let mut jlam = 0;
     let mut j = 0;
 
