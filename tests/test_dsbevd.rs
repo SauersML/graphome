@@ -1692,8 +1692,240 @@ fn test_dlasr_invalid_parameters() {
 }
 
 
+#[test]
+fn test_dlaed1_empty_matrix() {
+    let mut d: Vec<f64> = vec![];
+    let mut q: Vec<Vec<f64>> = vec![];
+    let mut indxq: Vec<usize> = vec![];
+    let mut rho = 0.0;
+    let mut work = vec![];
+    let mut iwork = vec![];
+    
+    let result = dlaed1(
+        0, // n=0
+        &mut d,
+        &mut q,
+        0, // ldq
+        &mut indxq,
+        &mut rho,
+        0, // cutpnt
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_dlaed1_single_element() {
+    let mut d = vec![2.0];
+    let mut q = vec![vec![1.0]];
+    let mut indxq = vec![0];
+    let mut rho = 1.0;
+    let mut work = vec![0.0; 7]; // 4*n + n^2 = 4*1 + 1 = 5, but add buffer
+    let mut iwork = vec![0; 4]; // 4*n = 4
+    
+    let result = dlaed1(
+        1,
+        &mut d,
+        &mut q,
+        1,
+        &mut indxq,
+        &mut rho,
+        1,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+    assert_eq!(d[0], 2.0); // Single eigenvalue should remain unchanged
+}
+
+#[test]
+fn test_dlaed1_2x2_deflation() {
+    // This test verifies deflation with a 2x2 matrix where eigenvalues are close enough to deflate
+    let mut d = vec![1.0, 1.0 + 1e-10]; // Very close eigenvalues
+    let mut q = vec![
+        vec![1.0/2.0f64.sqrt(), -1.0/2.0f64.sqrt()],
+        vec![1.0/2.0f64.sqrt(), 1.0/2.0f64.sqrt()]
+    ];
+    let mut indxq = vec![0, 1];
+    let mut rho = 1e-12; // Small rank-one modification
+    let mut work = vec![0.0; 12]; // 4*n + n^2 = 4*2 + 4 = 12
+    let mut iwork = vec![0; 8]; // 4*n = 8
+    
+    let result = dlaed1(
+        2,
+        &mut d,
+        &mut q,
+        2,
+        &mut indxq,
+        &mut rho,
+        1,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+    // Check eigenvalues are merged due to deflation
+    assert!((d[0] - d[1]).abs() < 1e-9);
+}
+
+#[test]
+fn test_dlaed1_2x2_no_deflation() {
+    // This test verifies a 2x2 case where eigenvalues are distinct enough not to deflate
+    let mut d = vec![1.0, 2.0]; // Distinct eigenvalues
+    let mut q = vec![
+        vec![1.0/2.0f64.sqrt(), -1.0/2.0f64.sqrt()],
+        vec![1.0/2.0f64.sqrt(), 1.0/2.0f64.sqrt()]
+    ];
+    let mut indxq = vec![0, 1];
+    let mut rho = 0.5; // Significant rank-one modification
+    let mut work = vec![0.0; 12]; // 4*n + n^2
+    let mut iwork = vec![0; 8]; // 4*n
+    
+    let result = dlaed1(
+        2,
+        &mut d,
+        &mut q,
+        2,
+        &mut indxq,
+        &mut rho,
+        1,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+    // Check eigenvalues remain distinct
+    assert!((d[1] - d[0]).abs() > 0.1);
+}
+
+#[test]
+fn test_dlaed1_3x3_basic() {
+    // Test a basic 3x3 case with well-separated eigenvalues
+    let mut d = vec![1.0, 3.0, 5.0];
+    let mut q = vec![
+        vec![1.0/3.0f64.sqrt(), -1.0/2.0f64.sqrt(), 1.0/6.0f64.sqrt()],
+        vec![1.0/3.0f64.sqrt(), 0.0, -2.0/6.0f64.sqrt()],
+        vec![1.0/3.0f64.sqrt(), 1.0/2.0f64.sqrt(), 1.0/6.0f64.sqrt()]
+    ];
+    let mut indxq = vec![0, 1, 2];
+    let mut rho = 1.0;
+    let mut work = vec![0.0; 21]; // 4*n + n^2 = 4*3 + 9 = 21
+    let mut iwork = vec![0; 12]; // 4*n = 12
+    
+    let result = dlaed1(
+        3,
+        &mut d,
+        &mut q,
+        3,
+        &mut indxq,
+        &mut rho,
+        2,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+    // Verify eigenvalues are sorted
+    assert!(d[0] <= d[1] && d[1] <= d[2]);
+}
+
+#[test]
+fn test_dlaed1_orthogonality() {
+    // Test that eigenvectors remain orthogonal after the update
+    let mut d = vec![1.0, 2.0, 3.0];
+    let mut q = vec![
+        vec![1.0/3.0f64.sqrt(), -1.0/2.0f64.sqrt(), 1.0/6.0f64.sqrt()],
+        vec![1.0/3.0f64.sqrt(), 0.0, -2.0/6.0f64.sqrt()],
+        vec![1.0/3.0f64.sqrt(), 1.0/2.0f64.sqrt(), 1.0/6.0f64.sqrt()]
+    ];
+    let mut indxq = vec![0, 1, 2];
+    let mut rho = 1.0;
+    let mut work = vec![0.0; 21];
+    let mut iwork = vec![0; 12];
+    
+    let result = dlaed1(
+        3,
+        &mut d,
+        &mut q,
+        3,
+        &mut indxq,
+        &mut rho,
+        2,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+    
+    // Check orthogonality of resulting eigenvectors
+    for i in 0..3 {
+        for j in i..3 {
+            let dot_product: f64 = (0..3).map(|k| q[k][i] * q[k][j]).sum();
+            if i == j {
+                assert!((dot_product - 1.0).abs() < 1e-10);
+            } else {
+                assert!(dot_product.abs() < 1e-10);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_dlaed1_invalid_cutpnt() {
+    let mut d = vec![1.0, 2.0, 3.0];
+    let mut q = vec![vec![1.0; 3]; 3];
+    let mut indxq = vec![0, 1, 2];
+    let mut rho = 1.0;
+    let mut work = vec![0.0; 21];
+    let mut iwork = vec![0; 12];
+    
+    let result = dlaed1(
+        3,
+        &mut d,
+        &mut q,
+        3,
+        &mut indxq,
+        &mut rho,
+        4, // Invalid cutpnt > n
+        &mut work,
+        &mut iwork,
+    );
+    
+    // The function should handle invalid cutpnt gracefully
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_dlaed1_workspace_usage() {
+    // Test with minimal workspace size
+    let n = 3;
+    let mut d = vec![1.0, 2.0, 3.0];
+    let mut q = vec![vec![1.0; n]; n];
+    let mut indxq = vec![0, 1, 2];
+    let mut rho = 1.0;
+    let mut work = vec![0.0; 4*n + n*n]; // Exact minimum size
+    let mut iwork = vec![0; 4*n]; // Exact minimum size
+    
+    let result = dlaed1(
+        n,
+        &mut d,
+        &mut q,
+        n,
+        &mut indxq,
+        &mut rho,
+        2,
+        &mut work,
+        &mut iwork,
+    );
+    
+    assert!(result.is_ok());
+}
+
+
 
 // Tests needed:
 //dlaed3 - No tests
 //dsteqr - No tests
-//dlaed1 - No tests
