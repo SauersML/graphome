@@ -599,20 +599,78 @@ fn test_dlacpy() {
 
 #[test]
 fn test_dlamrg() {
-    let a = vec![1.0, 3.0, 2.0, 4.0];
-    let n1 = 2;
-    let n2 = 2;
-    let dtrd1 = 1;
-    let dtrd2 = 1;
-    let mut index = vec![0; n1 + n2];
-    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
-    assert_eq!(index, vec![0, 2, 1, 3]);
+    // Test 1: Basic ascending + ascending merge
+    {
+        let a = vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0];  // [1,3,5] and [2,4,6] are sorted ascending
+        let n1 = 3;
+        let n2 = 3;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, 1, 1, &mut index);
+        
+        // After applying permutation, should get [1,2,3,4,5,6]
+        // So index should allow us to reconstruct this order from a
+        assert_eq!(index, vec![0, 3, 1, 4, 2, 5]);
+    }
 
-    // Test with decreasing order
-    let dtrd1 = -1;
-    let dtrd2 = -1;
-    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
-    assert_eq!(index, vec![1, 3, 0, 2]);
+    // Test 2: Descending + descending merge 
+    {
+        let a = vec![5.0, 3.0, 1.0, 6.0, 4.0, 2.0];  // [5,3,1] and [6,4,2] are sorted descending
+        let n1 = 3;
+        let n2 = 3;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, -1, -1, &mut index);
+        
+        // Should merge into ascending order [1,2,3,4,5,6]
+        assert_eq!(index, vec![2, 5, 1, 4, 0, 3]);
+    }
+
+    // Test 3: Empty second list
+    {
+        let a = vec![1.0, 3.0, 5.0];
+        let n1 = 3;
+        let n2 = 0;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, 1, 1, &mut index);
+        
+        // Should just return indices for first list
+        assert_eq!(index, vec![0, 1, 2]);
+    }
+
+    // Test 4: Unequal list sizes
+    {
+        let a = vec![1.0, 4.0, 2.0, 3.0, 5.0];  // [1,4] and [2,3,5]
+        let n1 = 2;
+        let n2 = 3;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, 1, 1, &mut index);
+        
+        // Should merge into [1,2,3,4,5]
+        assert_eq!(index, vec![0, 2, 3, 1, 4]);
+    }
+
+    // Test 5: Lists with equal elements
+    {
+        let a = vec![1.0, 3.0, 2.0, 3.0];  // [1,3] and [2,3]
+        let n1 = 2;
+        let n2 = 2;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, 1, 1, &mut index);
+        
+        // Should maintain stability when merging equal elements
+        assert_eq!(index, vec![0, 2, 1, 3]);
+    }
+    
+    // Test 6: Mixed ascending/descending
+    {
+        let a = vec![1.0, 3.0, 5.0, 6.0, 4.0, 2.0];  // [1,3,5] ascending and [6,4,2] descending
+        let n1 = 3;
+        let n2 = 3;
+        let mut index = vec![0; n1 + n2];
+        dlamrg(n1, n2, &a, 1, -1, &mut index);
+        
+        // Should merge into [1,2,3,4,5,6]
+        assert_eq!(index, vec![0, 5, 1, 4, 2, 3]);
+    }
 }
 
 #[test]
