@@ -3550,7 +3550,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j + 1][i];
                                     a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
@@ -3563,7 +3563,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j + 1][i];
                                     a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
@@ -3579,7 +3579,7 @@ pub fn dlasr(
                             let ctemp = c[j - 1];
                             let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j][i];
                                     a[j][i] = ctemp * temp - stemp * a[0][i];
                                     a[0][i] = stemp * temp + ctemp * a[0][i];
@@ -3591,7 +3591,7 @@ pub fn dlasr(
                             let ctemp = c[j - 1];
                             let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j][i];
                                     a[j][i] = ctemp * temp - stemp * a[0][i];
                                     a[0][i] = stemp * temp + ctemp * a[0][i];
@@ -3607,7 +3607,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j][i];
                                     a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
                                     a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
@@ -3619,7 +3619,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n-1 {
+                                for i in 0..n {
                                     let temp = a[j][i];
                                     a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
                                     a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
