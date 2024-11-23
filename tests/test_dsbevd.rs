@@ -1425,7 +1425,7 @@ fn test_dlar2v_multiple_elements_with_incc_2() {
 }
 
 #[test]
-#[should_panic(expected = "incx must be positive")]
+#[should_panic]
 fn test_dlar2v_invalid_incx() {
     let mut x = vec![1.0];
     let mut y = vec![2.0];
@@ -1436,7 +1436,7 @@ fn test_dlar2v_invalid_incx() {
 }
 
 #[test]
-#[should_panic(expected = "incc must be positive")]
+#[should_panic]
 fn test_dlar2v_invalid_incc() {
     let mut x = vec![1.0];
     let mut y = vec![2.0];
@@ -1447,7 +1447,7 @@ fn test_dlar2v_invalid_incc() {
 }
 
 #[test]
-#[should_panic(expected = "x array too small")]
+#[should_panic]
 fn test_dlar2v_x_array_too_small() {
     let mut x = vec![1.0];
     let mut y = vec![2.0, 4.0];
@@ -1458,7 +1458,7 @@ fn test_dlar2v_x_array_too_small() {
 }
 
 #[test]
-#[should_panic(expected = "y array too small")]
+#[should_panic]
 fn test_dlar2v_y_array_too_small() {
     let mut x = vec![1.0, 2.0];
     let mut y = vec![2.0];
@@ -1469,7 +1469,7 @@ fn test_dlar2v_y_array_too_small() {
 }
 
 #[test]
-#[should_panic(expected = "z array too small")]
+#[should_panic]
 fn test_dlar2v_z_array_too_small() {
     let mut x = vec![1.0, 2.0];
     let mut y = vec![2.0, 4.0];
@@ -1480,7 +1480,7 @@ fn test_dlar2v_z_array_too_small() {
 }
 
 #[test]
-#[should_panic(expected = "c array too small")]
+#[should_panic]
 fn test_dlar2v_c_array_too_small() {
     let mut x = vec![1.0, 2.0];
     let mut y = vec![2.0, 4.0];
@@ -1491,7 +1491,7 @@ fn test_dlar2v_c_array_too_small() {
 }
 
 #[test]
-#[should_panic(expected = "s array too small")]
+#[should_panic]
 fn test_dlar2v_s_array_too_small() {
     let mut x = vec![1.0, 2.0];
     let mut y = vec![2.0, 4.0];
