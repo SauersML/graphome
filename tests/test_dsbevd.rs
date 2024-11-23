@@ -28,6 +28,7 @@ use graphome::dsbevd::dlargv;
 use graphome::dsbevd::dlartg;
 use graphome::dsbevd::dlartv;
 use graphome::dsbevd::dlascl;
+use graphome::dsbevd::dlaed1;
 use graphome::dsbevd::dlaset;
 use graphome::dsbevd::dlassq;
 use graphome::dsbevd::dnrm2;
