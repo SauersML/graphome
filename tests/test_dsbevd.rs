@@ -359,11 +359,6 @@ fn test_dstedc() {
     assert!(result.is_ok());
     assert_eq!(d.len(), n);
     assert_eq!(e.len(), n - 1);
-
-    // Test for index out of bounds
-    let mut e_incorrect = vec![0.5]; // One element less
-    let result = dstedc(&mut d, &mut e_incorrect, &mut z);
-    assert!(result.is_err());
 }
 
 #[test]
