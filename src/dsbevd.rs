@@ -3847,9 +3847,8 @@ pub fn dlaed1(
         indxpv,
         coltypv,
     );
-    if result.is_err() {
-        return result;
-    }
+    return result;
+
 
     if k != 0 {
         // Solve the secular equation
@@ -3880,9 +3879,8 @@ pub fn dlaed1(
             w,
             &mut s_matrix,
         );
-        if result.is_err() {
-            return result;
-        }
+        return result;
+    
 
         // Prepare the indxq sorting permutation
         let n1 = k;
