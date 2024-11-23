@@ -740,33 +740,151 @@ fn test_dlargv() {
     assert_eq!(y_zero, vec![1.0, 1.0]);
 }
 
+
 #[test]
-fn test_dlartv() {
+fn test_dlartv_basic_rotation() {
+    let mut x = vec![1.0, 0.0];
+    let mut y = vec![0.0, 1.0];
+    let c = vec![0.0, 1.0];  // cos(90°), cos(0°)
+    let s = vec![1.0, 0.0];  // sin(90°), sin(0°)
+    
+    dlartv(2, &mut x, 1, &mut y, 1, &c, &s, 1);
+    
+    // First rotation should swap x[0] and y[0]
+    assert_relative_eq!(x[0], 0.0, epsilon = 1e-12);
+    assert_relative_eq!(y[0], -1.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlartv_45_degree_rotation() {
+    let mut x = vec![1.0];
+    let mut y = vec![1.0];
+    let c = vec![0.7071067811865476]; // cos(45°)
+    let s = vec![0.7071067811865476]; // sin(45°)
+    
+    dlartv(1, &mut x, 1, &mut y, 1, &c, &s, 1);
+    
+    // After 45° rotation
+    assert_relative_eq!(x[0], 1.4142135623730951, epsilon = 1e-12); // √2
+    assert_relative_eq!(y[0], 0.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlartv_with_increments() {
+    let mut x = vec![1.0, -1.0, 2.0, -2.0];
+    let mut y = vec![0.0, -9.9, 0.0, -9.9];
+    let c = vec![1.0, 0.0];
+    let s = vec![0.0, 1.0];
+    
+    dlartv(2, &mut x, 2, &mut y, 2, &c, &s, 1);
+    
+    // Check only the affected elements
+    assert_relative_eq!(x[0], 1.0, epsilon = 1e-12);
+    assert_relative_eq!(x[2], 0.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlartv_zero_vectors() {
+    let mut x = vec![0.0, 0.0];
+    let mut y = vec![0.0, 0.0];
+    let c = vec![0.8, 0.8];
+    let s = vec![0.6, 0.6];
+    
+    dlartv(2, &mut x, 1, &mut y, 1, &c, &s, 1);
+    
+    // Rotating zero vectors should keep them zero
+    assert_relative_eq!(x[0], 0.0, epsilon = 1e-12);
+    assert_relative_eq!(y[0], 0.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlartv_identity_rotation() {
     let mut x = vec![1.0, 2.0, 3.0];
     let mut y = vec![4.0, 5.0, 6.0];
-    let c = vec![0.8, 0.6, 0.7];
-    let s = vec![0.6, 0.8, 0.7];
-
-    // Make copies for verification
+    let c = vec![1.0, 1.0, 1.0];
+    let s = vec![0.0, 0.0, 0.0];
+    
     let x_orig = x.clone();
     let y_orig = y.clone();
-
+    
     dlartv(3, &mut x, 1, &mut y, 1, &c, &s, 1);
-
-    // Verify results - check if rotation preserves lengths
-    for i in 0..3 {
-        let orig_length = (x_orig[i] * x_orig[i] + y_orig[i] * y_orig[i]).sqrt();
-        let new_length = (x[i] * x[i] + y[i] * y[i]).sqrt();
-        assert!((orig_length - new_length).abs() < 1e-10);
-    }
-
-    // Test with empty arrays
-    let mut x_empty: Vec<f64> = vec![];
-    let mut y_empty: Vec<f64> = vec![];
-    let c_empty: Vec<f64> = vec![];
-    let s_empty: Vec<f64> = vec![];
-    dlartv(0, &mut x_empty, 1, &mut y_empty, 1, &c_empty, &s_empty, 1);
+    
+    // Identity rotation should not change vectors
+    assert_relative_eq!(x[0], x_orig[0], epsilon = 1e-12);
+    assert_relative_eq!(y[0], y_orig[0], epsilon = 1e-12);
 }
+
+// Length expectation tests
+#[test]
+#[should_panic]
+fn test_dlartv_insufficient_x_length() {
+    let mut x = vec![1.0];  // Too short
+    let mut y = vec![1.0, 2.0];
+    let c = vec![0.8, 0.8];
+    let s = vec![0.6, 0.6];
+    
+    dlartv(2, &mut x, 1, &mut y, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic]
+fn test_dlartv_insufficient_y_length() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![1.0];  // Too short
+    let c = vec![0.8, 0.8];
+    let s = vec![0.6, 0.6];
+    
+    dlartv(2, &mut x, 1, &mut y, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic]
+fn test_dlartv_insufficient_rotation_params() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![1.0, 2.0];
+    let c = vec![0.8];  // Too short
+    let s = vec![0.6, 0.6];
+    
+    dlartv(2, &mut x, 1, &mut y, 1, &c, &s, 1);
+}
+
+#[test]
+fn test_dlartv_vector_length_with_increments() {
+    let n = 3;
+    let incx = 2;
+    let incy = 2;
+    let incc = 1;
+    
+    let mut x = vec![0.0; 1 + (n-1)*incx];
+    let mut y = vec![0.0; 1 + (n-1)*incy];
+    let c = vec![1.0; 1 + (n-1)*incc];
+    let s = vec![0.0; 1 + (n-1)*incc];
+    
+    // This should not panic
+    dlartv(n, &mut x, incx, &mut y, incy, &c, &s, incc);
+    
+    // Verify we can access the last elements
+    assert_relative_eq!(x[x.len()-1], 0.0, epsilon = 1e-12);
+    assert_relative_eq!(y[y.len()-1], 0.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlartv_preserves_magnitude() {
+    let mut x = vec![3.0];
+    let mut y = vec![4.0];
+    let c = vec![0.8];
+    let s = vec![0.6];
+    
+    let initial_magnitude = (x[0]*x[0] + y[0]*y[0]).sqrt();
+    
+    dlartv(1, &mut x, 1, &mut y, 1, &c, &s, 1);
+    
+    let final_magnitude = (x[0]*x[0] + y[0]*y[0]).sqrt();
+    
+    // Rotation should preserve vector magnitude
+    assert_relative_eq!(initial_magnitude, final_magnitude, epsilon = 1e-12);
+}
+
 
 #[test]
 fn test_dlamc3_overflow() {
