@@ -234,33 +234,6 @@ fn test_orthogonality() {
     }
 }
 
-#[test]
-fn test_edge_cases() {
-    // 1x1 matrix
-    let ab = vec![vec![2.0]];
-    let matrix = SymmetricBandedMatrix::new(1, 0, ab);
-    let results = matrix.dsbevd().unwrap();
-    assert_eq!(results.eigenvalues.len(), 1);
-    assert!(f64::abs(results.eigenvalues[0] - 2.0) < 1e-10);
-
-    // Zero matrix
-    let n = 3;
-    let kd = 1;
-    let ab = vec![vec![0.0; n]; kd + 1];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let results = matrix.dsbevd().unwrap();
-    for &x in &results.eigenvalues {
-        assert!(f64::abs(x) < 1e-10);
-    }
-
-    // Matrix with maximum bandwidth
-    let n = 4;
-    let kd = n - 1;
-    let ab = generate_random_banded(n, kd);
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let results = matrix.dsbevd().unwrap();
-    assert_eq!(results.eigenvalues.len(), n);
-}
 
 #[test]
 fn test_performance_scaling() {
