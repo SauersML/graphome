@@ -3330,19 +3330,13 @@ pub fn dlaeda(
     // Determine location of first number in second half
     let mid = n / 2 + 1;
 
-    // Determine location of current position in arrays with bounds checking
-    let curr = if let Some(p1) = (1usize).checked_shl(curlvl as u32) {
-        if let Some(p2) = (1usize).checked_shl((curlvl.saturating_sub(1)) as u32) {
-            if let Some(prod) = curpbm.checked_mul(p1) {
-                prod.saturating_add(p2).saturating_sub(1)
-            } else {
-                0
-            }
-        } else {
-            0
-        }
+    let curr = if curlvl == 0 {
+        curpbm
     } else {
-        0
+        let base: usize = 2;
+        let shift1 = base.saturating_pow(curlvl as u32); 
+        let shift2 = base.saturating_pow((curlvl - 1) as u32);
+        curpbm.saturating_mul(shift1).saturating_add(shift2)
     };
     
     // Verify array bounds before accessing qptr
