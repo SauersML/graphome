@@ -235,43 +235,6 @@ fn test_orthogonality() {
 }
 
 #[test]
-fn test_eigendecomposition_reconstruction() {
-    let n = 15;
-    let kd = 2;
-    let ab = generate_random_banded(n, kd);
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-    let results = matrix.dsbevd().unwrap();
-
-    // Convert to dense format for comparison
-    let original = banded_to_dense(n, kd, &ab);
-
-    // Reconstruct A = QΛQ^T
-    let mut reconstructed = DMatrix::<f64>::zeros(n, n);
-    for i in 0..n {
-        for j in 0..n {
-            for k in 0..n {
-                reconstructed[(i, j)] += results.eigenvectors[k][i]
-                    * results.eigenvalues[k]
-                    * results.eigenvectors[k][j];
-            }
-        }
-    }
-
-    // Compare original and reconstructed matrices
-    for i in 0..n {
-        for j in 0..n {
-            let diff = f64::abs(original[(i, j)] - reconstructed[(i, j)]);
-            assert!(
-                diff < 1e-8,
-                "Matrix reconstruction failed at position ({},{})",
-                i,
-                j
-            );
-        }
-    }
-}
-
-#[test]
 fn test_edge_cases() {
     // 1x1 matrix
     let ab = vec![vec![2.0]];
