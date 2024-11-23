@@ -1301,9 +1301,162 @@ fn test_dlaed0_large_matrix() {
 }
 
 
+#[test]
+fn test_dlar2v_empty() {
+    let mut x: Vec<f64> = vec![];
+    let mut y: Vec<f64> = vec![];
+    let mut z: Vec<f64> = vec![];
+    let c: Vec<f64> = vec![];
+    let s: Vec<f64> = vec![];
+    dlar2v(0, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    assert!(x.is_empty());
+}
+
+#[test]
+fn test_dlar2v_single_rotation() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386]; // cos(30°)
+    let s = vec![0.5];                // sin(30°)
+    dlar2v(1, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    assert_relative_eq!(x[0], 2.232050807568877, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlar2v_single_rotation_y_value() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386];
+    let s = vec![0.5];
+    dlar2v(1, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    assert_relative_eq!(y[0], 0.133974596215561, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlar2v_single_rotation_z_value() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386];
+    let s = vec![0.5];
+    dlar2v(1, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    assert_relative_eq!(z[0], 1.830127018922193, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlar2v_multiple_elements_incx_1() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+    assert_relative_eq!(x[1], 4.464101615137754, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlar2v_multiple_elements_with_incx_2() {
+    let mut x = vec![1.0, 0.0, 2.0];
+    let mut y = vec![2.0, 0.0, 4.0];
+    let mut z = vec![3.0, 0.0, 6.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 2, &c, &s, 1);
+    assert_relative_eq!(x[2], 4.464101615137754, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlar2v_multiple_elements_with_incc_2() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386, 0.0, 0.8660254037844386];
+    let s = vec![0.5, 0.0, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 2);
+    assert_relative_eq!(x[1], 4.464101615137754, epsilon = 1e-12);
+}
+
+#[test]
+#[should_panic(expected = "incx must be positive")]
+fn test_dlar2v_invalid_incx() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386];
+    let s = vec![0.5];
+    dlar2v(1, &mut x, &mut y, &mut z, 0, &c, &s, 1);
+}
+
+#[test]
+#[should_panic(expected = "incc must be positive")]
+fn test_dlar2v_invalid_incc() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386];
+    let s = vec![0.5];
+    dlar2v(1, &mut x, &mut y, &mut z, 1, &c, &s, 0);
+}
+
+#[test]
+#[should_panic(expected = "x array too small")]
+fn test_dlar2v_x_array_too_small() {
+    let mut x = vec![1.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic(expected = "y array too small")]
+fn test_dlar2v_y_array_too_small() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic(expected = "z array too small")]
+fn test_dlar2v_z_array_too_small() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic(expected = "c array too small")]
+fn test_dlar2v_c_array_too_small() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386];
+    let s = vec![0.5, 0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+}
+
+#[test]
+#[should_panic(expected = "s array too small")]
+fn test_dlar2v_s_array_too_small() {
+    let mut x = vec![1.0, 2.0];
+    let mut y = vec![2.0, 4.0];
+    let mut z = vec![3.0, 6.0];
+    let c = vec![0.8660254037844386, 0.8660254037844386];
+    let s = vec![0.5];
+    dlar2v(2, &mut x, &mut y, &mut z, 1, &c, &s, 1);
+}
+
 // Tests needed:
 //dlaed3 - No tests
 //dsteqr - No tests
-//dlar2v - No tests
 //dlaed1 - No tests
 //dlasr - No tests
