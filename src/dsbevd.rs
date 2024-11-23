@@ -1874,12 +1874,12 @@ pub fn dlaed0(
                 );
             } else {
                 let cutpnt = msd2;
-                let rho_index = submat + msd2 - 2; // Adjust index for zero-based indexing
+                let rho_index = submat + msd2 - 2; // Zero-based indexing
                 let mut rho = e[rho_index];
                 let mut info = 0;
                 let mut givptr: usize = 0;
                 let mut qstore_flat: Vec<f64> = qstore.iter().flatten().cloned().collect();
-                let mut indxq = vec![0usize; n]; // or let indxq = 4*n + 3;? Look earlier in the function
+                let mut indxq = vec![0usize; n]; // Is this right? 
 
                 dlaed7(
                     icompq,
