@@ -3498,16 +3498,16 @@ pub fn dlasr(
         return Err(Error(2));
     }
     if !matches!(direct, 'F' | 'B') {
-        return Err(3);
+        return Err(Error(3));
     }
     if m < 0 {
-        return Err(4);
+        return Err(Error(4));
     }
     if n < 0 {
-        return Err(5);
+        return Err(Error(5));
     }
     if lda < m.max(1) {
-        return Err(9);
+        return Err(Error(9));
     }
 
     // Quick return if possible
