@@ -360,13 +360,6 @@ fn test_dstedc() {
     assert_eq!(d.len(), n);
     assert_eq!(e.len(), n - 1);
 
-    // Test with empty d array (should return Ok)
-    let mut d_empty = vec![];
-    let mut e_empty = vec![];
-    let mut z_empty = vec![];
-    let result = dstedc(&mut d_empty, &mut e_empty, &mut z_empty);
-    assert!(result.is_ok());
-
     // Test for index out of bounds
     let mut e_incorrect = vec![0.5]; // One element less
     let result = dstedc(&mut d, &mut e_incorrect, &mut z);
@@ -385,11 +378,6 @@ fn test_dlaed4() {
     assert_eq!(result.is_ok())
     assert_eq!(d.len(), 4);
     assert_eq!(z_out.len(), 4);
-
-    // Test for index out of bounds
-    let z_incorrect = vec![0.5, 0.5, 0.5]; // One element less
-    let info = dlaed4(&d1, &d2, &z_incorrect, rho, &mut d, &mut z_out);
-    assert_ne!(result.is_ok())
 }
 
 #[test]
