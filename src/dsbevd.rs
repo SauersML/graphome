@@ -770,13 +770,6 @@ pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
         (0.5 * rt, -0.5 * rt, 1)
     };
 
-    // Ensure rt1 has larger absolute value
-    if rt2.abs() > rt1.abs() {
-        let temp = rt1;
-        rt1 = rt2;
-        rt2 = temp;
-    }
-
     let (cs, sgn2) = if df >= 0.0 {
         (df + rt, 1)
     } else {
