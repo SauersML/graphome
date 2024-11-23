@@ -3738,27 +3738,44 @@ pub fn dlaed1(
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), Error> {
-    // Quick return if possible
+    // Input validation matching FORTRAN
     if n == 0 {
         return Ok(());
     }
+    if ldq < n.max(1) {
+        return Err(Error(-4));
+    }
+    if cutpnt > n/2 || cutpnt < 1.min(n/2) {
+        return Err(Error(-7));
+    }
 
-    // Set up workspace pointers for arrays used in dlaed2/dlaed3
-    let iz = 0;
-    let idlmda = iz + n;
-    let iw = idlmda + n;
-    let iq2 = iw + n;
+    // Validate workspace sizes
+    if work.len() < 4*n + n*n {
+        return Err(Error(-8));
+    }
+    if iwork.len() < 4*n {
+        return Err(Error(-9));
+    }
 
-    // Set up workspace pointers for iwork arrays
-    let indx = 0;
-    let indxc = indx + n;
-    let coltyp = indxc + n;
-    let indxp = coltyp + n;
+    // Workspace layout - use indices instead of trying to split slices
+    let iz = 0;                    // First n elements
+    let idlmda = n;               // Next n elements  
+    let iw = 2*n;                 // Next n elements
+    let iq2 = 3*n;                // Final n*n elements
 
-    // Form z-vector: last row of Q1 and first row of Q2
+    // Integer workspace layout
+    let indx = 0;                 // First n integers
+    let indxc = n;                // Next n integers
+    let coltyp = 2*n;             // Next n integers
+    let indxp = 3*n;              // Final n integers
+
+    // Form z-vector exactly as in FORTRAN
+    // Copy last row of Q1
     for i in 0..cutpnt {
         work[iz + i] = q[cutpnt - 1][i];
     }
+    
+    // Copy first row of Q2
     let zpp1 = cutpnt;
     for i in 0..n - cutpnt {
         work[iz + cutpnt + i] = q[zpp1 + i][zpp1 + i];
@@ -3766,75 +3783,57 @@ pub fn dlaed1(
 
     // Deflate eigenvalues
     let mut k = 0;
-    let mut q2 = vec![vec![0.0; n]; n]; // Are these appropriate dimensions?
+    let mut q2 = vec![vec![0.0; n]; n];
 
-    let n1 = cutpnt; // Is `cutpnt` declared and in scope?
-
-    // Split `work` into non-overlapping mutable slices
-    let (work_iz, work_rest) = work.split_at_mut(idlmda);
-    let (work_idlmda, work_iw) = work_rest.split_at_mut(iw - idlmda);
-
-    // Similarly, split `iwork`
-    let (iwork_indx, iwork_rest) = iwork.split_at_mut(indxc);
-    let (iwork_indxc, iwork_rest) = iwork_rest.split_at_mut(indxp - indxc);
-    let (iwork_indxp, iwork_coltyp) = iwork_rest.split_at_mut(coltyp - indxp);
-
+    // Call dlaed2 using array indexing rather than slices
     dlaed2(
         &mut k,
         n,
-        n1,
+        cutpnt,
         d,
         q,
         ldq,
         indxq,
         rho,
-        work_iz,
-        work_idlmda,
-        work_iw,
+        &mut work[iz..iz+n],
+        &mut work[idlmda..idlmda+n],
+        &mut work[iw..iw+n],
         &mut q2,
-        iwork_indx,
-        iwork_indxc,
-        iwork_indxp,
-        iwork_coltyp,
+        &mut iwork[indx..indx+n],
+        &mut iwork[indxc..indxc+n],
+        &mut iwork[indxp..indxp+n],
+        &mut iwork[coltyp..coltyp+n],
     )?;
 
     if k != 0 {
-        // Solve Secular Equation
-        let is = (iwork[coltyp] + iwork[coltyp + 1]) * cutpnt
-            + (iwork[coltyp + 1] + iwork[coltyp + 2]) * (n - cutpnt)
-            + iq2;
+        // Compute IS as in FORTRAN
+        let is = (iwork[coltyp] + iwork[coltyp+1]) * cutpnt +
+                (iwork[coltyp+1] + iwork[coltyp+2]) * (n - cutpnt) + iq2;
 
-        let mut q2_temp = vec![vec![0.0; k]; n];
-        let mut s_temp = vec![vec![0.0; k]; k];
-
-        // Split `work` into non-overlapping slices
-        let (work_iz, work_rest) = work.split_at_mut(idlmda);
-        let (work_idlmda, work_rest) = work_rest.split_at_mut(iw - idlmda);
-        let (work_iw, _) = work_rest.split_at_mut(iq2 - iw);
-
-        // Now use the non-overlapping slices in the function call
-        let info = dlaed3(
+        // Call dlaed3 using array indexing
+        dlaed3(
             k,
-            n,
+            n, 
             cutpnt,
             d,
             q,
             ldq,
             *rho,
-            work_idlmda,
-            &q2_temp,
+            &mut work[idlmda..],
+            &mut work[iq2..],
             &iwork[indxc..],
             &iwork[coltyp..],
-            work_iw,
-            &mut s_temp,
-        );
+            &mut work[iw..],
+            &mut work[is..],
+        )?;
 
-        // Sort eigenvalues and corresponding eigenvectors
+        // Merge using dlamrg as in FORTRAN
         let n1 = k;
         let n2 = n - k;
         dlamrg(n1, n2, d, 1, -1, indxq);
     } else {
-        for i in 0..n-1 {
+        // Simple initialization when k=0
+        for i in 0..n {
             indxq[i] = i;
         }
     }
