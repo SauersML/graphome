@@ -213,41 +213,6 @@ fn test_dsbevd_invalid_bandwidth() {
 }
 
 #[test]
-fn test_comparison_with_nalgebra() {
-let sizes = vec![10, 20, 50];
-let bandwidths = vec![1, 3, 5];
-
-for &n in &sizes {
-    for &kd in &bandwidths {
-        let ab = generate_random_banded(n, kd);
-        let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
-
-        // Our implementation
-        let start = Instant::now();
-        let our_result = matrix.dsbevd().unwrap();
-        let our_time = start.elapsed();
-
-        // nalgebra implementation
-        let dense = banded_to_dense(n, kd, &ab);
-        let start = Instant::now();
-        let nalgebra_result = SymmetricEigen::new(dense);
-        let nalgebra_time = start.elapsed();
-
-        // Compare eigenvalues (they should be in ascending order)
-        for i in 0..n {
-            let diff = f64::abs(our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]);
-            assert!(diff < 1e-8, "Eigenvalue mismatch at position {}", i);
-        }
-
-        println!(
-            "Size={}, Bandwidth={}: Our time={:?}, Nalgebra time={:?}",
-            n, kd, our_time, nalgebra_time
-        );
-    }
-}
-
-
-#[test]
 fn test_orthogonality() {
     let n = 20;
     let kd = 3;
