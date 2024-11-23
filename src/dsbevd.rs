@@ -1720,43 +1720,42 @@ pub fn dlaed0(
 
     // Initialize IWORK array for submatrix sizes
     iwork[0] = n;
-    let mut subpbs = 1;
-    let mut tlvls = 0;
-
-    // Initialize IWORK array for submatrix sizes
-    iwork[0] = n;
-    let mut subpbs = 1;
-    let mut tlvls = 0;
+    let mut subpbs: usize = 1;
+    let mut tlvls: usize = 0;
     
     // Determine number of levels and subproblem sizes
-    while iwork[subpbs.saturating_sub(1)] > smlsiz {
+    while iwork[subpbs.wrapping_sub(1)] > smlsiz {
         // Check if we have enough space for next iteration
-        if subpbs.saturating_mul(2) >= iwork.len() {
+        if subpbs.wrapping_mul(2) >= iwork.len() {
             break;
         }
         
         for j in (0..subpbs).rev() {
             // Check array bounds before indexing
-            let j2 = j.saturating_mul(2);
+            let j2 = j.wrapping_mul(2);
             if j2 < iwork.len() {
                 iwork[j2] = (iwork[j] + 1) / 2;
                 if j2 > 0 {
-                    iwork[j2.saturating_sub(1)] = iwork[j] / 2;
+                    iwork[j2.wrapping_sub(1)] = iwork[j] / 2;
                 }
             }
         }
         tlvls += 1;
-        subpbs = subpbs.saturating_mul(2);
+        subpbs = subpbs.wrapping_mul(2);
     }
     
     // Calculate cumulative sizes with bounds checking
     for j in 1..subpbs.min(iwork.len()) {
-        iwork[j] = iwork[j].saturating_add(iwork[j.saturating_sub(1)]);
+        if j > 0 && j < iwork.len() {
+            let prev = iwork[j.wrapping_sub(1)];
+            iwork[j] = iwork[j].wrapping_add(prev);
+        }
     }
     
     // Set up workspaces - avoid overflow
     let indxq = 0;
 
+    
     // Different workspace setup based on ICOMPQ
     let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = if icompq != 2 {
         // Compute workspace sizes for eigenvalues/accumulate vectors
