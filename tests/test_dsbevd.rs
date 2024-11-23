@@ -1596,9 +1596,9 @@ fn test_dlasr_left_variable_forward() {
     
     let (c, s) = create_rotation_params(m-1, PI/6.0);
     
-    // Apply the rotations in correct order P = P(m-1) * ... * P(2) * P(1)
-    // For each rotation k, apply to rows k and k+1
-    for k in (0..m-1).rev() {
+    // Apply the rotations in forward order P = P(z-1)*...*P(2)*P(1)
+    // This means we apply P(1) first, then P(2), etc.
+    for k in 0..m-1 {
         for col in 0..n {
             let (y1, y2) = apply_rotation(
                 c[k], 
