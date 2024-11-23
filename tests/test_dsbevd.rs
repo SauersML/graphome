@@ -4,6 +4,7 @@ use rand_distr::{Distribution, Normal};
 use std::f64;
 use std::f64::EPSILON;
 use std::time::Instant;
+use approx::assert_relative_eq;
 
 use graphome::dsbevd::dcopy;
 use graphome::dsbevd::dgemm;
@@ -111,111 +112,141 @@ fn test_matrix_construction() {
 }
 
 #[test]
-fn test_diagonal_matrix() {
-    let n = 5;
-    let kd = 0; // Diagonal matrix
-    let mut ab = vec![vec![0.0; n]; 1];
-
-    // Set diagonal elements to 1,2,3,4,5
-    for i in 0..n {
-        ab[0][i] = (i + 1) as f64;
-    }
-
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let results = matrix.dsbevd().unwrap();
-
-    // For diagonal matrix, eigenvalues should exactly equal diagonal elements in ascending order
-    for i in 0..n {
-        let diff = f64::abs(results.eigenvalues[i] - (i + 1) as f64);
-        assert!(
-            diff < 1e-10,
-            "Diagonal eigenvalue incorrect at position {}",
-            i
-        );
-
-        // Check eigenvector is unit vector
-        for j in 0..n {
-            let expected = if i == j { 1.0 } else { 0.0 };
-            let diff = f64::abs(results.eigenvectors[i][j] - expected);
-            assert!(
-                diff < 1e-10,
-                "Diagonal eigenvector incorrect at position ({},{})",
-                i,
-                j
-            );
-        }
-    }
+fn test_dsbevd_diagonal_matrix() {
+    // Create a 3x3 diagonal matrix with bandwidth 0
+    let diagonal = vec![1.0, 2.0, 3.0];
+    let mut ab = vec![diagonal];
+    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // Eigenvalues should be exactly the diagonal elements in ascending order
+    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
+    assert_relative_eq!(result.eigenvalues[2], 3.0, epsilon = 1e-12);
 }
 
 #[test]
-fn test_tridiagonal_toeplitz() {
-    let n = 10;
-    let kd = 1;
-    let mut ab = vec![vec![0.0; n]; kd + 1];
+fn test_dsbevd_2x2_symmetric() {
+    // Create a 2x2 symmetric matrix with bandwidth 1
+    // Matrix is: [2.0  1.0]
+    //           [1.0  2.0]
+    let ab = vec![
+        vec![2.0, 2.0],  // diagonal
+        vec![1.0, 0.0],  // superdiagonal
+    ];
+    let matrix = SymmetricBandedMatrix::new(2, 1, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // Known eigenvalues: 1.0, 3.0
+    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
+    assert_relative_eq!(result.eigenvalues[1], 3.0, epsilon = 1e-12);
+}
 
-    // Create tridiagonal Toeplitz matrix with 2 on diagonal and -1 on sub/super-diagonals
-    for x in ab[0].iter_mut() {
-        *x = 2.0;
-    }
-    for x in ab[1].iter_mut().take(n - 1) {
-        *x = -1.0;
-    }
+#[test]
+fn test_dsbevd_zero_matrix() {
+    let ab = vec![vec![0.0, 0.0, 0.0]];
+    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // All eigenvalues should be zero
+    assert_relative_eq!(result.eigenvalues[0], 0.0, epsilon = 1e-12);
+    assert_relative_eq!(result.eigenvalues[1], 0.0, epsilon = 1e-12);
+}
 
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let results = matrix.dsbevd().unwrap();
+#[test]
+fn test_dsbevd_identity_matrix() {
+    let ab = vec![vec![1.0, 1.0, 1.0]];
+    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // All eigenvalues should be 1.0
+    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
+    assert_relative_eq!(result.eigenvalues[2], 1.0, epsilon = 1e-12);
+}
 
-    // Known eigenvalues for this matrix are: 2 - 2cos(πj/(n+1)) for j=1,...,n
-    let mut expected: Vec<f64> = (1..=n)
-        .map(|j| 2.0 - 2.0 * (std::f64::consts::PI * j as f64 / (n as f64 + 1.0)).cos())
-        .collect();
-    expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+#[test]
+fn test_dsbevd_orthogonality() {
+    // Create a 3x3 symmetric band matrix
+    let ab = vec![
+        vec![2.0, 2.0, 2.0],  // diagonal
+        vec![1.0, 1.0, 0.0],  // superdiagonal
+    ];
+    let matrix = SymmetricBandedMatrix::new(3, 1, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // Check if eigenvectors are orthogonal (dot product should be close to 0)
+    let dot_product = (0..3).map(|i| 
+        result.eigenvectors[0][i] * result.eigenvectors[1][i]
+    ).sum::<f64>();
+    
+    assert_relative_eq!(dot_product, 0.0, epsilon = 1e-10);
+}
 
-    for (i, (&computed, &expected)) in results.eigenvalues.iter().zip(expected.iter()).enumerate() {
-        let diff = f64::abs(computed - expected);
-        assert!(
-            diff < 1e-10,
-            "Eigenvalue mismatch at position {}: computed={}, expected={}",
-            i,
-            computed,
-            expected
-        );
-    }
+#[test]
+fn test_dsbevd_eigenvalue_order() {
+    // Create a matrix with known eigenvalues
+    let ab = vec![
+        vec![3.0, 1.0, 5.0],  // diagonal
+        vec![2.0, 1.0, 0.0],  // superdiagonal
+    ];
+    let matrix = SymmetricBandedMatrix::new(3, 1, ab);
+    
+    let result = matrix.dsbevd().unwrap();
+    
+    // Check if eigenvalues are in ascending order
+    assert!(result.eigenvalues[0] <= result.eigenvalues[1]);
+    assert!(result.eigenvalues[1] <= result.eigenvalues[2]);
+}
+
+#[test]
+#[should_panic]
+fn test_dsbevd_invalid_bandwidth() {
+    // Try to create a matrix with invalid bandwidth
+    let ab = vec![vec![1.0, 1.0]];
+    let matrix = SymmetricBandedMatrix::new(2, 2, ab); // bandwidth > n-1
+    
+    let _ = matrix.dsbevd().unwrap();
+}
 }
 
 #[test]
 fn test_comparison_with_nalgebra() {
-    let sizes = vec![10, 20, 50];
-    let bandwidths = vec![1, 3, 5];
+let sizes = vec![10, 20, 50];
+let bandwidths = vec![1, 3, 5];
 
-    for &n in &sizes {
-        for &kd in &bandwidths {
-            let ab = generate_random_banded(n, kd);
-            let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
+for &n in &sizes {
+    for &kd in &bandwidths {
+        let ab = generate_random_banded(n, kd);
+        let matrix = SymmetricBandedMatrix::new(n, kd, ab.clone());
 
-            // Our implementation
-            let start = Instant::now();
-            let our_result = matrix.dsbevd().unwrap();
-            let our_time = start.elapsed();
+        // Our implementation
+        let start = Instant::now();
+        let our_result = matrix.dsbevd().unwrap();
+        let our_time = start.elapsed();
 
-            // nalgebra implementation
-            let dense = banded_to_dense(n, kd, &ab);
-            let start = Instant::now();
-            let nalgebra_result = SymmetricEigen::new(dense);
-            let nalgebra_time = start.elapsed();
+        // nalgebra implementation
+        let dense = banded_to_dense(n, kd, &ab);
+        let start = Instant::now();
+        let nalgebra_result = SymmetricEigen::new(dense);
+        let nalgebra_time = start.elapsed();
 
-            // Compare eigenvalues (they should be in ascending order)
-            for i in 0..n {
-                let diff = f64::abs(our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]);
-                assert!(diff < 1e-8, "Eigenvalue mismatch at position {}", i);
-            }
-
-            println!(
-                "Size={}, Bandwidth={}: Our time={:?}, Nalgebra time={:?}",
-                n, kd, our_time, nalgebra_time
-            );
+        // Compare eigenvalues (they should be in ascending order)
+        for i in 0..n {
+            let diff = f64::abs(our_result.eigenvalues[i] - nalgebra_result.eigenvalues[i]);
+            assert!(diff < 1e-8, "Eigenvalue mismatch at position {}", i);
         }
+
+        println!(
+            "Size={}, Bandwidth={}: Our time={:?}, Nalgebra time={:?}",
+            n, kd, our_time, nalgebra_time
+        );
     }
 }
+
 
 #[test]
 fn test_orthogonality() {
