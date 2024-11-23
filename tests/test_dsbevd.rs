@@ -1299,3 +1299,11 @@ fn test_dlaed0_large_matrix() {
         }
     }
 }
+
+
+// Tests needed:
+//dlaed3 - No tests
+//dsteqr - No tests
+//dlar2v - No tests
+//dlaed1 - No tests
+//dlasr - No tests
