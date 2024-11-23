@@ -3763,12 +3763,12 @@ pub fn dlaed1(
        return Err(Error(-9));
    }
 
-   // Form z-vector in the first n elements of work
+   // Form z-vector with 0-based indexing
    for i in 0..cutpnt {
        work[i] = q[cutpnt - 1][i];
    }
    for i in 0..n.saturating_sub(cutpnt) {
-       work[cutpnt + i] = q[cutpnt + i][cutpnt + i];
+       work[cutpnt + i] = q[cutpnt + i - 1][cutpnt + i - 1]; 
    }
 
    // Split work array into non-overlapping sections
@@ -3806,19 +3806,17 @@ pub fn dlaed1(
    )?;
 
    if k != 0 {
-       // Calculate is using coltyp values
+       // Calculate is using coltyp values adjusted for 0-based indexing
        let col1 = iwork_coltyp[0];
        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
        
-       let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
-       let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
+       let term1 = col1.saturating_add(col2).saturating_mul(cutpnt - 1);
+       let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt - 1));
        let is = term1.saturating_add(term2);
-
        // Create temporary arrays for dlaed3
        let mut q2_k = vec![vec![0.0; k]; n];
        let mut s = vec![vec![0.0; k]; k];
-
        // Split work arrays for dlaed3
        let (dlamda_k, _) = work_dlamda.split_at_mut(k);
        let (w_k, _) = work_w.split_at_mut(k);
@@ -3842,7 +3840,7 @@ pub fn dlaed1(
 
        // Merge eigenvalues
        let n2 = n.saturating_sub(k);
-       dlamrg(k, n2, d, 1, -1, indxq);
+       dlamrg(k, n2, d, 0, -1, indxq);
    } else {
        // If k=0, just set identity permutation
        for i in 0..n {
