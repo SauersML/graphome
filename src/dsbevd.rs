@@ -720,6 +720,15 @@ pub fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
 }
 
 pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
+    if b == 0.0 {
+        // Handle diagonal case specially
+        if a.abs() >= c.abs() {
+            return (a, c, 1.0, 0.0, 0.0);
+        } else {
+            return (c, a, 0.0, 1.0, 0.0);
+        }
+    }
+    
     // Compute the eigenvalues
     let sm = a + c;
     let df = a - c;
@@ -727,40 +736,39 @@ pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
     let tb = b + b;
     let ab = tb.abs();
     
-    // Determine which of a or c has larger absolute value
     let (acmx, acmn) = if a.abs() > c.abs() {
         (a, c)
     } else {
         (c, a)
     };
 
-    // Compute rt = sqrt((a-c)^2 + 4b^2) carefully
     let rt = if adf > ab {
         adf * (1.0 + (ab/adf).powi(2)).sqrt()
     } else if adf < ab {
         ab * (1.0 + (adf/ab).powi(2)).sqrt()
     } else {
-        // Includes case AB=ADF=0
         ab * 2.0_f64.sqrt()
     };
 
-    // Compute eigenvalues rt1 > rt2
-    let (rt1, rt2, sgn1) = if sm < 0.0 {
+    let (mut rt1, mut rt2, sgn1) = if sm < 0.0 {
         let rt1_val = 0.5 * (sm - rt);
-        // Order of execution important for accuracy of rt2
         let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
         (rt1_val, rt2_val, -1)
     } else if sm > 0.0 {
         let rt1_val = 0.5 * (sm + rt);
-        // Order of execution important for accuracy of rt2
         let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
         (rt1_val, rt2_val, 1)
     } else {
-        // Includes case RT1 = RT2 = 0
         (0.5 * rt, -0.5 * rt, 1)
     };
 
-    // Compute eigenvector
+    // Ensure rt1 has larger absolute value
+    if rt2.abs() > rt1.abs() {
+        let temp = rt1;
+        rt1 = rt2;
+        rt2 = temp;
+    }
+
     let (cs, sgn2) = if df >= 0.0 {
         (df + rt, 1)
     } else {
@@ -780,7 +788,6 @@ pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
         (cs1_val, tn * cs1_val)
     };
 
-    // Final adjustment of eigenvector
     let (cs1_final, sn1_final) = if sgn1 == sgn2 {
         (-sn1, cs1)
     } else {
