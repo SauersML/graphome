@@ -753,19 +753,11 @@ pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
     let (rt1, rt2, sgn1) = if sm < 0.0 {
         let rt1_val = 0.5 * (sm - rt);
         let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
-        if rt2_val.abs() > rt1_val.abs() {
-            (rt2_val, rt1_val, -1)
-        } else {
-            (rt1_val, rt2_val, -1)
-        }
+        (rt1_val, rt2_val, -1)
     } else if sm > 0.0 {
         let rt1_val = 0.5 * (sm + rt);
         let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
-        if rt2_val.abs() > rt1_val.abs() {
-            (rt2_val, rt1_val, 1)
-        } else {
-            (rt1_val, rt2_val, 1)
-        }
+        (rt1_val, rt2_val, 1)
     } else {
         (0.5 * rt, -0.5 * rt, 1)
     };
