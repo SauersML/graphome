@@ -3331,7 +3331,7 @@ pub fn dlaeda(
     let mid = n / 2 + 1;
 
     // Determine location of current position in arrays
-    let mut curr = 1 + curpbm * (1 << curlvl) + (1 << (curlvl - 1)) - 1;
+    let mut curr = curpbm * (1 << curlvl) + (1 << (curlvl - 1));
 
     // Calculate sizes of the two eigenblocks
     let bsiz1 = ((qptr[curr + 1] - qptr[curr]) as f64).sqrt() as usize;
