@@ -58,18 +58,17 @@ impl SymmetricBandedMatrix {
 
         // Extract diagonal and subdiagonal elements from banded matrix
         let mut d = vec![0.0; self.n];
-        let mut e = vec![0.0; self.n-1];
+        let mut e = vec![0.0; self.n - 1];
         for i in 0..self.n {
             d[i] = self.ab[0][i]; // Diagonal is in first row of banded storage
-            if i < self.n-1 {
+            if i < self.n - 1 {
                 if i < self.ab[1].len() {
-                    e[i] = self.ab[1][i] 
+                    e[i] = self.ab[1][i]
                 }
-
             }
         }
         let anrm = dlanst('M', self.n, &d, &e);
-        
+
         let mut scale = 1.0;
         let mut iscale = 0;
 
@@ -88,14 +87,14 @@ impl SymmetricBandedMatrix {
 
         // Call dsbtrd with explicit arguments
         let mut d = vec![0.0; self.n];
-        let mut e = vec![0.0; self.n-1];
+        let mut e = vec![0.0; self.n - 1];
         let mut q = vec![vec![0.0; self.n]; self.n];
-        
+
         // Initialize Q to identity matrix before calling dsbtrd
         for i in 0..self.n {
             q[i][i] = 1.0;
         }
-        
+
         dsbtrd(
             'U',
             working_matrix.n,
@@ -135,7 +134,6 @@ impl SymmetricBandedMatrix {
         })
     }
 }
-
 
 /// Generates a vector of plane rotations for 2-by-2 matrices.
 ///
@@ -1055,9 +1053,10 @@ pub fn dsbtrd(
                     // Store rotations
                     rotations.clear();
                     for idx in 0..nr {
-                        j1.checked_sub(kd).and_then(|x| x.checked_sub(1))
-                           .and_then(|x| x.checked_add(idx.checked_mul(kd)?))
-                           .ok_or("Arithmetic overflow")?;
+                        j1.checked_sub(kd)
+                            .and_then(|x| x.checked_sub(1))
+                            .and_then(|x| x.checked_add(idx.checked_mul(kd)?))
+                            .ok_or("Arithmetic overflow")?;
 
                         // j is within the bounds of BOTH ab[kd] AND ab[kd-1]
                         if j < ab[kd].len() && j < ab[kd - 1].len() {
@@ -1722,14 +1721,14 @@ pub fn dlaed0(
     iwork[0] = n;
     let mut subpbs: usize = 1;
     let mut tlvls: usize = 0;
-    
+
     // Determine number of levels and subproblem sizes
     while iwork[subpbs.wrapping_sub(1)] > smlsiz {
         // Check if we have enough space for next iteration
         if subpbs.wrapping_mul(2) >= iwork.len() {
             break;
         }
-        
+
         for j in (0..subpbs).rev() {
             // Check array bounds before indexing
             let j2 = j.wrapping_mul(2);
@@ -1743,7 +1742,7 @@ pub fn dlaed0(
         tlvls += 1;
         subpbs = subpbs.wrapping_mul(2);
     }
-    
+
     // Calculate cumulative sizes with bounds checking
     for j in 1..subpbs.min(iwork.len()) {
         if j > 0 && j < iwork.len() {
@@ -1751,11 +1750,10 @@ pub fn dlaed0(
             iwork[j] = iwork[j].wrapping_add(prev);
         }
     }
-    
+
     // Set up workspaces - avoid overflow
     let indxq = 0;
 
-    
     // Different workspace setup based on ICOMPQ
     let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = if icompq != 2 {
         // Compute workspace sizes for eigenvalues/accumulate vectors
@@ -1894,7 +1892,7 @@ pub fn dlaed0(
                 let mut info = 0;
                 let mut givptr: usize = 0;
                 let mut qstore_flat: Vec<f64> = qstore.iter().flatten().cloned().collect();
-                let mut indxq = vec![0usize; n]; // Is this right? 
+                let mut indxq = vec![0usize; n]; // Is this right?
 
                 dlaed7(
                     icompq,
@@ -1935,7 +1933,7 @@ pub fn dlaed0(
                 let j = if idx < iwork.len() {
                     iwork[idx]
                 } else {
-                    continue
+                    continue;
                 };
                 work[i] = d[j - 1];
                 dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
