@@ -2365,7 +2365,7 @@ pub fn dlaed5(
     delta: &mut [f64],
     rho: f64,
     dlam: &mut f64,
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     if i == 1 {
         let del = d[1] - d[0];
         let w = 1.0 + 2.0 * rho * (z[1] * z[1] - z[0] * z[0]) / del;
@@ -2733,7 +2733,7 @@ pub fn dlaed9(
     w: &mut [f64],
     s: &mut [Vec<f64>],
     lds: usize,
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Test the input parameters
     if k > n {
         return Err(-4); // N must be >= K
@@ -2856,7 +2856,7 @@ pub fn dlaed8(
     givnum: &mut Vec<Vec<f64>>,
     indxp: &mut [usize],
     indx: &mut [usize],
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Constants
     const MONE: f64 = -1.0;
     const ZERO: f64 = 0.0;
@@ -3314,7 +3314,7 @@ pub fn dlaeda(
     qptr: &[usize],
     z: &mut [f64],
     ztemp: &mut [f64],
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Parameter validation
     if n == 0 {
         return Ok(());
@@ -3489,7 +3489,7 @@ pub fn dlasr(
     s: &[f64],
     a: &mut [Vec<f64>],
     lda: usize,
-) -> Result<(), i32> {
+) -> Result<(), Error> {
     // Parameter validation
     if !matches!(side, 'L' | 'R') {
         return Err(1);
