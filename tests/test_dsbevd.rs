@@ -211,7 +211,6 @@ fn test_dsbevd_invalid_bandwidth() {
     
     let _ = matrix.dsbevd().unwrap();
 }
-}
 
 #[test]
 fn test_comparison_with_nalgebra() {
