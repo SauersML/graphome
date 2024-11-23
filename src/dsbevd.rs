@@ -3824,9 +3824,9 @@ pub fn dlaed1(
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
 
-        // Split work array again for dlaed3
-        let (rest_dlamda, rest) = rest.split_at_mut(n);
-        let (rest_w, _) = rest.split_at_mut(n);
+        // Split work array for dlaed3
+        let (rest_dlamda, rest) = work_dlamda.split_at_mut(k);
+        let (rest_w, _) = work_w.split_at_mut(k);
 
         dlaed3(
             k,
