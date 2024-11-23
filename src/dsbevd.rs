@@ -1243,7 +1243,11 @@ pub fn dsteqr(
         while m < nm1 && m + 1 < d.len() {
             // Use our dlanst to find small subdiagonal
             let tst = e[m].abs();
-            let tol = (d[m].abs() * d[m + 1].abs()).sqrt() * eps;
+            let tol = if m + 1 < d.len() {
+                (d[m].abs() * d[m + 1].abs()).sqrt() * eps
+            } else {
+                d[m].abs() * eps  // Handle the case where we're at the last element
+            };
             if tst <= tol {
                 e[m] = 0.0;
                 break;
