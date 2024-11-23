@@ -3739,26 +3739,23 @@ pub fn dlaed1(
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), Error> {
-    // Input validation matching FORTRAN
+    // Input validation
     if n == 0 {
         return Ok(());
     }
     if ldq < n {
         return Err(Error(-4));
     }
-    // Handle n=1 as special case
     if n == 1 {
         if cutpnt > 1 {
             return Err(Error(-7));
         }
         indxq[0] = 0;
         return Ok(());
-    } 
-    // For n > 1, validate cutpnt
+    }
     if cutpnt == 0 || cutpnt > n/2 {
         return Err(Error(-7));
     }
-    // Validate workspace sizes
     if work.len() < 4*n + n*n {
         return Err(Error(-8));
     }
@@ -3766,92 +3763,84 @@ pub fn dlaed1(
         return Err(Error(-9));
     }
 
-    // Workspace layout - using zero-based indexing
+    // Setup workspace indexes
     let iz = 0;
     let idlmda = n;
     let iw = 2*n;
     let iq2 = 3*n;
 
-    // Form z-vector from last row of Q1 and first row of Q2
-    if cutpnt > 0 {
-        // Copy last row of Q1
-        for i in 0..cutpnt {
-            work[iz + i] = q[cutpnt - 1][i];  // 0-based indexing
-        }
-
-        // Copy first row of Q2
-        for i in 0..n.saturating_sub(cutpnt) {
-            work[iz + cutpnt + i] = q[cutpnt + i][cutpnt + i];
-        }
+    // Form z-vector
+    for i in 0..cutpnt {
+        work[i] = q[cutpnt - 1][i];
+    }
+    for i in 0..n.saturating_sub(cutpnt) {
+        work[cutpnt + i] = q[cutpnt + i][cutpnt + i];
     }
 
-    // Call dlaed2 to deflate eigenvalues
-    let mut k = 0;
-    let n1 = cutpnt;  // Using 0-based cutpnt directly
+    // Create mutable slices for work array using split_at_mut
+    let (work_z, rest) = work.split_at_mut(idlmda);
+    let (work_dlamda, rest) = rest.split_at_mut(n);
+    let (work_w, work_q2) = rest.split_at_mut(n);
 
-    // Set up integer workspace pointers
-    let indx = 0;
-    let indxc = n;
-    let coltyp = 2*n;
-    let indxp = 3*n;
+    // Create mutable slices for iwork array using split_at_mut
+    let (iwork_indx, rest) = iwork.split_at_mut(n);
+    let (iwork_indxc, rest) = rest.split_at_mut(n);
+    let (iwork_indxp, iwork_coltyp) = rest.split_at_mut(n);
 
-    // Create intermediate storage for Q2
+    // Create temporary Q2 matrix
     let mut q2 = vec![vec![0.0; n]; n];
 
-    // Call dlaed2 with properly sliced workspaces
+    // Call dlaed2
+    let mut k = 0;
     dlaed2(
         &mut k,
         n,
-        n1,
+        cutpnt,
         d,
         q,
         ldq,
         indxq,
         rho,
-        &mut work[iz..iz+n],
-        &mut work[idlmda..idlmda+n],
-        &mut work[iw..iw+n],
+        work_z,
+        work_dlamda,
+        work_w,
         &mut q2,
-        &mut iwork[indx..indx+n],
-        &mut iwork[indxc..indxc+n],
-        &mut iwork[indxp..indxp+n],
-        &mut iwork[coltyp..coltyp+n],
+        iwork_indx,
+        iwork_indxc,
+        iwork_indxp,
+        iwork_coltyp,
     )?;
 
     if k != 0 {
-        // Compute is value - being careful with indexing
-        let col1 = if coltyp < iwork.len() { iwork[coltyp] } else { 0 };
-        let col2 = if coltyp + 1 < iwork.len() { iwork[coltyp + 1] } else { 0 };
-        let term1 = col1.saturating_add(col2).saturating_mul(n1);
+        // Calculate is safely
+        let col1 = iwork_coltyp[0];
+        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
+        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
         
-        // For second term, protect against out of bounds
-        let term2 = if coltyp + 2 < iwork.len() {
-            col2.saturating_add(iwork[coltyp + 2])
-                .saturating_mul(n.saturating_sub(n1))
-        } else {
-            0
-        };
-        
-        let is = term1.saturating_add(term2).saturating_add(iq2);
+        let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
+        let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
+        let _is = term1.saturating_add(term2);
 
-        // Set up properly sized temporary matrices
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
 
-        // Call dlaed3
+        // Split work array again for dlaed3
+        let (rest_dlamda, rest) = rest.split_at_mut(n);
+        let (rest_w, _) = rest.split_at_mut(n);
+
         dlaed3(
             k,
             n,
-            n1,
+            cutpnt,
             d,
             q,
             ldq,
             *rho,
-            &mut work[idlmda..idlmda+n],
+            rest_dlamda,
             &q2_temp,
-            &iwork[indxc..indxc+n],
-            &iwork[coltyp..coltyp+n],
-            &mut work[iw..iw+n],
+            iwork_indxc,
+            iwork_coltyp,
+            rest_w,
             &mut s_temp,
         )?;
 
@@ -3859,7 +3848,6 @@ pub fn dlaed1(
         let n2 = n.saturating_sub(k);
         dlamrg(k, n2, d, 1, -1, indxq);
     } else {
-        // Initialize indxq when k=0
         for i in 0..n {
             indxq[i] = i;
         }
