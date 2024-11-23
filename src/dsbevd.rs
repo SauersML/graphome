@@ -719,87 +719,77 @@ pub fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
     }
 }
 
-/// Compute parameters for a 2x2 eigenvalue problem
 pub fn dlaev2(a: f64, b: f64, c: f64) -> (f64, f64, f64, f64, f64) {
-    if b == 0.0 && c == 0.0 {
-        // Matrix is diagonal
-        if a >= c {
-            (a, c, 1.0_f64, 0.0_f64, 0.0_f64)
-        } else {
-            (c, a, 0.0_f64, 1.0_f64, 0.0_f64)
-        }
+    // Compute the eigenvalues
+    let sm = a + c;
+    let df = a - c;
+    let adf = df.abs();
+    let tb = b + b;
+    let ab = tb.abs();
+    
+    // Determine which of a or c has larger absolute value
+    let (acmx, acmn) = if a.abs() > c.abs() {
+        (a, c)
     } else {
-        let sm = a + c;
-        let df = a - c;
-        let adf = df.abs();
-        let tb = b + b;
-        let ab = tb.abs();
+        (c, a)
+    };
 
-        let (acmx, acmn) = if a.abs() > c.abs() { (a, c) } else { (c, a) };
+    // Compute rt = sqrt((a-c)^2 + 4b^2) carefully
+    let rt = if adf > ab {
+        adf * (1.0 + (ab/adf).powi(2)).sqrt()
+    } else if adf < ab {
+        ab * (1.0 + (adf/ab).powi(2)).sqrt()
+    } else {
+        // Includes case AB=ADF=0
+        ab * 2.0_f64.sqrt()
+    };
 
-        let (rt1, rt2, cs1, sn1) = if adf > ab {
-            let rt = adf * (1.0_f64 + (ab / adf).powi(2)).sqrt();
-            if df >= 0.0 {
-                let rt1_val = sm + rt;
-                let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
-                let cs = df + rt;
-                let sn = tb;
-                let norm = (cs * cs + sn * sn).sqrt();
-                (rt1_val, rt2_val, cs / norm, sn / norm)
-            } else {
-                let rt1_val = (acmx / (sm - rt)) * acmn - (b / (sm - rt)) * b;
-                let rt2_val = sm - rt;
-                let cs = tb;
-                let sn = df + rt;
-                let norm = (cs * cs + sn * sn).sqrt();
-                (rt1_val, rt2_val, cs / norm, sn / norm)
-            }
-        } else if ab == 0.0 {
-            (sm, 0.0_f64, 1.0_f64, 0.0_f64)
-        } else {
-            let rt = ab * (1.0_f64 + (adf / ab).powi(2)).sqrt();
-            if sm >= 0.0 {
-                let rt1_val = 0.5_f64 * (sm + rt);
-                let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
-                let sn = if tb >= 0.0 {
-                    if ab >= 0.0 {
-                        ab
-                    } else {
-                        -ab
-                    }
-                } else {
-                    if ab >= 0.0 {
-                        -ab
-                    } else {
-                        ab
-                    }
-                };
-                let norm = (1.0_f64 + sn * sn).sqrt();
-                (rt1_val, rt2_val, 1.0_f64 / norm, sn / norm)
-            } else {
-                let rt2_val = 0.5_f64 * (sm - rt);
-                let rt1_val = (acmx / rt2_val) * acmn - (b / rt2_val) * b;
-                let sn = if tb >= 0.0 {
-                    if ab >= 0.0 {
-                        ab
-                    } else {
-                        -ab
-                    }
-                } else {
-                    if ab >= 0.0 {
-                        -ab
-                    } else {
-                        ab
-                    }
-                };
-                let norm = (1.0_f64 + sn * sn).sqrt();
-                (rt1_val, rt2_val, 1.0_f64 / norm, sn / norm)
-            }
-        };
+    // Compute eigenvalues rt1 > rt2
+    let (rt1, rt2, sgn1) = if sm < 0.0 {
+        let rt1_val = 0.5 * (sm - rt);
+        // Order of execution important for accuracy of rt2
+        let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
+        (rt1_val, rt2_val, -1)
+    } else if sm > 0.0 {
+        let rt1_val = 0.5 * (sm + rt);
+        // Order of execution important for accuracy of rt2
+        let rt2_val = (acmx / rt1_val) * acmn - (b / rt1_val) * b;
+        (rt1_val, rt2_val, 1)
+    } else {
+        // Includes case RT1 = RT2 = 0
+        (0.5 * rt, -0.5 * rt, 1)
+    };
 
-        (rt1, rt2, cs1, sn1, 0.0_f64)
-    }
+    // Compute eigenvector
+    let (cs, sgn2) = if df >= 0.0 {
+        (df + rt, 1)
+    } else {
+        (df - rt, -1)
+    };
+
+    let acs = cs.abs();
+    let (cs1, sn1) = if acs > ab {
+        let ct = -tb / cs;
+        let sn1_val = 1.0 / (1.0 + ct * ct).sqrt();
+        (ct * sn1_val, sn1_val)
+    } else if ab == 0.0 {
+        (1.0, 0.0)
+    } else {
+        let tn = -cs / tb;
+        let cs1_val = 1.0 / (1.0 + tn * tn).sqrt();
+        (cs1_val, tn * cs1_val)
+    };
+
+    // Final adjustment of eigenvector
+    let (cs1_final, sn1_final) = if sgn1 == sgn2 {
+        (-sn1, cs1)
+    } else {
+        (cs1, sn1)
+    };
+
+    (rt1, rt2, cs1_final, sn1_final, 0.0)
 }
+
 
 /// Safe computation of sqrt(x*x + y*y)
 pub fn dlapy2(x: f64, y: f64) -> f64 {
