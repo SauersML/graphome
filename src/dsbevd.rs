@@ -3809,8 +3809,12 @@ pub fn dlaed1(
         // Compute IS as in FORTRAN
         let is = (iwork[coltyp] + iwork[coltyp+1]) * cutpnt +
                 (iwork[coltyp+1] + iwork[coltyp+2]) * (n - cutpnt) + iq2;
-
-        // Call dlaed3 using array indexing
+    
+        // Create properly typed temporary matrices
+        let mut q2_temp = vec![vec![0.0; k]; n];  // For q2 parameter
+        let mut s_temp = vec![vec![0.0; k]; k];   // For s parameter
+    
+        // Call dlaed3 with correct types
         dlaed3(
             k,
             n, 
@@ -3819,14 +3823,14 @@ pub fn dlaed1(
             q,
             ldq,
             *rho,
-            &mut work[idlmda..],
-            &mut work[iq2..],
-            &iwork[indxc..],
-            &iwork[coltyp..],
-            &mut work[iw..],
-            &mut work[is..],
+            &mut work[idlmda..idlmda+n],  // dlamda parameter
+            &q2_temp,                      // q2 parameter - now a &[Vec<f64>]
+            &iwork[indxc..indxc+n],        // indx parameter
+            &iwork[coltyp..coltyp+n],      // ctot parameter
+            &mut work[iw..iw+n],           // w parameter
+            &mut s_temp,                   // s parameter - now a &mut [Vec<f64>]
         )?;
-
+    
         // Merge using dlamrg as in FORTRAN
         let n1 = k;
         let n2 = n - k;
