@@ -627,7 +627,7 @@ pub fn dlaed4(
             z_out[i][j] = if i == j { 1.0 } else { temp };
             norm += temp * temp;
         }
-        norm += 1.0;
+        norm += 1.0; // WRONG (probably)
 
         // Normalize
         norm = norm.sqrt();
@@ -883,7 +883,7 @@ pub fn dgemv(
         }
     } else {
         // y := alpha*A^T*x + beta*y
-        for i in 0..n-1 {
+        for i in 0..n {
             y[i] *= beta;
         }
         for i in 0..m {
