@@ -3729,124 +3729,142 @@ pub fn dlasr(
 
 
 pub fn dlaed1(
-   n: usize,
-   d: &mut [f64],
-   q: &mut [Vec<f64>],
-   ldq: usize, 
-   indxq: &mut [usize],
-   rho: &mut f64,
-   cutpnt: usize,
-   work: &mut [f64],
-   iwork: &mut [usize]
+    n: usize,
+    d: &mut [f64],
+    q: &mut [Vec<f64>],
+    ldq: usize,
+    indxq: &mut [usize], 
+    rho: &mut f64,
+    cutpnt: usize,
+    work: &mut [f64],
+    iwork: &mut [usize]
 ) -> Result<(), Error> {
-   // Input validation
-   if n == 0 {
-       return Ok(());
-   }
-   if ldq < n {
-       return Err(Error(-4));
-   }
-   if n == 1 {
-       if cutpnt > 1 {
-           return Err(Error(-7));
-       }
-       indxq[0] = 0;
-       return Ok(());
-   }
-   if cutpnt == 0 || cutpnt > n/2 {
-       return Err(Error(-7));
-   }
-   if work.len() < 4*n + n*n {
-       return Err(Error(-8)); 
-   }
-   if iwork.len() < 4*n {
-       return Err(Error(-9));
-   }
+    // Input validation
+    if n == 0 {
+        return Ok(());
+    }
+    if ldq < n {
+        return Err(Error(-4));
+    }
+    if n == 1 {
+        if cutpnt > 1 {
+            return Err(Error(-7));
+        }
+        indxq[0] = 0;
+        return Ok(());
+    }
+    if cutpnt == 0 || cutpnt > n/2 {
+        return Err(Error(-7));
+    }
+    if work.len() < 4*n + n*n {
+        return Err(Error(-8));
+    }
+    if iwork.len() < 4*n {
+        return Err(Error(-9)); 
+    }
 
-   // Form z-vector with 0-based indexing
-   for i in 0..cutpnt {
-       work[i] = q[cutpnt - 1][i];
-   }
-   for i in 0..n.saturating_sub(cutpnt) {
-       work[cutpnt + i] = q[cutpnt + i - 1][cutpnt + i - 1]; 
-   }
+    // Form z-vector with corrected indexing
+    let iz = 0;
+    let idlmda = n;
+    let iw = 2*n;
+    let iq2 = 3*n;
 
-   // Split work array into non-overlapping sections
-   let (work_z, rest) = work.split_at_mut(n);
-   let (work_dlamda, rest) = rest.split_at_mut(n);
-   let (work_w, work_q2) = rest.split_at_mut(n);
+    for i in 0..cutpnt {
+        work[iz + i] = q[cutpnt-1][i];
+    }
+    for i in 0..n.saturating_sub(cutpnt) {
+        work[iz + cutpnt + i] = q[cutpnt+i][cutpnt+i];
+    }
 
-   // Split iwork array into non-overlapping sections
-   let (iwork_indx, rest) = iwork.split_at_mut(n);
-   let (iwork_indxc, rest) = rest.split_at_mut(n);
-   let (iwork_indxp, iwork_coltyp) = rest.split_at_mut(n);
+    // Split workspace arrays safely
+    let (work_left, work_right) = work.split_at_mut(idlmda);
+    let work_z = work_left;
+    let (work_mid, work_last) = work_right.split_at_mut(n);
+    let work_dlamda = work_mid;
+    let (work_w, work_q2) = work_last.split_at_mut(n);
 
-   // Create temporary Q2 matrix
-   let mut q2 = vec![vec![0.0; n]; n];
+    // Split integer workspace safely
+    let (iwork_left, iwork_right) = iwork.split_at_mut(n);
+    let iwork_indx = iwork_left;
+    let (iwork_mid, iwork_last) = iwork_right.split_at_mut(n);
+    let iwork_indxc = iwork_mid;
+    let (iwork_indxp, iwork_coltyp) = iwork_last.split_at_mut(n);
 
-   // Deflate eigenvalues
-   let mut k = 0;
-   dlaed2(
-       &mut k,
-       n,
-       cutpnt,
-       d,
-       q,
-       ldq,
-       indxq,
-       rho,
-       work_z,
-       work_dlamda,
-       work_w,
-       &mut q2,
-       iwork_indx,
-       iwork_indxc,
-       iwork_indxp,
-       iwork_coltyp,
-   )?;
+    // Initialize Q2
+    let mut q2 = vec![vec![0.0; n]; n];
 
-   if k != 0 {
-       // Calculate is using coltyp values adjusted for 0-based indexing
-       let col1 = iwork_coltyp[0];
-       let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
-       let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
-       
-       let term1 = col1.saturating_add(col2).saturating_mul(cutpnt - 1);
-       let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt - 1));
-       let is = term1.saturating_add(term2);
-       // Create temporary arrays for dlaed3
-       let mut q2_k = vec![vec![0.0; k]; n];
-       let mut s = vec![vec![0.0; k]; k];
-       // Split work arrays for dlaed3
-       let (dlamda_k, _) = work_dlamda.split_at_mut(k);
-       let (w_k, _) = work_w.split_at_mut(k);
+    // Deflate eigenvalues
+    let mut k = 0;
+    dlaed2(
+        &mut k,
+        n,
+        cutpnt,
+        d,
+        q,
+        ldq,
+        indxq,
+        rho,
+        work_z,
+        work_dlamda,
+        work_w,
+        &mut q2,
+        iwork_indx,
+        iwork_indxc,
+        iwork_indxp,
+        iwork_coltyp,
+    )?;
 
-       // Solve secular equation
-       dlaed3(
-           k,
-           n, 
-           cutpnt,
-           d,
-           q,
-           ldq,
-           *rho,
-           dlamda_k,
-           &q2_k,
-           iwork_indxc,
-           iwork_coltyp,
-           w_k,
-           &mut s
-       )?;
+    if k != 0 {
+        // Calculate IS value
+        let col1 = iwork_coltyp[0];
+        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
+        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
 
-       // Merge eigenvalues
-       let n2 = n.saturating_sub(k);
-       dlamrg(k, n2, d, 0, -1, indxq);
-   } else {
-       // If k=0, just set identity permutation
-       for i in 0..n {
-           indxq[i] = i;
-       }
-   }
+        let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
+        let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
+        let is = term1.saturating_add(term2).saturating_add(iq2);
 
-   Ok(())
+        // Create appropriately sized temporary arrays
+        let mut q2_k = vec![vec![0.0; k]; n];
+        let mut s = vec![vec![0.0; k]; k];
+
+        // Split work arrays for dlaed3 with correct sizes
+        let (dlamda_k, _) = work_dlamda.split_at_mut(k);
+        let (w_k, _) = work_w.split_at_mut(k);
+
+        // Solve secular equation
+        dlaed3(
+            k,
+            n,
+            cutpnt,
+            d,
+            q,
+            ldq,
+            *rho,
+            dlamda_k,
+            &q2_k,
+            iwork_indxc,
+            iwork_coltyp,
+            w_k,
+            &mut s
+        )?;
+
+        // Merge eigenvalues with 0-based indexing
+        let n2 = n.saturating_sub(k);
+        dlamrg(k, n2, d, 1, -1, indxq);
+
+        // Adjust indxq values for 0-based indexing
+        for i in 0..n {
+            if indxq[i] > 0 {
+                indxq[i] -= 1;
+            }
+        }
+    } else {
+        // Set 0-based identity permutation
+        for i in 0..n {
+            indxq[i] = i;
+        }
+    }
+
+    Ok(())
 }
