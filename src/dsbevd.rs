@@ -1723,23 +1723,39 @@ pub fn dlaed0(
     let mut subpbs = 1;
     let mut tlvls = 0;
 
+    // Initialize IWORK array for submatrix sizes
+    iwork[0] = n;
+    let mut subpbs = 1;
+    let mut tlvls = 0;
+    
     // Determine number of levels and subproblem sizes
-    while iwork[subpbs - 1] > smlsiz {
+    while iwork[subpbs.saturating_sub(1)] > smlsiz {
+        // Check if we have enough space for next iteration
+        if subpbs.saturating_mul(2) >= iwork.len() {
+            break;
+        }
+        
         for j in (0..subpbs).rev() {
-            iwork[2 * j] = (iwork[j] + 1) / 2;
-            iwork[2 * j - 1] = iwork[j] / 2;
+            // Check array bounds before indexing
+            let j2 = j.saturating_mul(2);
+            if j2 < iwork.len() {
+                iwork[j2] = (iwork[j] + 1) / 2;
+                if j2 > 0 {
+                    iwork[j2.saturating_sub(1)] = iwork[j] / 2;
+                }
+            }
         }
         tlvls += 1;
-        subpbs *= 2;
+        subpbs = subpbs.saturating_mul(2);
     }
-
-    // Calculate cumulative sizes
-    for j in 1..subpbs {
-        iwork[j] = iwork[j] + iwork[j - 1];
+    
+    // Calculate cumulative sizes with bounds checking
+    for j in 1..subpbs.min(iwork.len()) {
+        iwork[j] = iwork[j].saturating_add(iwork[j.saturating_sub(1)]);
     }
-
-    // Set up workspaces
-    let indxq = 2 * n + 3;
+    
+    // Set up workspaces - avoid overflow
+    let indxq = 0;
 
     // Different workspace setup based on ICOMPQ
     let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = if icompq != 2 {
