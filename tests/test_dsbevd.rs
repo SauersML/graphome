@@ -1588,20 +1588,26 @@ fn apply_rotation(c: f64, s: f64, x1: f64, x2: f64) -> (f64, f64) {
 }
 
 #[test]
-fn test_left_variable_forward() {
+fn test_dlasr_left_variable_forward() {
     let m = 4;
     let n = 3;
     let mut actual = create_test_matrix(m, n);
     let mut expected = create_test_matrix(m, n);
     
-    let (c, s) = create_rotation_params(m-1, PI/6.0);  // 30° increments
+    let (c, s) = create_rotation_params(m-1, PI/6.0);
     
-    // Apply the rotations manually to create expected result
-    for j in 0..m-1 {
-        for k in 0..n {
-            let (y1, y2) = apply_rotation(c[j], s[j], expected[j][k], expected[j+1][k]);
-            expected[j][k] = y1;
-            expected[j+1][k] = y2;
+    // Apply the rotations in correct order P = P(m-1) * ... * P(2) * P(1)
+    // For each rotation k, apply to rows k and k+1
+    for k in (0..m-1).rev() {
+        for col in 0..n {
+            let (y1, y2) = apply_rotation(
+                c[k], 
+                s[k],
+                expected[k][col],
+                expected[k+1][col]
+            );
+            expected[k][col] = y1;
+            expected[k+1][col] = y2;
         }
     }
     
@@ -1616,7 +1622,7 @@ fn test_left_variable_forward() {
 }
 
 #[test]
-fn test_right_top_backward() {
+fn test_dlasr_right_top_backward() {
     let m = 3;
     let n = 4;
     let mut actual = create_test_matrix(m, n);
@@ -1644,7 +1650,7 @@ fn test_right_top_backward() {
 }
 
 #[test]
-fn test_zero_size_matrix() {
+fn test_dlasr_zero_size_matrix() {
     let mut a: Vec<Vec<f64>> = vec![vec![]];
     let c = vec![];
     let s = vec![];
@@ -1654,7 +1660,7 @@ fn test_zero_size_matrix() {
 }
 
 #[test]
-fn test_identity_rotations() {
+fn test_dlasr_identity_rotations() {
     let m = 3;
     let n = 3;
     let mut actual = create_test_matrix(m, n);
@@ -1675,7 +1681,7 @@ fn test_identity_rotations() {
 }
 
 #[test]
-fn test_invalid_parameters() {
+fn test_dlasr_invalid_parameters() {
     let mut a = vec![vec![0.0; 3]; 3];
     let c = vec![1.0];
     let s = vec![0.0];
