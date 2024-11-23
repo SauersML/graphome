@@ -1702,18 +1702,7 @@ fn test_dlaed1_empty_matrix() {
     let mut work = vec![];
     let mut iwork = vec![];
     
-    let result = dlaed1(
-        0,
-        &mut d,
-        &mut q,
-        0,
-        &mut indxq,
-        &mut rho,
-        0,
-        &mut work,
-        &mut iwork,
-    );
-    
+    let result = dlaed1(0, &mut d, &mut q, 0, &mut indxq, &mut rho, 0, &mut work, &mut iwork);
     assert!(result.is_ok());
 }
 
@@ -1726,18 +1715,7 @@ fn test_dlaed1_single_element() {
     let mut work = vec![0.0; 5]; // 4*n + n^2 = 4*1 + 1 = 5
     let mut iwork = vec![0; 4];  // 4*n = 4
     
-    let result = dlaed1(
-        1,
-        &mut d,
-        &mut q,
-        1,
-        &mut indxq,
-        &mut rho,
-        0,  // For N=1, cutpnt=0 is valid in LAPACK
-        &mut work,
-        &mut iwork,
-    );
-    
+    let result = dlaed1(1, &mut d, &mut q, 1, &mut indxq, &mut rho, 0, &mut work, &mut iwork);
     assert!(result.is_ok());
     assert_eq!(d[0], 2.0);
 }
@@ -1751,21 +1729,10 @@ fn test_dlaed1_2x2_deflation() {
     ];
     let mut indxq = vec![0, 1];
     let mut rho = 1e-12;
-    let mut work = vec![0.0; 12]; // 4*n + n^2 = 4*2 + 4 = 12
+    let mut work = vec![0.0; 12]; // 4*n + n^2 = 8 + 4 = 12
     let mut iwork = vec![0; 8];   // 4*n = 8
     
-    let result = dlaed1(
-        2,
-        &mut d,
-        &mut q,
-        2,
-        &mut indxq,
-        &mut rho,
-        1,  // For N=2, cutpnt must be 1
-        &mut work,
-        &mut iwork,
-    );
-    
+    let result = dlaed1(2, &mut d, &mut q, 2, &mut indxq, &mut rho, 1, &mut work, &mut iwork);
     assert!(result.is_ok());
     assert!((d[0] - d[1]).abs() < 1e-9);
 }
@@ -1779,21 +1746,10 @@ fn test_dlaed1_2x2_no_deflation() {
     ];
     let mut indxq = vec![0, 1];
     let mut rho = 0.5;
-    let mut work = vec![0.0; 12]; // 4*n + n^2 = 12
-    let mut iwork = vec![0; 8];   // 4*n = 8
+    let mut work = vec![0.0; 12];
+    let mut iwork = vec![0; 8];
     
-    let result = dlaed1(
-        2,
-        &mut d,
-        &mut q,
-        2,
-        &mut indxq,
-        &mut rho,
-        1,  // For N=2, cutpnt must be 1
-        &mut work,
-        &mut iwork,
-    );
-    
+    let result = dlaed1(2, &mut d, &mut q, 2, &mut indxq, &mut rho, 1, &mut work, &mut iwork);
     assert!(result.is_ok());
     assert!((d[1] - d[0]).abs() > 0.1);
 }
@@ -1808,125 +1764,16 @@ fn test_dlaed1_3x3_basic() {
     ];
     let mut indxq = vec![0, 1, 2];
     let mut rho = 1.0;
-    let mut work = vec![0.0; 21]; // 4*n + n^2 = 4*3 + 9 = 21
+    let mut work = vec![0.0; 21]; // 4*n + n^2 = 12 + 9 = 21
     let mut iwork = vec![0; 12];  // 4*n = 12
     
-    let result = dlaed1(
-        3,
-        &mut d,
-        &mut q,
-        3,
-        &mut indxq,
-        &mut rho,
-        1,  // For N=3, cutpnt must be 1
-        &mut work,
-        &mut iwork,
-    );
-    
+    let result = dlaed1(3, &mut d, &mut q, 3, &mut indxq, &mut rho, 1, &mut work, &mut iwork);
     assert!(result.is_ok());
     assert!(d[0] <= d[1] && d[1] <= d[2]);
 }
 
 #[test]
-fn test_dlaed1_invalid_cutpnt_too_large() {
-    let mut d = vec![1.0, 2.0, 3.0];
-    let mut q = vec![vec![1.0; 3]; 3];
-    let mut indxq = vec![0, 1, 2];
-    let mut rho = 1.0;
-    let mut work = vec![0.0; 21];
-    let mut iwork = vec![0; 12];
-    
-    let result = dlaed1(
-        3,
-        &mut d,
-        &mut q,
-        3,
-        &mut indxq,
-        &mut rho,
-        2,  // Invalid: > N/2
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_dlaed1_invalid_cutpnt_zero() {
-    let mut d = vec![1.0, 2.0, 3.0];
-    let mut q = vec![vec![1.0; 3]; 3];
-    let mut indxq = vec![0, 1, 2];
-    let mut rho = 1.0;
-    let mut work = vec![0.0; 21];
-    let mut iwork = vec![0; 12];
-    
-    let result = dlaed1(
-        3,
-        &mut d,
-        &mut q,
-        3,
-        &mut indxq,
-        &mut rho,
-        0,  // Invalid for N>1
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_dlaed1_insufficient_work() {
-    let n = 3;
-    let mut d = vec![1.0, 2.0, 3.0];
-    let mut q = vec![vec![1.0; n]; n];
-    let mut indxq = vec![0, 1, 2];
-    let mut rho = 1.0;
-    let mut work = vec![0.0; 4*n + n*n - 1]; // One too small
-    let mut iwork = vec![0; 4*n];
-    
-    let result = dlaed1(
-        n,
-        &mut d,
-        &mut q,
-        n,
-        &mut indxq,
-        &mut rho,
-        1,
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_dlaed1_insufficient_iwork() {
-    let n = 3;
-    let mut d = vec![1.0, 2.0, 3.0];
-    let mut q = vec![vec![1.0; n]; n];
-    let mut indxq = vec![0, 1, 2];
-    let mut rho = 1.0;
-    let mut work = vec![0.0; 4*n + n*n];
-    let mut iwork = vec![0; 4*n - 1]; // One too small
-    
-    let result = dlaed1(
-        n,
-        &mut d,
-        &mut q,
-        n,
-        &mut indxq,
-        &mut rho,
-        1,
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_dlaed1_invalid_ldq() {
+fn test_dlaed1_error_cases() {
     let n = 3;
     let mut d = vec![1.0, 2.0, 3.0];
     let mut q = vec![vec![1.0; n]; n];
@@ -1934,22 +1781,47 @@ fn test_dlaed1_invalid_ldq() {
     let mut rho = 1.0;
     let mut work = vec![0.0; 4*n + n*n];
     let mut iwork = vec![0; 4*n];
-    
-    let result = dlaed1(
-        n,
-        &mut d,
-        &mut q,
-        2,  // ldq < n
-        &mut indxq,
-        &mut rho,
-        1,
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_err());
-}
 
+    // Test case 1: Invalid cutpnt > N/2
+    {
+        let mut work_copy = work.clone();
+        let mut iwork_copy = iwork.clone();
+        let result = dlaed1(n, &mut d, &mut q, n, &mut indxq, &mut rho, 2, &mut work_copy, &mut iwork_copy);
+        assert!(result.is_err());
+    }
+
+    // Test case 2: Invalid cutpnt = 0 for N > 1
+    {
+        let mut work_copy = work.clone();
+        let mut iwork_copy = iwork.clone();
+        let result = dlaed1(n, &mut d, &mut q, n, &mut indxq, &mut rho, 0, &mut work_copy, &mut iwork_copy);
+        assert!(result.is_err());
+    }
+
+    // Test case 3: Insufficient work array size
+    {
+        let mut small_work = vec![0.0; 4*n + n*n - 1];
+        let mut iwork_copy = iwork.clone();
+        let result = dlaed1(n, &mut d, &mut q, n, &mut indxq, &mut rho, 1, &mut small_work, &mut iwork_copy);
+        assert!(result.is_err());
+    }
+
+    // Test case 4: Insufficient iwork array size
+    {
+        let mut work_copy = work.clone();
+        let mut small_iwork = vec![0; 4*n - 1];
+        let result = dlaed1(n, &mut d, &mut q, n, &mut indxq, &mut rho, 1, &mut work_copy, &mut small_iwork);
+        assert!(result.is_err());
+    }
+
+    // Test case 5: Invalid ldq
+    {
+        let mut work_copy = work.clone();
+        let mut iwork_copy = iwork.clone();
+        let result = dlaed1(n, &mut d, &mut q, 2, &mut indxq, &mut rho, 1, &mut work_copy, &mut iwork_copy);
+        assert!(result.is_err());
+    }
+}
 
 
 // Tests needed:
