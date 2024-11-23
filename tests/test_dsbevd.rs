@@ -1553,9 +1553,139 @@ fn test_dlar2v_90_degree_rotation() {
 }
 
 
+// Helper to create a test matrix
+fn create_test_matrix(m: usize, n: usize) -> Vec<Vec<f64>> {
+    let mut matrix = vec![vec![0.0; n]; m];
+    for i in 0..m {
+        for j in 0..n {
+            matrix[i][j] = (i + j) as f64;
+        }
+    }
+    matrix
+}
+
+// Helper to create rotation parameters
+fn create_rotation_params(num_rotations: usize, angle_step: f64) -> (Vec<f64>, Vec<f64>) {
+    let mut c = Vec::with_capacity(num_rotations);
+    let mut s = Vec::with_capacity(num_rotations);
+    
+    for i in 0..num_rotations {
+        let angle = angle_step * (i + 1) as f64;
+        c.push(angle.cos());
+        s.push(angle.sin());
+    }
+    
+    (c, s)
+}
+
+// Helper to apply a 2x2 rotation matrix manually for verification
+fn apply_rotation(c: f64, s: f64, x1: f64, x2: f64) -> (f64, f64) {
+    let y1 = c * x1 + s * x2;
+    let y2 = -s * x1 + c * x2;
+    (y1, y2)
+}
+
+#[test]
+fn test_left_variable_forward() {
+    let m = 4;
+    let n = 3;
+    let mut actual = create_test_matrix(m, n);
+    let mut expected = create_test_matrix(m, n);
+    
+    let (c, s) = create_rotation_params(m-1, PI/6.0);  // 30° increments
+    
+    // Apply the rotations manually to create expected result
+    for j in 0..m-1 {
+        for k in 0..n {
+            let (y1, y2) = apply_rotation(c[j], s[j], expected[j][k], expected[j+1][k]);
+            expected[j][k] = y1;
+            expected[j+1][k] = y2;
+        }
+    }
+    
+    let result = dlasr('L', 'V', 'F', m, n, &c, &s, &mut actual, m);
+    assert!(result.is_ok());
+    
+    for i in 0..m {
+        for j in 0..n {
+            assert_abs_diff_eq!(actual[i][j], expected[i][j], epsilon = 1e-10);
+        }
+    }
+}
+
+#[test]
+fn test_right_top_backward() {
+    let m = 3;
+    let n = 4;
+    let mut actual = create_test_matrix(m, n);
+    let mut expected = create_test_matrix(m, n);
+    
+    let (c, s) = create_rotation_params(n-1, PI/4.0);  // 45° increments
+    
+    // Apply the rotations manually to create expected result
+    for j in (0..n-1).rev() {
+        for i in 0..m {
+            let (y1, y2) = apply_rotation(c[j], s[j], expected[i][0], expected[i][j+1]);
+            expected[i][0] = y1;
+            expected[i][j+1] = y2;
+        }
+    }
+    
+    let result = dlasr('R', 'T', 'B', m, n, &c, &s, &mut actual, m);
+    assert!(result.is_ok());
+    
+    for i in 0..m {
+        for j in 0..n {
+            assert_abs_diff_eq!(actual[i][j], expected[i][j], epsilon = 1e-10);
+        }
+    }
+}
+
+#[test]
+fn test_zero_size_matrix() {
+    let mut a: Vec<Vec<f64>> = vec![vec![]];
+    let c = vec![];
+    let s = vec![];
+    
+    let result = dlasr('L', 'V', 'F', 0, 0, &c, &s, &mut a, 1);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_identity_rotations() {
+    let m = 3;
+    let n = 3;
+    let mut actual = create_test_matrix(m, n);
+    let expected = actual.clone();
+    
+    // Create identity rotations (0° angles)
+    let c = vec![1.0; m-1];
+    let s = vec![0.0; m-1];
+    
+    let result = dlasr('L', 'V', 'F', m, n, &c, &s, &mut actual, m);
+    assert!(result.is_ok());
+    
+    for i in 0..m {
+        for j in 0..n {
+            assert_abs_diff_eq!(actual[i][j], expected[i][j], epsilon = 1e-10);
+        }
+    }
+}
+
+#[test]
+fn test_invalid_parameters() {
+    let mut a = vec![vec![0.0; 3]; 3];
+    let c = vec![1.0];
+    let s = vec![0.0];
+    
+    assert!(dlasr('X', 'V', 'F', 3, 3, &c, &s, &mut a, 3).is_err());
+    assert!(dlasr('L', 'X', 'F', 3, 3, &c, &s, &mut a, 3).is_err());
+    assert!(dlasr('L', 'V', 'X', 3, 3, &c, &s, &mut a, 3).is_err());
+}
+
+
 
 // Tests needed:
 //dlaed3 - No tests
 //dsteqr - No tests
 //dlaed1 - No tests
-//dlasr - No tests
