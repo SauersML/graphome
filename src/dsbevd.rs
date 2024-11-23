@@ -2204,7 +2204,7 @@ pub fn dlaed2(
     if n >= isize::MAX as usize - 1 {
         return Err(Error(-1));
     }
-    let k2 = n + 1;
+    let mut k2 = n + 1;
     let mut j = 0;
     while j < n {
         let nj = indx[j];
@@ -2957,7 +2957,7 @@ pub fn dlaed8(
     if n >= isize::MAX as usize - 1 {
         return Err(Error(-1));
     }
-    let k2 = n + 1;
+    let mut k2 = n + 1;
     let mut jlam = 0;
     let mut j = 0;
 
