@@ -1490,7 +1490,7 @@ pub fn dsteqr(
     for ii in 2..=n {
         let i = ii - 1;
         let mut k = i;
-        let mut p = d[i - 1];
+        let p = d[i - 1];
         for j in ii..=n {
             if d[j - 1] < p {
                 k = j;
@@ -1499,11 +1499,11 @@ pub fn dsteqr(
         }
         if k != i {
             d.swap(k - 1, i - 1);
-            let (left_z, right_z) = z.split_at_mut(max(k - 1, i - 1));
-            if k - 1 < i - 1 {
-                dswap(n, &mut left_z[k - 1], 1, &mut right_z[i - k - 1], 1);
-            } else {
-                dswap(n, &mut right_z[i - 1], 1, &mut left_z[k - i - 1], 1);
+            // Perform vector swap without splitting
+            for row in 0..n {
+                let temp = z[row][k - 1];
+                z[row][k - 1] = z[row][i - 1];
+                z[row][i - 1] = temp;
             }
         }
     }
