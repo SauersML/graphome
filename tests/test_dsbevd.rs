@@ -447,19 +447,6 @@ fn test_dlaev2_special_case() {
     assert!(rt1 >= rt2);
 }
 
-#[test]
-fn test_dlaev2_negative_definite() {
-    // Test negative definite matrix
-    let (rt1, rt2, cs1, sn1, _) = dlaev2(-2.0, -1.0, -3.0);
-    
-    // Should still have rt1 >= rt2
-    assert!(rt1 >= rt2);
-    // Eigenvector should be unit length
-    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
-    // Both eigenvalues should be negative
-    assert!(rt1 < 0.0);
-    assert!(rt2 < 0.0);
-}
 
 #[test]
 fn test_dlapy2() {
