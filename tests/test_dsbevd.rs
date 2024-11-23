@@ -875,13 +875,12 @@ fn test_dlartv_preserves_magnitude() {
     let c = vec![0.8];
     let s = vec![0.6];
     
-    let initial_magnitude = (x[0]*x[0] + y[0]*y[0]).sqrt();
+    let initial_magnitude = f64::sqrt(x[0]*x[0] + y[0]*y[0]);
     
     dlartv(1, &mut x, 1, &mut y, 1, &c, &s, 1);
     
-    let final_magnitude = (x[0]*x[0] + y[0]*y[0]).sqrt();
+    let final_magnitude = f64::sqrt(x[0]*x[0] + y[0]*y[0]);
     
-    // Rotation should preserve vector magnitude
     assert_relative_eq!(initial_magnitude, final_magnitude, epsilon = 1e-12);
 }
 
