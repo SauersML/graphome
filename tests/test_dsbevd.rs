@@ -556,7 +556,7 @@ fn test_dlaed0() {
     let mut givcol = vec![vec![0; n]; 2];
     let mut givnum = vec![vec![0.0; n]; 2];
     let mut work = vec![0.0; 4 * n + n * n];
-    let mut iwork = vec![0; 3 * n];
+    let mut iwork = vec![0; 3 + 5 * n];
 
     let result = dlaed0(
         2,
