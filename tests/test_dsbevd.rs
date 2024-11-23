@@ -1068,7 +1068,7 @@ fn test_dlaed0_small_matrix() {
 
         // Compare Av with λv
         let lambda = d[i];
-        let mut max_diff: f32 = 0.0;
+        let mut max_diff: f64 = 0.0;
         for j in 0..n {
             let diff = (av[j] - lambda * v[j]).abs();
             max_diff = max_diff.max(diff);
