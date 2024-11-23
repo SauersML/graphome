@@ -348,6 +348,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     while start < n {
         // Find the end of the current submatrix (look for small subdiagonal)
         let mut end = start;
+        let eps = dlamch('E'); // Get machine epsilon
         while end < n - 1 {
             let tiny = eps * (d[end].abs().sqrt() * d[end + 1].abs().sqrt());
             if e[end].abs() <= tiny {
