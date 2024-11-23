@@ -3330,12 +3330,29 @@ pub fn dlaeda(
     // Determine location of first number in second half
     let mid = n / 2 + 1;
 
-    // Determine location of current position in arrays
-    let mut curr = curpbm * (1 << curlvl) + (1 << (curlvl - 1));
-
+    // Determine location of current position in arrays with bounds checking
+    let curr = if let Some(p1) = (1usize).checked_shl(curlvl as u32) {
+        if let Some(p2) = (1usize).checked_shl((curlvl.saturating_sub(1)) as u32) {
+            if let Some(prod) = curpbm.checked_mul(p1) {
+                prod.saturating_add(p2).saturating_sub(1)
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+    
+    // Verify array bounds before accessing qptr
+    if curr + 2 >= qptr.len() {
+        return Err(Error(-1));
+    }
+    
     // Calculate sizes of the two eigenblocks
-    let bsiz1 = ((qptr[curr + 1] - qptr[curr]) as f64).sqrt() as usize;
-    let bsiz2 = ((qptr[curr + 2] - qptr[curr + 1]) as f64).sqrt() as usize;
+    let bsiz1 = ((qptr[curr + 1].saturating_sub(qptr[curr])) as f64).sqrt() as usize;
+    let bsiz2 = ((qptr[curr + 2].saturating_sub(qptr[curr + 1])) as f64).sqrt() as usize;
 
     // Initialize z to zero
     for k in 0..mid - bsiz1 {
