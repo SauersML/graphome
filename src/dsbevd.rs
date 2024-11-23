@@ -1235,7 +1235,7 @@ pub fn dsteqr(
 
     let mut l1 = 0;
     while l1 < n {
-        if l1 > 0 {
+        if l1 > 0 && l1 - 1 < e.len() {
             e[l1 - 1] = 0.0;
         }
 
