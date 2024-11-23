@@ -3727,6 +3727,7 @@ pub fn dlasr(
     Ok(())
 }
 
+
 pub fn dlaed1(
     n: usize,
     d: &mut [f64],
@@ -3738,16 +3739,26 @@ pub fn dlaed1(
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), Error> {
-    // Input validation
+    // Input validation matching FORTRAN
     if n == 0 {
         return Ok(());
     }
-    if ldq < n.max(1) {
+    if ldq < n {
         return Err(Error(-4));
     }
-    if cutpnt > n/2 || cutpnt < 1.min(n/2) {
+    // Handle n=1 as special case
+    if n == 1 {
+        if cutpnt > 1 {
+            return Err(Error(-7));
+        }
+        indxq[0] = 0;
+        return Ok(());
+    } 
+    // For n > 1, validate cutpnt
+    if cutpnt == 0 || cutpnt > n/2 {
         return Err(Error(-7));
     }
+    // Validate workspace sizes
     if work.len() < 4*n + n*n {
         return Err(Error(-8));
     }
@@ -3755,108 +3766,104 @@ pub fn dlaed1(
         return Err(Error(-9));
     }
 
-    // Instead of trying to split arrays multiple times, we'll use a struct
-    // to manage our workspace chunks
-    struct Workspace {
-        z: Vec<f64>,
-        dlamda: Vec<f64>,
-        w: Vec<f64>,
-        q2: Vec<Vec<f64>>,
+    // Workspace layout - using zero-based indexing
+    let iz = 0;
+    let idlmda = n;
+    let iw = 2*n;
+    let iq2 = 3*n;
+
+    // Form z-vector from last row of Q1 and first row of Q2
+    if cutpnt > 0 {
+        // Copy last row of Q1
+        for i in 0..cutpnt {
+            work[iz + i] = q[cutpnt - 1][i];  // 0-based indexing
+        }
+
+        // Copy first row of Q2
+        for i in 0..n.saturating_sub(cutpnt) {
+            work[iz + cutpnt + i] = q[cutpnt + i][cutpnt + i];
+        }
     }
 
-    struct IWorkspace {
-        indx: Vec<usize>,
-        indxc: Vec<usize>,
-        indxp: Vec<usize>,
-        coltyp: Vec<usize>,
-    }
-
-    // Create our workspaces with proper sizes
-    let mut ws = Workspace {
-        z: vec![0.0; n],
-        dlamda: vec![0.0; n],
-        w: vec![0.0; n],
-        q2: vec![vec![0.0; n]; n],
-    };
-
-    let mut iws = IWorkspace {
-        indx: vec![0; n],
-        indxc: vec![0; n],
-        indxp: vec![0; n],
-        coltyp: vec![0; n],
-    };
-
-    // Form z-vector (copy appropriate parts of Q)
-    for i in 0..cutpnt {
-        ws.z[i] = q[cutpnt - 1][i];
-    }
-    for i in 0..n - cutpnt {
-        ws.z[cutpnt + i] = q[cutpnt + i][cutpnt + i];
-    }
-
-    // Copy initial values from work array to our workspace
-    // (Only if needed - in LAPACK these are used as scratch space)
-    ws.dlamda.copy_from_slice(&work[n..2*n]);
-    ws.w.copy_from_slice(&work[2*n..3*n]);
-    
-    // Deflate eigenvalues
+    // Call dlaed2 to deflate eigenvalues
     let mut k = 0;
+    let n1 = cutpnt;  // Using 0-based cutpnt directly
+
+    // Set up integer workspace pointers
+    let indx = 0;
+    let indxc = n;
+    let coltyp = 2*n;
+    let indxp = 3*n;
+
+    // Create intermediate storage for Q2
+    let mut q2 = vec![vec![0.0; n]; n];
+
+    // Call dlaed2 with properly sliced workspaces
     dlaed2(
         &mut k,
         n,
-        cutpnt,
+        n1,
         d,
         q,
         ldq,
         indxq,
         rho,
-        &mut ws.z[..],     
-        &mut ws.dlamda[..],
-        &mut ws.w[..],
-        &mut ws.q2,
-        &mut iws.indx[..],
-        &mut iws.indxc[..],
-        &mut iws.indxp[..],
-        &mut iws.coltyp[..],
+        &mut work[iz..iz+n],
+        &mut work[idlmda..idlmda+n],
+        &mut work[iw..iw+n],
+        &mut q2,
+        &mut iwork[indx..indx+n],
+        &mut iwork[indxc..indxc+n],
+        &mut iwork[indxp..indxp+n],
+        &mut iwork[coltyp..coltyp+n],
     )?;
 
     if k != 0 {
-        // Compute workspace size for dlaed3
-        let is = (iws.coltyp[0] + iws.coltyp[1]) * cutpnt +
-                (iws.coltyp[1] + iws.coltyp[2]) * (n - cutpnt);
+        // Compute is value - being careful with indexing
+        let col1 = if coltyp < iwork.len() { iwork[coltyp] } else { 0 };
+        let col2 = if coltyp + 1 < iwork.len() { iwork[coltyp + 1] } else { 0 };
+        let term1 = col1.saturating_add(col2).saturating_mul(n1);
+        
+        // For second term, protect against out of bounds
+        let term2 = if coltyp + 2 < iwork.len() {
+            col2.saturating_add(iwork[coltyp + 2])
+                .saturating_mul(n.saturating_sub(n1))
+        } else {
+            0
+        };
+        
+        let is = term1.saturating_add(term2).saturating_add(iq2);
 
-        // Create temporary matrices for dlaed3
+        // Set up properly sized temporary matrices
         let mut q2_temp = vec![vec![0.0; k]; n];
         let mut s_temp = vec![vec![0.0; k]; k];
 
+        // Call dlaed3
         dlaed3(
             k,
             n,
-            cutpnt,
+            n1,
             d,
             q,
             ldq,
             *rho,
-            &mut ws.dlamda,
+            &mut work[idlmda..idlmda+n],
             &q2_temp,
-            &iws.indxc,
-            &iws.coltyp,
-            &mut ws.w,
+            &iwork[indxc..indxc+n],
+            &iwork[coltyp..coltyp+n],
+            &mut work[iw..iw+n],
             &mut s_temp,
         )?;
 
         // Merge eigenvalues
-        let n2 = n - k;
+        let n2 = n.saturating_sub(k);
         dlamrg(k, n2, d, 1, -1, indxq);
     } else {
+        // Initialize indxq when k=0
         for i in 0..n {
             indxq[i] = i;
         }
     }
-
-    // Copy results back to work array if needed
-    work[n..2*n].copy_from_slice(&ws.dlamda);
-    work[2*n..3*n].copy_from_slice(&ws.w);
 
     Ok(())
 }
