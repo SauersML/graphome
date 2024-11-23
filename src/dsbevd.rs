@@ -1490,7 +1490,7 @@ pub fn dsteqr(
     for ii in 2..=n {
         let i = ii - 1;
         let mut k = i;
-        let p = d[i - 1];
+        let mut p = d[i - 1];
         for j in ii..=n {
             if d[j - 1] < p {
                 k = j;
