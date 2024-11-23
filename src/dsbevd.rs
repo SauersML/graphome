@@ -302,9 +302,12 @@ pub fn dlar2v(
 /// * `Err(Error)` if the algorithm failed to compute eigenvalues
 pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Error> {
     let n = d.len();
+    
+    // Handle base cases first
     if n == 0 {
         return Ok(());
     }
+    
     if n == 1 {
         z[0][0] = 1.0;
         return Ok(());
@@ -312,7 +315,6 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
 
     // Parameters
     let smlsiz = 25; // Minimum size for divide-conquer
-    let eps = f64::EPSILON;
 
     if n <= smlsiz {
         // Use QR algorithm for small matrices
@@ -324,18 +326,16 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     // Scale the matrix if necessary
     let orgnrm = dlanst('M', n, d, e);
     if orgnrm == 0.0 {
-        // Zero matrix, eigenvalues all zero, z stays identity
-        return Ok(());
+        return Ok(());  // Zero matrix case
     }
 
-    // Variables needed for the algorithm
     let mut subpbs = 1;
     let mut tlvls = 0;
     let mut iwork = vec![0usize; 4 * n];
     let mut work_matrix = vec![vec![0.0; n]; n];
 
     // Initialize z to identity
-    for i in 0..n-1 {
+    for i in 0..n {
         for j in 0..n {
             z[i][j] = if i == j { 1.0 } else { 0.0 };
         }
