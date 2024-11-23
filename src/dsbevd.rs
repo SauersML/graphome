@@ -2311,55 +2311,44 @@ pub fn dlaed2(
 /// Creates a permutation list to merge two sorted sets into a single sorted set.
 /// This function corresponds to LAPACK's DLAMRG subroutine.
 pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
-    let mut n1sv = n1;
-    let mut n2sv = n2;
-    let mut ind1 = if dtrd1 > 0 { 0 } else { n1 - 1 };
-    let mut ind2 = if dtrd2 > 0 { n1 } else { n1 + n2 - 1 };
+    // Convert input sizes to i64 for calculations
+    let mut n1sv = n1 as i64;
+    let mut n2sv = n2 as i64;
+    
+    // Initialize indices as i64 so they can go negative
+    let mut ind1 = if dtrd1 > 0 { 0i64 } else { (n1 as i64) - 1 };
+    let mut ind2 = if dtrd2 > 0 { n1 as i64 } else { (n1 + n2) as i64 - 1 };
+    
     let mut i = 0;
-    let n = n1 + n2;
-
+    
+    // Main merge loop
     while n1sv > 0 && n2sv > 0 {
-        if a[ind1] <= a[ind2] {
-            index[i] = ind1;
+        // Convert indices to usize only when accessing array
+        if a[ind1 as usize] <= a[ind2 as usize] {
+            index[i] = ind1 as usize;
             i += 1;
-            if dtrd1 > 0 {
-                ind1 += 1;
-            } else {
-                ind1 -= 1;
-            }
+            ind1 = ind1 + dtrd1 as i64;  // Now safe to add/subtract
             n1sv -= 1;
         } else {
-            index[i] = ind2;
+            index[i] = ind2 as usize;
             i += 1;
-            if dtrd2 > 0 {
-                ind2 += 1;
-            } else {
-                ind2 -= 1;
-            }
+            ind2 = ind2 + dtrd2 as i64;  // Now safe to add/subtract
             n2sv -= 1;
         }
     }
-
-    // Copy remaining elements
+    
+    // Handle remaining elements
     if n1sv > 0 {
         for _ in 0..n1sv {
-            index[i] = ind1;
+            index[i] = ind1 as usize;
             i += 1;
-            if dtrd1 > 0 {
-                ind1 += 1;
-            } else {
-                ind1 -= 1;
-            }
+            ind1 = ind1 + dtrd1 as i64;
         }
     } else {
         for _ in 0..n2sv {
-            index[i] = ind2;
+            index[i] = ind2 as usize;
             i += 1;
-            if dtrd2 > 0 {
-                ind2 += 1;
-            } else {
-                ind2 -= 1;
-            }
+            ind2 = ind2 + dtrd2 as i64;
         }
     }
 }
