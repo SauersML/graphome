@@ -1929,39 +1929,56 @@ pub fn dlaed0(
     match icompq {
         1 => {
             for i in 0..n {
-                let idx = indxq + i;
-                let j = if idx < iwork.len() {
-                    iwork[idx]
-                } else {
-                    continue;
-                };
-                work[i] = d[j - 1];
-                dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
+                // Use checked_add to safely handle potential overflow
+                if let Some(idx) = indxq.checked_add(i) {
+                    if idx < iwork.len() {
+                        let j = iwork[idx];
+                        if j > 0 && j <= d.len() {  // Bounds check for d array
+                            work[i] = d[j - 1];
+                            dcopy(qsiz, &qstore[j - 1], 1, &mut q[i], 1);
+                        }
+                    }
+                }
             }
             dcopy(n, work, 1, d, 1);
         }
         2 => {
             for i in 0..n {
-                let j = iwork[indxq + i];
-                work[i] = d[j - 1];
-                // Use a separate vector for the work to avoid borrowing conflicts
-                let start = n * i;
-                let end = start + n;
-                work[start..end].copy_from_slice(&q[j - 1][..n]); // Replace dcopy with direct copy
+                // Use checked_add and bounds checking
+                if let Some(idx) = indxq.checked_add(i) {
+                    if idx < iwork.len() {
+                        let j = iwork[idx];
+                        if j > 0 && j <= d.len() {  // Bounds check for d array
+                            work[i] = d[j - 1];
+                            // Use a separate vector for the work to avoid borrowing conflicts
+                            let start = n * i;
+                            let end = start + n;
+                            if j <= q.len() {  // Bounds check for q array
+                                work[start..end].copy_from_slice(&q[j - 1][..n]);
+                            }
+                        }
+                    }
+                }
             }
             dcopy(n, work, 1, d, 1);
-
-            // Declare `work_matrix` here with limited scope
+            
+            // Declare `work_matrix` with limited scope
             {
                 let mut work_matrix = vec![vec![0.0; n]; n];
                 dlacpy('A', n, n, &q, ldq, &mut work_matrix, n);
             }
-            // Any mutable borrow of `q` ends here
         }
         _ => {
             for i in 0..n {
-                let j = iwork[indxq + i];
-                work[i] = d[j - 1];
+                // Use checked_add and bounds checking
+                if let Some(idx) = indxq.checked_add(i) {
+                    if idx < iwork.len() {
+                        let j = iwork[idx];
+                        if j > 0 && j <= d.len() {  // Bounds check for d array
+                            work[i] = d[j - 1];
+                        }
+                    }
+                }
             }
             dcopy(n, work, 1, d, 1);
         }
