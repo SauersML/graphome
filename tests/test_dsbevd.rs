@@ -335,20 +335,130 @@ fn test_dlamc3() {
     assert_eq!(result, a + b);
 }
 
+
 #[test]
-fn test_dlaev2() {
-    let a = 1.0;
-    let b = 0.5;
-    let c = 3.0;
-    let (rt1, rt2, cs1, sn1, _) = dlaev2(a, b, c);
+fn test_dlaev2_diagonal() {
+    // Test diagonal matrix case where b=0
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(3.0, 0.0, 1.0);
+    
+    // Larger eigenvalue should be 3.0
+    assert_relative_eq!(rt1, 3.0, epsilon = 1e-12);
+    // Smaller eigenvalue should be 1.0
+    assert_relative_eq!(rt2, 1.0, epsilon = 1e-12);
+    // Eigenvector should be [1, 0]
+    assert_relative_eq!(cs1, 1.0, epsilon = 1e-12);
+    assert_relative_eq!(sn1, 0.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_identity() {
+    // Test identity matrix case
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(1.0, 0.0, 1.0);
+    
+    // Both eigenvalues should be 1.0
+    assert_relative_eq!(rt1, 1.0, epsilon = 1e-12);
+    assert_relative_eq!(rt2, 1.0, epsilon = 1e-12);
+    // Any unit vector is an eigenvector
+    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_symmetric() {
+    // Test symmetric matrix with known eigenvalues
+    // [2  1]
+    // [1  2]
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(2.0, 1.0, 2.0);
+    
+    // Eigenvalues should be 3 and 1
+    assert_relative_eq!(rt1, 3.0, epsilon = 1e-12);
+    assert_relative_eq!(rt2, 1.0, epsilon = 1e-12);
+    // Verify eigenvector is unit length
+    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
+    // For this symmetric case, cs1 and sn1 should be equal
+    assert_relative_eq!(cs1.abs(), sn1.abs(), epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_zero_matrix() {
+    // Test zero matrix
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(0.0, 0.0, 0.0);
+    
+    // Both eigenvalues should be 0
+    assert_relative_eq!(rt1, 0.0, epsilon = 1e-12);
+    assert_relative_eq!(rt2, 0.0, epsilon = 1e-12);
+    // Verify eigenvector is unit length
+    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_eigenvalue_ordering() {
+    // Test that rt1 is always >= rt2
+    let (rt1, rt2, _, _, _) = dlaev2(-1.0, 2.0, 4.0);
     assert!(rt1 >= rt2);
 
-    // Check that the eigenvalues satisfy the characteristic equation
-    let eigenvalues = vec![rt1, rt2];
-    for lambda in eigenvalues {
-        let det = (a - lambda) * (c - lambda) - b * b;
-        assert!(approx_eq(det, 0.0));
-    }
+    let (rt1, rt2, _, _, _) = dlaev2(4.0, 2.0, -1.0);
+    assert!(rt1 >= rt2);
+}
+
+#[test]
+fn test_dlaev2_eigenvector_verification() {
+    // Test that (cs1,sn1) is indeed an eigenvector for rt1
+    let a = 2.0;
+    let b = 1.0;
+    let c = 3.0;
+    let (rt1, _, cs1, sn1, _) = dlaev2(a, b, c);
+    
+    // Verify Av = λv where v = [cs1, sn1]
+    let v1 = a*cs1 + b*sn1;
+    let v2 = b*cs1 + c*sn1;
+    
+    assert_relative_eq!(v1, rt1*cs1, epsilon = 1e-12);
+    assert_relative_eq!(v2, rt1*sn1, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_trace_preservation() {
+    // Test that sum of eigenvalues equals trace
+    let a = 2.0;
+    let b = 1.5;
+    let c = 4.0;
+    let (rt1, rt2, _, _, _) = dlaev2(a, b, c);
+    
+    assert_relative_eq!(rt1 + rt2, a + c, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_determinant_preservation() {
+    // Test that product of eigenvalues equals determinant
+    let a = 2.0;
+    let b = 1.5;
+    let c = 4.0;
+    let (rt1, rt2, _, _, _) = dlaev2(a, b, c);
+    
+    assert_relative_eq!(rt1 * rt2, a*c - b*b, epsilon = 1e-12);
+}
+
+#[test]
+fn test_dlaev2_special_case() {
+    // Test case where |df| = |tb|
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(1.0, 1.0, -1.0);
+    
+    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
+    assert!(rt1 >= rt2);
+}
+
+#[test]
+fn test_dlaev2_negative_definite() {
+    // Test negative definite matrix
+    let (rt1, rt2, cs1, sn1, _) = dlaev2(-2.0, -1.0, -3.0);
+    
+    // Should still have rt1 >= rt2
+    assert!(rt1 >= rt2);
+    // Eigenvector should be unit length
+    assert_relative_eq!(cs1*cs1 + sn1*sn1, 1.0, epsilon = 1e-12);
+    // Both eigenvalues should be negative
+    assert!(rt1 < 0.0);
+    assert!(rt2 < 0.0);
 }
 
 #[test]
