@@ -30,6 +30,7 @@ use graphome::dsbevd::dlascl;
 use graphome::dsbevd::dlaset;
 use graphome::dsbevd::dlassq;
 use graphome::dsbevd::dnrm2;
+use graphome::dsbevd::dlasr;
 use graphome::dsbevd::drot;
 use graphome::dsbevd::dsbtrd_wrapper;
 use graphome::dsbevd::dscal;
