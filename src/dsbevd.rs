@@ -3738,7 +3738,7 @@ pub fn dlaed1(
     work: &mut [f64],
     iwork: &mut [usize],
 ) -> Result<(), Error> {
-    // Input validation matching FORTRAN
+    // Input validation
     if n == 0 {
         return Ok(());
     }
@@ -3748,8 +3748,6 @@ pub fn dlaed1(
     if cutpnt > n/2 || cutpnt < 1.min(n/2) {
         return Err(Error(-7));
     }
-
-    // Validate workspace sizes
     if work.len() < 4*n + n*n {
         return Err(Error(-8));
     }
@@ -3757,35 +3755,52 @@ pub fn dlaed1(
         return Err(Error(-9));
     }
 
-    // Workspace layout - use indices instead of trying to split slices
-    let iz = 0;                    // First n elements
-    let idlmda = n;               // Next n elements  
-    let iw = 2*n;                 // Next n elements
-    let iq2 = 3*n;                // Final n*n elements
+    // Instead of trying to split arrays multiple times, we'll use a struct
+    // to manage our workspace chunks
+    struct Workspace {
+        z: Vec<f64>,
+        dlamda: Vec<f64>,
+        w: Vec<f64>,
+        q2: Vec<Vec<f64>>,
+    }
 
-    // Integer workspace layout
-    let indx = 0;                 // First n integers
-    let indxc = n;                // Next n integers
-    let coltyp = 2*n;             // Next n integers
-    let indxp = 3*n;              // Final n integers
+    struct IWorkspace {
+        indx: Vec<usize>,
+        indxc: Vec<usize>,
+        indxp: Vec<usize>,
+        coltyp: Vec<usize>,
+    }
 
-    // Form z-vector exactly as in FORTRAN
-    // Copy last row of Q1
+    // Create our workspaces with proper sizes
+    let mut ws = Workspace {
+        z: vec![0.0; n],
+        dlamda: vec![0.0; n],
+        w: vec![0.0; n],
+        q2: vec![vec![0.0; n]; n],
+    };
+
+    let mut iws = IWorkspace {
+        indx: vec![0; n],
+        indxc: vec![0; n],
+        indxp: vec![0; n],
+        coltyp: vec![0; n],
+    };
+
+    // Form z-vector (copy appropriate parts of Q)
     for i in 0..cutpnt {
-        work[iz + i] = q[cutpnt - 1][i];
+        ws.z[i] = q[cutpnt - 1][i];
     }
-    
-    // Copy first row of Q2
-    let zpp1 = cutpnt;
     for i in 0..n - cutpnt {
-        work[iz + cutpnt + i] = q[zpp1 + i][zpp1 + i];
+        ws.z[cutpnt + i] = q[cutpnt + i][cutpnt + i];
     }
 
+    // Copy initial values from work array to our workspace
+    // (Only if needed - in LAPACK these are used as scratch space)
+    ws.dlamda.copy_from_slice(&work[n..2*n]);
+    ws.w.copy_from_slice(&work[2*n..3*n]);
+    
     // Deflate eigenvalues
     let mut k = 0;
-    let mut q2 = vec![vec![0.0; n]; n];
-
-    // Call dlaed2 using array indexing rather than slices
     dlaed2(
         &mut k,
         n,
@@ -3795,52 +3810,53 @@ pub fn dlaed1(
         ldq,
         indxq,
         rho,
-        &mut work[iz..iz+n],
-        &mut work[idlmda..idlmda+n],
-        &mut work[iw..iw+n],
-        &mut q2,
-        &mut iwork[indx..indx+n],
-        &mut iwork[indxc..indxc+n],
-        &mut iwork[indxp..indxp+n],
-        &mut iwork[coltyp..coltyp+n],
+        &ws.z,
+        &mut ws.dlamda,
+        &mut ws.w,
+        &mut ws.q2,
+        &mut iws.indx,
+        &mut iws.indxc,
+        &mut iws.indxp,
+        &mut iws.coltyp,
     )?;
 
     if k != 0 {
-        // Compute IS as in FORTRAN
-        let is = (iwork[coltyp] + iwork[coltyp+1]) * cutpnt +
-                (iwork[coltyp+1] + iwork[coltyp+2]) * (n - cutpnt) + iq2;
-    
-        // Create properly typed temporary matrices
-        let mut q2_temp = vec![vec![0.0; k]; n];  // For q2 parameter
-        let mut s_temp = vec![vec![0.0; k]; k];   // For s parameter
-    
-        // Call dlaed3 with correct types
+        // Compute workspace size for dlaed3
+        let is = (iws.coltyp[0] + iws.coltyp[1]) * cutpnt +
+                (iws.coltyp[1] + iws.coltyp[2]) * (n - cutpnt);
+
+        // Create temporary matrices for dlaed3
+        let mut q2_temp = vec![vec![0.0; k]; n];
+        let mut s_temp = vec![vec![0.0; k]; k];
+
         dlaed3(
             k,
-            n, 
+            n,
             cutpnt,
             d,
             q,
             ldq,
             *rho,
-            &mut work[idlmda..idlmda+n],  // dlamda parameter
-            &q2_temp,                      // q2 parameter - now a &[Vec<f64>]
-            &iwork[indxc..indxc+n],        // indx parameter
-            &iwork[coltyp..coltyp+n],      // ctot parameter
-            &mut work[iw..iw+n],           // w parameter
-            &mut s_temp,                   // s parameter - now a &mut [Vec<f64>]
+            &mut ws.dlamda,
+            &q2_temp,
+            &iws.indxc,
+            &iws.coltyp,
+            &mut ws.w,
+            &mut s_temp,
         )?;
-    
-        // Merge using dlamrg as in FORTRAN
-        let n1 = k;
+
+        // Merge eigenvalues
         let n2 = n - k;
-        dlamrg(n1, n2, d, 1, -1, indxq);
+        dlamrg(k, n2, d, 1, -1, indxq);
     } else {
-        // Simple initialization when k=0
         for i in 0..n {
             indxq[i] = i;
         }
     }
+
+    // Copy results back to work array if needed
+    work[n..2*n].copy_from_slice(&ws.dlamda);
+    work[2*n..3*n].copy_from_slice(&ws.w);
 
     Ok(())
 }
