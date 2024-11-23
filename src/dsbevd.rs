@@ -1240,7 +1240,7 @@ pub fn dsteqr(
         }
 
         let mut m = l1;
-        while m < nm1 {
+        while m < nm1 && m + 1 < d.len() {
             // Use our dlanst to find small subdiagonal
             let tst = e[m].abs();
             let tol = (d[m].abs() * d[m + 1].abs()).sqrt() * eps;
