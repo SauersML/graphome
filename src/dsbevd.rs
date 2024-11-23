@@ -1739,7 +1739,7 @@ pub fn dlaed0(
     }
 
     // Set up workspaces
-    let indxq = 4 * n + 3;
+    let indxq = 2 * n + 3;
 
     // Different workspace setup based on ICOMPQ
     let (iprmpt, iperm, iqptr, igivpt, igivcl, igivnm, iq, iwrem) = if icompq != 2 {
