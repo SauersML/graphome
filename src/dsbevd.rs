@@ -335,7 +335,7 @@ pub fn dstedc(d: &mut [f64], e: &mut [f64], z: &mut [Vec<f64>]) -> Result<(), Er
     let mut work_matrix = vec![vec![0.0; n]; n];
 
     // Initialize z to identity
-    for i in 0..n {
+    for i in 0..n-1 {
         for j in 0..n {
             z[i][j] = if i == j { 1.0 } else { 0.0 };
         }
@@ -573,7 +573,7 @@ pub fn dlaed4(
             let mut f = rho * (z_sorted[j] / z_scale).powi(2);
             let mut df = 0.0;
 
-            for i in 0..n {
+            for i in 0..n-1 {
                 if i != j {
                     let del = dlamda_sorted[i] - lambda;
                     if del.abs() < eps * lambda.abs() {
@@ -617,22 +617,21 @@ pub fn dlaed4(
 
         // Compute eigenvector with scaled computation
         let mut norm = 0.0;
-        for i in 0..n {
+        for i in 0..n-1 {
             let denom = dlamda_sorted[i] - lambda;
             let temp = if denom.abs() < eps {
                 0.0
             } else {
                 z_sorted[i] / denom
             };
-            z_out[i][j] = temp;
+            z_out[i][j] = if i == j { 1.0 } else { temp };
             norm += temp * temp;
         }
-        z_out[j][j] = 1.0;
         norm += 1.0;
 
         // Normalize
         norm = norm.sqrt();
-        for i in 0..n {
+        for i in 0..n-1 {
             z_out[i][j] /= norm;
         }
     }
@@ -884,7 +883,7 @@ pub fn dgemv(
         }
     } else {
         // y := alpha*A^T*x + beta*y
-        for i in 0..n {
+        for i in 0..n-1 {
             y[i] *= beta;
         }
         for i in 0..m {
@@ -1928,7 +1927,7 @@ pub fn dlaed0(
     // Re-merge deflated eigenvalues/vectors
     match icompq {
         1 => {
-            for i in 0..n {
+            for i in 0..n-1 {
                 // Use checked_add to safely handle potential overflow
                 if let Some(idx) = indxq.checked_add(i) {
                     if idx < iwork.len() {
@@ -1943,7 +1942,7 @@ pub fn dlaed0(
             dcopy(n, work, 1, d, 1);
         }
         2 => {
-            for i in 0..n {
+            for i in 0..n-1 {
                 // Use checked_add and bounds checking
                 if let Some(idx) = indxq.checked_add(i) {
                     if idx < iwork.len() {
@@ -1969,7 +1968,7 @@ pub fn dlaed0(
             }
         }
         _ => {
-            for i in 0..n {
+            for i in 0..n-1 {
                 // Use checked_add and bounds checking
                 if let Some(idx) = indxq.checked_add(i) {
                     if idx < iwork.len() {
@@ -2162,11 +2161,11 @@ pub fn dlaed2(
     }
 
     // Re-integrate deflated parts
-    for i in 0..n {
+    for i in 0..n-1 {
         dlamda[i] = d[indxq[i]];
     }
     dlamrg(n1, n2, dlamda, 1, 1, indxc);
-    for i in 0..n {
+    for i in 0..n-1 {
         indx[i] = indxq[indxc[i]];
     }
 
@@ -2753,7 +2752,7 @@ pub fn dlaed9(
     // Modify values DLAMDA(i) to make sure all DLAMDA(i)-DLAMDA(j) can
     // be computed with high relative accuracy. This is needed to combat
     // problems with machines that lack a guard digit in add/subtract. Lol.
-    for i in 0..n {
+    for i in 0..n-1 {
         dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
     }
 
@@ -2907,7 +2906,7 @@ pub fn dlaed8(
     }
 
     // Copy values to work arrays
-    for i in 0..n {
+    for i in 0..n-1 {
         dlamda[i] = d[indxq[i]];
         w[i] = z[indxq[i]];
     }
@@ -2916,7 +2915,7 @@ pub fn dlaed8(
     dlamrg(n1, n2, dlamda, 1, 1, indx);
 
     // Reorder based on sorted indices
-    for i in 0..n {
+    for i in 0..n-1 {
         d[i] = dlamda[indx[i]];
         z[i] = w[indx[i]];
     }
@@ -3188,7 +3187,7 @@ pub fn dlaed7(
     let n2 = n - n1;
 
     // Form the z-vector which consists of the last row of Q_1 and the first row of Q_2
-    for i in 0..n {
+    for i in 0..n-1 {
         z[i] = if i < n1 { q[n1 - 1][i] } else { q[i][i] };
     }
 
@@ -3259,7 +3258,7 @@ pub fn dlaed7(
         let n2 = n - k;
         dlamrg(n1, n2, d, 1, -1, indxq);
     } else {
-        for i in 0..n {
+        for i in 0..n-1 {
             indxq[i] = i;
         }
     }
@@ -3522,7 +3521,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j + 1][i];
                                     a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
@@ -3535,7 +3534,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j + 1][i];
                                     a[j + 1][i] = ctemp * temp - stemp * a[j][i];
                                     a[j][i] = stemp * temp + ctemp * a[j][i];
@@ -3551,7 +3550,7 @@ pub fn dlasr(
                             let ctemp = c[j - 1];
                             let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j][i];
                                     a[j][i] = ctemp * temp - stemp * a[0][i];
                                     a[0][i] = stemp * temp + ctemp * a[0][i];
@@ -3563,7 +3562,7 @@ pub fn dlasr(
                             let ctemp = c[j - 1];
                             let stemp = s[j - 1];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j][i];
                                     a[j][i] = ctemp * temp - stemp * a[0][i];
                                     a[0][i] = stemp * temp + ctemp * a[0][i];
@@ -3579,7 +3578,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j][i];
                                     a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
                                     a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
@@ -3591,7 +3590,7 @@ pub fn dlasr(
                             let ctemp = c[j];
                             let stemp = s[j];
                             if ctemp != ONE || stemp != ZERO {
-                                for i in 0..n {
+                                for i in 0..n-1 {
                                     let temp = a[j][i];
                                     a[j][i] = stemp * a[m - 1][i] + ctemp * temp;
                                     a[m - 1][i] = ctemp * a[m - 1][i] - stemp * temp;
@@ -3806,7 +3805,7 @@ pub fn dlaed1(
         let n2 = n - k;
         dlamrg(n1, n2, d, 1, -1, indxq);
     } else {
-        for i in 0..n {
+        for i in 0..n-1 {
             indxq[i] = i;
         }
     }
