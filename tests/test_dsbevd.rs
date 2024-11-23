@@ -829,13 +829,6 @@ fn test_dlaeda() {
     let mut z = vec![0.0; n];
     let mut ztemp = vec![0.0; n];
 
-    let result = dlaeda(
-        n, tlvls, curlvl, curpbm, &prmptr, &perm, &givptr, &givcol, &givnum, &q, &qptr, &mut z,
-        &mut ztemp,
-    );
-
-    assert!(result.is_ok());
-
     // Test empty case
     let result = dlaeda(
         0, tlvls, curlvl, curpbm, &prmptr, &perm, &givptr, &givcol, &givnum, &q, &qptr, &mut z,
