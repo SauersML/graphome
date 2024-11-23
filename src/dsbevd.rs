@@ -2641,7 +2641,7 @@ pub fn dlaed3(
         for i in 0..k {
             q_col[i] = q[i][j];
         }
-        let result = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q);
+        let result = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q)?;
         if let Err(err) = result {
             info = 1;
             return Err(err); // Propagate the error
@@ -2719,7 +2719,7 @@ pub fn dlaed3(
     dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
     let result = dgemm(q2, &mut s[..n12]);
 
-    Ok(info)
+    Ok(0)
 }
 
 /// Finds the roots of the secular equation and updates the eigenvectors.
@@ -2774,9 +2774,7 @@ pub fn dlaed9(
 
         // Call dlaed4 with the correct arguments
         // Note: dlaed4 takes the secular equation parameters and returns eigenvalue/vectors
-        if dlaed4(&dlamda, &dlamda, w, rho, &mut d_sub, &mut z_out) != 0 {
-            return Err(Error(1)); // Eigenvalue did not converge
-        }
+        dlaed4(&dlamda, &dlamda, w, rho, &mut d_sub, &mut z_out)?;
 
         // Copy the computed eigenvalue
         d[j] = d_sub[0];
