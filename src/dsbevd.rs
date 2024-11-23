@@ -3810,14 +3810,14 @@ pub fn dlaed1(
         ldq,
         indxq,
         rho,
-        &ws.z,
-        &mut ws.dlamda,
-        &mut ws.w,
+        &mut ws.z[..],     
+        &mut ws.dlamda[..],
+        &mut ws.w[..],
         &mut ws.q2,
-        &mut iws.indx,
-        &mut iws.indxc,
-        &mut iws.indxp,
-        &mut iws.coltyp,
+        &mut iws.indx[..],
+        &mut iws.indxc[..],
+        &mut iws.indxp[..],
+        &mut iws.coltyp[..],
     )?;
 
     if k != 0 {
