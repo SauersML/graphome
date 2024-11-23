@@ -248,45 +248,67 @@ pub fn drot(n: usize, dx: &mut [f64], incx: i32, dy: &mut [f64], incy: i32, c: f
 pub fn dlar2v(
     n: usize,
     x: &mut [f64],
-    y: &mut [f64],
+    y: &mut [f64], 
     z: &mut [f64],
     incx: usize,
     c: &[f64],
-    s: &[f64],
+    s: &[f64], 
     incc: usize,
-) {
-    debug_assert!(incx > 0, "incx must be positive");
-    debug_assert!(incc > 0, "incc must be positive");
-    debug_assert!(x.len() >= 1 + (n - 1) * incx, "x array too small");
-    debug_assert!(y.len() >= 1 + (n - 1) * incx, "y array too small");
-    debug_assert!(z.len() >= 1 + (n - 1) * incx, "z array too small");
-    debug_assert!(c.len() >= 1 + (n - 1) * incc, "c array too small");
-    debug_assert!(s.len() >= 1 + (n - 1) * incc, "s array too small");
-
+) -> Result<(), Error> {
+    // Early return for empty case to avoid underflow
+    if n == 0 {
+        return Ok(());
+    }
+    
+    // Validate inputs
+    if incx == 0 {
+        return Err(Error(-1)); // INCX must be positive
+    }
+    if incc == 0 { 
+        return Err(Error(-1)); // INCC must be positive
+    }
+    
+    // Validate array lengths
+    let min_len = 1 + (n.saturating_sub(1)) * incx;
+    if x.len() < min_len || y.len() < min_len || z.len() < min_len {
+        return Err(Error(-1));
+    }
+    let min_c_len = 1 + (n.saturating_sub(1)) * incc;
+    if c.len() < min_c_len || s.len() < min_c_len {
+        return Err(Error(-1)); 
+    }
+    
     let mut ix = 0;
     let mut ic = 0;
-
+    
+    // Process each 2x2 rotation
     for _ in 0..n {
+        // Load current values
         let xi = x[ix];
         let yi = y[ix];
         let zi = z[ix];
         let ci = c[ic];
         let si = s[ic];
-
-        let t1 = si * zi;
+        
+        // Compute intermediates exactly as in LAPACK
+        let t1 = si * zi; 
         let t2 = ci * zi;
         let t3 = t2 - si * xi;
         let t4 = t2 + si * yi;
         let t5 = ci * xi + t1;
         let t6 = ci * yi - t1;
-
+        
+        // Store results
         x[ix] = ci * t5 + si * t4;
         y[ix] = ci * t6 - si * t3;
         z[ix] = ci * t4 - si * t5;
-
+        
+        // Update indices
         ix += incx;
         ic += incc;
     }
+    
+    Ok(())
 }
 
 /// Computes all eigenvalues and eigenvectors of a symmetric tridiagonal matrix using divide and conquer.
