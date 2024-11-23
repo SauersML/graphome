@@ -3729,7 +3729,7 @@ pub fn dlasr(
 
 
 pub fn dlaed1(
-    n: usize, 
+    n: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
     ldq: usize,
@@ -3737,7 +3737,7 @@ pub fn dlaed1(
     rho: &mut f64,
     cutpnt: usize,
     work: &mut [f64],
-    iwork: &mut [usize]
+    iwork: &mut [usize],
 ) -> Result<(), Error> {
     // Input validation
     if n == 0 {
@@ -3763,27 +3763,33 @@ pub fn dlaed1(
         return Err(Error(-9));
     }
 
-    // Form z-vector which consists of last row of Q_1 and first row of Q_2
-    let mut z = vec![0.0; n];
+    // Setup workspace indexes
+    let iz = 0;
+    let idlmda = n;
+    let iw = 2*n;
+    let iq2 = 3*n;
+
+    // Form z-vector
     for i in 0..cutpnt {
-        z[i] = q[cutpnt - 1][i];
+        work[i] = q[cutpnt - 1][i];
     }
     for i in 0..n.saturating_sub(cutpnt) {
-        z[cutpnt + i] = q[cutpnt + i][cutpnt + i];
+        work[cutpnt + i] = q[cutpnt + i][cutpnt + i];
     }
 
-    // Prepare workspace arrays
-    let mut dlamda = vec![0.0; n];
-    let mut q2 = vec![vec![0.0; n]; n];
-    let mut w = vec![0.0; n];
-    
-    // Prepare integer workspace arrays
-    let mut indx = vec![0; n];
-    let mut indxc = vec![0; n];
-    let mut indxp = vec![0; n];
-    let mut coltyp = vec![0; n];
+    // Split work array into non-overlapping mutable slices
+    let (work_z, rest1) = work.split_at_mut(idlmda);
+    let (work_dlamda, rest2) = rest1.split_at_mut(n);
+    let (work_w, work_q2) = rest2.split_at_mut(n);
 
-    // Deflate eigenvalues
+    // Split iwork array into non-overlapping mutable slices
+    let (iwork_indx, rest3) = iwork.split_at_mut(n);
+    let (iwork_indxc, rest4) = rest3.split_at_mut(n);
+    let (iwork_indxp, iwork_coltyp) = rest4.split_at_mut(n);
+
+    let mut q2 = vec![vec![0.0; n]; n];
+
+    // Call dlaed2 with properly split arrays
     let mut k = 0;
     dlaed2(
         &mut k,
@@ -3794,52 +3800,53 @@ pub fn dlaed1(
         ldq,
         indxq,
         rho,
-        &mut z,
-        &mut dlamda,
-        &mut w,
+        work_z,
+        work_dlamda,
+        work_w,
         &mut q2,
-        &mut indx,
-        &mut indxc,
-        &mut indxp,
-        &mut coltyp
+        iwork_indx,
+        iwork_indxc,
+        iwork_indxp,
+        iwork_coltyp,
     )?;
 
     if k != 0 {
-        // Calculate workspace size for dlaed3
-        let col1 = coltyp[0];
-        let col2 = coltyp.get(1).copied().unwrap_or(0);
-        let col3 = coltyp.get(2).copied().unwrap_or(0);
+        // Calculate is safely
+        let col1 = iwork_coltyp[0];
+        let col2 = if iwork_coltyp.len() > 1 { iwork_coltyp[1] } else { 0 };
+        let col3 = if iwork_coltyp.len() > 2 { iwork_coltyp[2] } else { 0 };
         
         let term1 = col1.saturating_add(col2).saturating_mul(cutpnt);
         let term2 = col2.saturating_add(col3).saturating_mul(n.saturating_sub(cutpnt));
         let is = term1.saturating_add(term2);
 
-        // Create temporary matrices for dlaed3
-        let mut s = vec![vec![0.0; k]; k];
-        let mut q2_k = vec![vec![0.0; k]; n];
+        let mut q2_temp = vec![vec![0.0; k]; n];
+        let mut s_temp = vec![vec![0.0; k]; k];
 
-        // Solve secular equation and update eigenvectors
+        // Split work arrays for dlaed3 with proper sizes
+        let (dlamda_k, _) = work_dlamda.split_at_mut(k);
+        let (w_k, _) = work_w.split_at_mut(k);
+
         dlaed3(
             k,
-            n, 
+            n,
             cutpnt,
             d,
             q,
             ldq,
             *rho,
-            &mut dlamda[..k],
-            &q2_k,
-            &indxc,
-            &coltyp,
-            &mut w[..k],
-            &mut s
+            dlamda_k,
+            &q2_temp,
+            iwork_indxc,
+            iwork_coltyp,
+            w_k,
+            &mut s_temp,
         )?;
 
         // Merge eigenvalues
         let n2 = n.saturating_sub(k);
         dlamrg(k, n2, d, 1, -1, indxq);
     } else {
-        // If k=0, just set identity permutation
         for i in 0..n {
             indxq[i] = i;
         }
