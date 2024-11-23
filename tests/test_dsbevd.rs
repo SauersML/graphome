@@ -606,51 +606,237 @@ fn test_ilaenv() {
 
 #[test]
 fn test_dlaed0() {
-    let n = 5;
-    let mut d = vec![5.0, 4.0, 3.0, 2.0, 1.0];
-    let mut e = vec![1.0; n - 1];
-    let mut q = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        q[i][i] = 1.0;
+    // Test 1: Empty matrix case
+    {
+        let n = 0;
+        let qsiz = 0;
+        let mut d = vec![];
+        let mut e = vec![];
+        let mut q = vec![];
+        let mut qstore = vec![];
+        let mut work = vec![];
+        let mut iwork = vec![];
+        let mut givcol = vec![];
+        let mut givnum = vec![];
+        let mut qptr = vec![];
+        let mut prmptr = vec![];
+        let mut perm = vec![];
+        let mut givptr = vec![];
+
+        let result = dlaed0(
+            2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, 1,
+            &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+            &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        );
+        assert!(result.is_ok());
     }
-    let mut qstore = vec![vec![0.0; n]; n * n];
-    let mut qptr = vec![0; n + 2];
-    let mut prmptr = vec![0; n + 2];
-    let mut perm = vec![0; n * n];
-    let mut givptr = vec![0usize; n + 2];
-    let mut givcol = vec![vec![0; n]; 2];
-    let mut givnum = vec![vec![0.0; n]; 2];
-    let mut work = vec![0.0; 4 * n + n * n];
-    let mut iwork = vec![0; 3 + 5 * n];
 
-    let result = dlaed0(
-        2,
-        n,
-        n,
-        0,
-        0,
-        0,
-        &mut d,
-        &mut e,
-        &mut q,
-        n,
-        &mut qstore,
-        &mut qptr,
-        &mut prmptr,
-        &mut perm,
-        &mut givptr,
-        &mut givcol,
-        &mut givnum,
-        &mut work,
-        &mut iwork,
-    );
-    assert!(result.is_ok());
+    // Test 2: Small matrix case (n < smlsiz)
+    {
+        let n = 4;
+        let qsiz = 4;
+        // Simple tridiagonal matrix
+        let mut d = vec![2.0, 2.0, 2.0, 2.0];  // Diagonal
+        let mut e = vec![1.0, 1.0, 1.0];       // Off-diagonal
+        let mut q = vec![vec![1.0, 0.0, 0.0, 0.0],
+                        vec![0.0, 1.0, 0.0, 0.0],
+                        vec![0.0, 0.0, 1.0, 0.0],
+                        vec![0.0, 0.0, 0.0, 1.0]];
 
-    // Eigenvalues should be sorted in ascending order
-    for i in 0..n - 1 {
-        assert!(d[i] <= d[i + 1]);
+        // Known eigenvalues for this matrix
+        let expected_eigs = vec![0.5858578643762691, 1.4142135623730954, 
+                               2.5857864376269049, 3.4142135623730949];
+
+        // Allocate workspace arrays (sized per LAPACK documentation)
+        let mut qstore = vec![vec![0.0; n]; n];
+        let lgn = (n as f64).log2().ceil() as usize;
+        let work_size = 1 + 4*n + n*n;
+        let iwork_size = 3 + 5*n;
+        let mut work = vec![0.0; work_size];
+        let mut iwork = vec![0; iwork_size];
+        let mut qptr = vec![0; n];
+        let mut prmptr = vec![0; n];
+        let mut perm = vec![0; n];
+        let mut givptr = vec![0; n];
+        let mut givcol = vec![vec![0; 2]; n];
+        let mut givnum = vec![vec![0.0; 2]; n];
+
+        let result = dlaed0(
+            2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
+            &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+            &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        );
+
+        assert!(result.is_ok());
+        
+        // Check eigenvalues (with tolerance)
+        let eps = 1e-12;
+        for i in 0..n {
+            assert!((d[i] - expected_eigs[i]).abs() < eps);
+        }
+
+        // Verify eigenvectors are orthogonal
+        for i in 0..n {
+            for j in i..n {
+                let mut dot = 0.0;
+                for k in 0..n {
+                    dot += q[k][i] * q[k][j];
+                }
+                if i == j {
+                    assert!((dot - 1.0).abs() < eps);
+                } else {
+                    assert!(dot.abs() < eps);
+                }
+            }
+        }
+    }
+
+    // Test 3: Large matrix case (n > smlsiz=25) to test divide and conquer
+    {
+        let n = 32;
+        let qsiz = 32;
+        // Create tridiagonal matrix with known spectrum
+        let mut d = vec![0.0; n];
+        let mut e = vec![0.0; n-1];
+        for i in 0..n {
+            d[i] = 2.0;  // Diagonal
+            if i < n-1 {
+                e[i] = 1.0;  // Off-diagonal
+            }
+        }
+
+        let mut q = vec![vec![0.0; n]; n];
+        for i in 0..n {
+            q[i][i] = 1.0;  // Identity matrix
+        }
+
+        // Allocate workspace arrays
+        let lgn = (n as f64).log2().ceil() as usize;
+        let work_size = 1 + 4*n + n*n;
+        let iwork_size = 3 + 5*n;
+        let mut qstore = vec![vec![0.0; n]; n];
+        let mut work = vec![0.0; work_size];
+        let mut iwork = vec![0; iwork_size];
+        let mut qptr = vec![0; n];
+        let mut prmptr = vec![0; n];
+        let mut perm = vec![0; n];
+        let mut givptr = vec![0; n];
+        let mut givcol = vec![vec![0; 2]; n];
+        let mut givnum = vec![vec![0.0; 2]; n];
+
+        let result = dlaed0(
+            2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
+            &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+            &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        );
+
+        assert!(result.is_ok());
+
+        // Verify eigenvalues are correctly ordered
+        for i in 0..n-1 {
+            assert!(d[i] <= d[i+1]);
+        }
+
+        // Verify eigenvectors are orthogonal
+        let eps = 1e-10;
+        for i in 0..n {
+            for j in i..n {
+                let mut dot = 0.0;
+                for k in 0..n {
+                    dot += q[k][i] * q[k][j];
+                }
+                if i == j {
+                    assert!((dot - 1.0).abs() < eps);
+                } else {
+                    assert!(dot.abs() < eps);
+                }
+            }
+        }
+    }
+
+    // Test 4: Single element matrix
+    {
+        let n = 1;
+        let qsiz = 1;
+        let mut d = vec![2.0];
+        let mut e = vec![];
+        let mut q = vec![vec![1.0]];
+        
+        let mut qstore = vec![vec![0.0; n]; n];
+        let mut work = vec![0.0; 4*n + n*n];
+        let mut iwork = vec![0; 3 + 5*n];
+        let mut qptr = vec![0; n];
+        let mut prmptr = vec![0; n];
+        let mut perm = vec![0; n];
+        let mut givptr = vec![0; n];
+        let mut givcol = vec![vec![0; 2]; n];
+        let mut givnum = vec![vec![0.0; 2]; n];
+
+        let result = dlaed0(
+            2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
+            &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+            &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        );
+
+        assert!(result.is_ok());
+        assert!((d[0] - 2.0).abs() < 1e-12);
+        assert!((q[0][0] - 1.0).abs() < 1e-12);
+    }
+
+    // Test 5: Test with icompq = 1 (eigenvectors of original matrix)
+    {
+        let n = 4;
+        let qsiz = 4;
+        let mut d = vec![2.0, 2.0, 2.0, 2.0];
+        let mut e = vec![1.0, 1.0, 1.0];
+        let mut q = vec![vec![1.0, 0.0, 0.0, 0.0],
+                        vec![0.0, 1.0, 0.0, 0.0],
+                        vec![0.0, 0.0, 1.0, 0.0],
+                        vec![0.0, 0.0, 0.0, 1.0]];
+
+        let mut qstore = vec![vec![0.0; n]; n];
+        let work_size = 1 + 3*n + 2*n*((n as f64).log2().ceil() as usize) + 3*n*n;
+        let iwork_size = 6 + 6*n + 5*n*((n as f64).log2().ceil() as usize);
+        let mut work = vec![0.0; work_size];
+        let mut iwork = vec![0; iwork_size];
+        let mut qptr = vec![0; n];
+        let mut prmptr = vec![0; n];
+        let mut perm = vec![0; n];
+        let mut givptr = vec![0; n];
+        let mut givcol = vec![vec![0; 2]; n];
+        let mut givnum = vec![vec![0.0; 2]; n];
+
+        let result = dlaed0(
+            1, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
+            &mut qstore, &mut qptr, &mut prmptr, &mut perm,
+            &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        );
+
+        assert!(result.is_ok());
+
+        // Verify eigenvalues are ordered
+        for i in 0..n-1 {
+            assert!(d[i] <= d[i+1]);
+        }
+
+        // Verify eigenvectors are orthogonal
+        let eps = 1e-10;
+        for i in 0..n {
+            for j in i..n {
+                let mut dot = 0.0;
+                for k in 0..n {
+                    dot += q[k][i] * q[k][j];
+                }
+                if i == j {
+                    assert!((dot - 1.0).abs() < eps);
+                } else {
+                    assert!(dot.abs() < eps);
+                }
+            }
+        }
     }
 }
+
 
 #[test]
 fn test_dlamch() {
