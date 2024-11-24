@@ -2220,7 +2220,9 @@ pub fn dlaed2(
             q2[j] = q[i].clone();
         }
         d.copy_from_slice(dlamda);
-        q.copy_from_slice(q2);
+        for i in 0..n {
+            q[i].clone_from_slice(&q2[i]);
+        }
         return Ok(0);
     }
 
