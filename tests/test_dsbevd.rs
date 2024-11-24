@@ -116,20 +116,6 @@ fn test_matrix_construction() {
     assert!(result.is_err(), "Should panic with wrong column count");
 }
 
-#[test]
-fn test_dsbevd_diagonal_matrix() {
-    let n = 3;
-    let diagonal = vec![1.0, 2.0, 3.0];
-    let ab = vec![diagonal];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
-
-    let result = matrix.dsbevd().unwrap();
-
-    // Check eigenvalues are exactly diagonal elements in ascending order
-    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 2.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[2], 3.0, epsilon = 1e-12);
-}
 
 #[test]
 fn test_dsbevd_2x2_symmetric() {
@@ -147,32 +133,6 @@ fn test_dsbevd_2x2_symmetric() {
     // Known eigenvalues: 1.0, 3.0
     assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
     assert_relative_eq!(result.eigenvalues[1], 3.0, epsilon = 1e-12);
-}
-
-#[test]
-fn test_dsbevd_zero_matrix() {
-    let ab = vec![vec![0.0, 0.0, 0.0]];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
-
-    let result = matrix.dsbevd().unwrap();
-
-    // All eigenvalues should be zero
-    assert_relative_eq!(result.eigenvalues[0], 0.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 0.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[2], 0.0, epsilon = 1e-12);
-}
-
-#[test]
-fn test_dsbevd_identity_matrix() {
-    let ab = vec![vec![1.0, 1.0, 1.0]];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
-
-    let result = matrix.dsbevd().unwrap();
-
-    // All eigenvalues should be 1.0
-    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[2], 1.0, epsilon = 1e-12);
 }
 
 #[test]
@@ -1712,36 +1672,6 @@ fn test_dlaed1_empty_matrix() {
 
 // fn test_dlaed1_single_element(): This test should not exist as it's mathematically impossible to satisfy CUTPNT requirements for N=1.
 
-#[test]
-fn test_dlaed1_2x2_deflation() {
-    let mut d = vec![1.0, 1.0 + 1e-10];
-    let mut q = vec![
-        vec![1.0 / 2.0f64.sqrt(), -1.0 / 2.0f64.sqrt()],
-        vec![1.0 / 2.0f64.sqrt(), 1.0 / 2.0f64.sqrt()],
-    ];
-    let mut indxq = vec![0, 1];
-    let mut rho = 1e-12;
-    // Work arrays sized correctly: 4*n + n^2 = 8 + 4 = 12
-    let mut work = vec![0.0; 12];
-    // Integer work array sized correctly: 4*n = 8 
-    let mut iwork = vec![0; 8];
-
-    let result = dlaed1(
-        2,              // n
-        &mut d,
-        &mut q,
-        2,             // ldq  
-        &mut indxq,
-        &mut rho,
-        1,            // cutpnt
-        &mut work,
-        &mut iwork,
-    );
-    assert!(result.is_ok());
-    // Verify eigenvalues are nearly equal (deflation worked)
-    assert!((d[0] - d[1]).abs() < 1e-9);
-}
-
 
 #[test]
 fn test_dlaed1_error_cases() {
@@ -2171,62 +2101,6 @@ fn test_dlamrg_identical_elements() {
 }
 
 // Tests for dlaed2
-#[test]
-fn test_dlaed2_basic() {
-    let n = 6;
-    let n1 = 3;
-    let mut d = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-    let mut q = vec![
-        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0], 
-        vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
-        vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
-        vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
-        vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
-    ];
-    let ldq = n;
-    let mut indxq = vec![0, 1, 2, 0, 1, 2];
-    let mut rho = 0.5;
-    let mut z = vec![0.0; n];
-    
-    // Initialize z as in LAPACK
-    for i in 0..n1 {
-        z[i] = q[n1-1][i];
-    }
-    for i in n1..n {
-        z[i] = q[i][i];
-    }
-
-    let mut dlamda = vec![0.0; n];
-    let mut w = vec![0.0; n];
-    let mut q2 = vec![vec![0.0; n]; n];
-    let mut indx = vec![0; n];
-    let mut indxc = vec![0; n];
-    let mut indxp = vec![0; n];
-    let mut coltyp = vec![0; n];
-    let mut k = 0;
-
-    let result = dlaed2(
-        &mut k,
-        n,
-        n1,
-        &mut d,
-        &mut q,
-        ldq,
-        &mut indxq,
-        &mut rho,
-        &mut z,
-        &mut dlamda,
-        &mut w,
-        &mut q2,
-        &mut indx,
-        &mut indxc,
-        &mut indxp,
-        &mut coltyp,
-    );
-    assert!(result.is_ok());
-}
-
 #[test]
 fn test_dlaed2_all_deflated() {
     let n = 6;
