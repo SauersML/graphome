@@ -119,17 +119,19 @@ fn test_matrix_construction() {
 #[test]
 fn test_dsbevd_diagonal_matrix() {
     let n = 3;
+    let kd = 0;  // Diagonal matrix
     let diagonal = vec![1.0, 2.0, 3.0];
-    let ab = vec![diagonal];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    let ab = vec![diagonal];  // Just one row for diagonal matrix
+    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
 
     let result = matrix.dsbevd().unwrap();
 
-    // Check eigenvalues are exactly diagonal elements in ascending order
+    // Eigenvalues should exactly match diagonal elements in ascending order  
     assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
     assert_relative_eq!(result.eigenvalues[1], 2.0, epsilon = 1e-12);
     assert_relative_eq!(result.eigenvalues[2], 3.0, epsilon = 1e-12);
 }
+
 
 #[test]
 fn test_dsbevd_2x2_symmetric() {
@@ -151,28 +153,32 @@ fn test_dsbevd_2x2_symmetric() {
 
 #[test]
 fn test_dsbevd_zero_matrix() {
-    let ab = vec![vec![0.0, 0.0, 0.0]];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    let n = 3;
+    let kd = 0;  // Diagonal matrix
+    let ab = vec![vec![0.0, 0.0, 0.0]];  // Single row
+    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
 
     let result = matrix.dsbevd().unwrap();
 
-    // All eigenvalues should be zero
-    assert_relative_eq!(result.eigenvalues[0], 0.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 0.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[2], 0.0, epsilon = 1e-12);
+    // All eigenvalues should be 0.0
+    for i in 0..n {
+        assert_relative_eq!(result.eigenvalues[i], 0.0, epsilon = 1e-12);
+    }
 }
 
 #[test]
 fn test_dsbevd_identity_matrix() {
-    let ab = vec![vec![1.0, 1.0, 1.0]];
-    let matrix = SymmetricBandedMatrix::new(3, 0, ab);
+    let n = 3;
+    let kd = 0;  // Diagonal matrix
+    let ab = vec![vec![1.0, 1.0, 1.0]];  // Single row
+    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
 
     let result = matrix.dsbevd().unwrap();
 
     // All eigenvalues should be 1.0
-    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[2], 1.0, epsilon = 1e-12);
+    for i in 0..n {
+        assert_relative_eq!(result.eigenvalues[i], 1.0, epsilon = 1e-12);
+    }
 }
 
 #[test]
