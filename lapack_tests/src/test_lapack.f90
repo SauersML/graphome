@@ -196,7 +196,6 @@ program test_all_lapack
   end do
 
   ! 12. DLAED0
-  allocate(work_alloc(4*n + n**2))
   allocate(iwork_alloc(2*n))
   call DLAED0(1, n, n, d, e(1:n-1), q, n, work_alloc, iwork_alloc, info)
   open(unit=22, file='results/dlaed0_output.txt', status='replace')
