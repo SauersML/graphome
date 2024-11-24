@@ -1927,6 +1927,241 @@ fn test_dlaed2_with_deflation() {
     assert_eq!(k, 0);
 }
 
+
+#[test]
+fn test_idamax_basic() {
+    let n: usize = 5;
+    let x: [f64; 5] = [1.0, 3.0, -2.0, 5.0, 4.0];
+    let incx: usize = 1;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 3); // Maximum at index 3 (value 5.0)
+}
+
+#[test]
+fn test_idamax_negative_values() {
+    let n: usize = 5;
+    let x: [f64; 5] = [-1.0, -3.0, -2.0, -5.0, -4.0];
+    let incx: usize = 1;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 3); // Maximum absolute value at index 3
+}
+
+#[test]
+fn test_idamax_zeros() {
+    let n: usize = 5;
+    let x: [f64; 5] = [0.0, -0.0, 0.0, -0.0, 0.0];
+    let incx: usize = 1;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 0); // First index when all zeros
+}
+
+#[test]
+fn test_idamax_multiple_maxima() {
+    let n: usize = 5;
+    let x: [f64; 5] = [3.0, -5.0, 5.0, -5.0, 5.0];
+    let incx: usize = 1;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 1); // First occurrence of max abs value
+}
+
+#[test]
+fn test_idamax_stride() {
+    let n: usize = 3;
+    let x: [f64; 5] = [1.0, 4.0, -2.0, 5.0, 3.0];
+    let incx: usize = 2;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 2); // Max abs at x[4], index 2
+}
+
+#[test]
+fn test_idamax_n_zero() {
+    let n: usize = 0;
+    let x: [f64; 0] = [];
+    let incx: usize = 1;
+    let result = idamax(n, &x, incx);
+    assert_eq!(result, 0); // Return 0 when n is 0
+}
+
+#[test]
+fn test_dlamch_eps() {
+    let eps = dlamch('E');
+    assert_eq!(eps, f64::EPSILON * 0.5);
+}
+
+#[test]
+fn test_dlamch_base() {
+    let base = dlamch('B');
+    assert_eq!(base, 2.0f64);
+}
+
+#[test]
+fn test_dlamch_rmin() {
+    let rmin = dlamch('U');
+    assert_eq!(rmin, f64::MIN_POSITIVE);
+}
+
+#[test]
+fn test_dlamch_rmax() {
+    let rmax = dlamch('O');
+    assert_eq!(rmax, f64::MAX);
+}
+
+#[test]
+fn test_dlapy2_basic() {
+    let x: f64 = 3.0;
+    let y: f64 = 4.0;
+    let result = dlapy2(x, y);
+    assert_eq!(result, 5.0);
+}
+
+#[test]
+fn test_dlapy2_negative() {
+    let x: f64 = -3.0;
+    let y: f64 = -4.0;
+    let result = dlapy2(x, y);
+    assert_eq!(result, 5.0);
+}
+
+#[test]
+fn test_dlapy2_zero_x() {
+    let x: f64 = 0.0;
+    let y: f64 = 4.0;
+    let result = dlapy2(x, y);
+    assert_eq!(result, 4.0);
+}
+
+#[test]
+fn test_dlapy2_large_values() {
+    let x: f64 = 1e154;
+    let y: f64 = 1e154;
+    let result = dlapy2(x, y);
+    let expected = (2.0f64).sqrt() * 1e154;
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_dcopy_basic() {
+    let n: usize = 5;
+    let dx: [f64; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let incx: i32 = 1;
+    let mut dy: [f64; 5] = [0.0; 5];
+    let incy: i32 = 1;
+    dcopy(n, &dx, incx, &mut dy, incy);
+    assert_eq!(dy, dx);
+}
+
+#[test]
+fn test_dcopy_incx_incy() {
+    let n: usize = 3;
+    let dx: [f64; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let incx: i32 = 2;
+    let mut dy: [f64; 4] = [0.0; 4];
+    let incy: i32 = 1;
+    dcopy(n, &dx, incx, &mut dy, incy);
+    assert_eq!(dy[0..3], [1.0, 3.0, 5.0]);
+}
+
+#[test]
+fn test_dlacpy_all() {
+    let uplo: char = 'A';
+    let m: usize = 3;
+    let n: usize = 3;
+    let a: Vec<Vec<f64>> = vec![
+        vec![1.0, 2.0, 3.0],
+        vec![4.0, 5.0, 6.0],
+        vec![7.0, 8.0, 9.0],
+    ];
+    let lda: usize = 3;
+    let mut b: Vec<Vec<f64>> = vec![vec![0.0; n]; m];
+    let ldb: usize = 3;
+    dlacpy(uplo, m, n, &a, lda, &mut b, ldb);
+    assert_eq!(b, a);
+}
+
+#[test]
+fn test_dlacpy_upper() {
+    let uplo: char = 'U';
+    let m: usize = 3;
+    let n: usize = 3;
+    let a: Vec<Vec<f64>> = vec![
+        vec![1.0, 2.0, 3.0],
+        vec![4.0, 5.0, 6.0],
+        vec![7.0, 8.0, 9.0],
+    ];
+    let lda: usize = 3;
+    let mut b: Vec<Vec<f64>> = vec![vec![0.0; n]; m];
+    let ldb: usize = 3;
+    dlacpy(uplo, m, n, &a, lda, &mut b, ldb);
+    let expected: Vec<Vec<f64>> = vec![
+        vec![1.0, 2.0, 3.0],
+        vec![0.0, 5.0, 6.0],
+        vec![0.0, 0.0, 9.0],
+    ];
+    assert_eq!(b, expected);
+}
+
+#[test]
+fn test_dlamrg_basic() {
+    let n1: usize = 3;
+    let n2: usize = 3;
+    let a: [f64; 6] = [1.0, 3.0, 5.0, 2.0, 4.0, 6.0];
+    let dtrd1: i32 = 1;
+    let dtrd2: i32 = 1;
+    let mut index: [usize; 6] = [0; 6];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected: [usize; 6] = [0, 3, 1, 4, 2, 5];
+    assert_eq!(index, expected);
+}
+
+#[test]
+fn test_drot_no_rotation() {
+    let n: usize = 2;
+    let mut dx: [f64; 2] = [1.0, 2.0];
+    let incx = 1;
+    let mut dy: [f64; 2] = [3.0, 4.0];
+    let incy = 1;
+    let c: f64 = 1.0;
+    let s: f64 = 0.0;
+    drot(n, &mut dx, incx, &mut dy, incy, c, s);
+    assert_eq!(dx, [1.0, 2.0]);
+    assert_eq!(dy, [3.0, 4.0]);
+}
+
+#[test]
+fn test_drot_90_degrees() {
+    let n: usize = 2;
+    let mut dx: [f64; 2] = [1.0, 2.0];
+    let incx = 1;
+    let mut dy: [f64; 2] = [3.0, 4.0];
+    let incy = 1;
+    let c: f64 = 0.0;
+    let s: f64 = 1.0;
+    drot(n, &mut dx, incx, &mut dy, incy, c, s);
+    assert_eq!(dx, [3.0, 4.0]);
+    assert_eq!(dy, [-1.0, -2.0]);
+}
+
+#[test]
+fn test_dscal_basic() {
+    let n: usize = 3;
+    let alpha: f64 = 2.0;
+    let mut x: [f64; 3] = [1.0, 2.0, 3.0];
+    let incx: usize = 1;
+    dscal(n, alpha, &mut x, incx);
+    assert_eq!(x, [2.0, 4.0, 6.0]);
+}
+
+#[test]
+fn test_dscal_stride() {
+    let n: usize = 2;
+    let alpha: f64 = 3.0;
+    let mut x: [f64; 5] = [1.0, 2.0, 3.0, 4.0, 5.0];
+    let incx: usize = 2;
+    dscal(n, alpha, &mut x, incx);
+    assert_eq!(x, [3.0, 2.0, 9.0, 4.0, 5.0]);
+}
+
+
 // Tests needed:
 //dlaed3 - No tests
 //dsteqr - No tests
