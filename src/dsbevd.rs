@@ -3991,7 +3991,7 @@ pub fn dlaed1(
         indxcv,
         indxpv,
         coltypv,
-    );
+    )?;
 
     if k != 0 {
         // Solve the secular equation
