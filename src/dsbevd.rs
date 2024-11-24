@@ -2275,7 +2275,10 @@ pub fn dlaed2(
                         coltyp[pj] = 4;
 
                         // Apply rotation to eigenvectors
-                        drot(n, &mut q[pj], 1, &mut q[nj], 1, c, s);
+                        let (q_left, q_right) = q.split_at_mut(max(pj, nj));
+                        let q_pj = if pj < nj { &mut q_left[pj] } else { &mut q_right[pj - max(pj, nj)] };
+                        let q_nj = if nj < pj { &mut q_left[nj] } else { &mut q_right[nj - max(pj, nj)] };
+                        drot(n, q_pj, 1, q_nj, 1, c, s);
 
                         // Update eigenvalues
                         let temp = d[pj] * c * c + d[nj] * s * s;
