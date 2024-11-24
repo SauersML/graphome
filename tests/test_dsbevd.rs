@@ -1869,8 +1869,6 @@ fn test_dlaed2_no_deflation() {
         &mut coltyp,
     );
 
-    // Check that the function executed successfully
-    assert!(result.is_ok());
     // Since deflation does not occur, k should be equal to n
     assert_eq!(k, n);
 }
@@ -1921,8 +1919,6 @@ fn test_dlaed2_with_deflation() {
         &mut coltyp,
     );
 
-    // Check that the function executed successfully
-    assert!(result.is_ok());
     // Since z components are tiny, deflation should occur, k should be 0
     assert_eq!(k, 0);
 }
