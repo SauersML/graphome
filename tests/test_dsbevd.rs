@@ -7,6 +7,7 @@ use std::time::Instant;
 use approx::assert_relative_eq;
 use approx::assert_abs_diff_eq;
 use std::f64::consts::PI;
+use nalgebra as na;
 
 use graphome::dsbevd::dcopy;
 use graphome::dsbevd::dgemm;
@@ -2286,6 +2287,126 @@ fn test_dlaed2_identical_eigenvalues() {
 }
 
 
+#[test]
+fn test_dlaed3_mechanical() {
+   // Test basic 2x2 case hitting k=2 special path
+   let k = 2;
+   let n = 2;
+   let n1 = 1;
+   let ldq = 2;
+   
+   // Initial eigenvalues d1, d2 from previous step 
+   let mut dlamda = vec![1.0, 3.0];
+   
+   // Initial k-by-k eigenvector matrix for the rank-1 update
+   let mut q = vec![
+       vec![1.0, 0.0], 
+       vec![0.0, 1.0]
+   ];
+   
+   // Components of rank-1 update vector z 
+   let mut w = vec![0.5, 0.5];
+   
+   let mut d = vec![0.0; n]; // Output eigenvalues
+   let rho = 0.25; // Small update
+   
+   // Setup remaining required inputs
+   let q2 = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
+   let indx = vec![1, 2]; // 1-based indexing
+   let ctot = vec![1, 0, 1, 0];
+   let mut s = vec![vec![0.0; k]; k];
+
+   let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho, 
+                      &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
+
+   assert!(result.is_ok());
+
+   // Convert output Q to nalgebra matrix for verification
+   let q_mat = na::DMatrix::from_row_slice(n, k, &q.iter().flatten().copied().collect::<Vec<f64>>());
+
+   // Verify Q remains orthogonal
+   let qtq = &q_mat.transpose() * &q_mat;
+   let id = na::DMatrix::<f64>::identity(k, k);
+   assert!((qtq - id).norm() < 1e-10, "Q lost orthogonality");
+
+   // Verify eigenvalues sorted ascending
+   assert!(d[0] <= d[1], "Eigenvalues not sorted");
+
+   // Verify secular equation satisfied
+   for i in 0..k {
+       let lambda = d[i];
+       let f: f64 = (0..k).map(|j| {
+           let zj = w[j];
+           zj * zj / (dlamda[j] - lambda)
+       }).sum::<f64>();
+       assert!((1.0 + rho * f).abs() < 1e-10, "Secular equation not satisfied");
+   }
+}
+
+#[test]
+fn test_dlaed3_deflation() {
+   // Test larger case with deflation
+   let k = 3;
+   let n = 4;
+   let n1 = 2;
+   let ldq = 4;
+
+   // Set up eigenvalues with known gap to trigger deflation
+   let mut dlamda = vec![1.0, 5.0, 10.0];
+   
+   let mut q = vec![
+       vec![1.0, 0.0, 0.0, 0.0],
+       vec![0.0, 1.0, 0.0, 0.0], 
+       vec![0.0, 0.0, 1.0, 0.0],
+       vec![0.0, 0.0, 0.0, 1.0]
+   ];
+
+   // Create z vector with small component to trigger deflation
+   let mut w = vec![0.5, 1e-14, 0.5]; // Middle component very small
+
+   let mut d = vec![0.0; n];
+   let rho = 0.1;
+
+   let q2 = q.clone();
+   let indx = vec![1, 2, 3];  // 1-based
+   let ctot = vec![2, 0, 1, 0];
+   let mut s = vec![vec![0.0; k]; k];
+
+   let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho,
+                      &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
+
+   assert!(result.is_ok());
+
+   // Verify deflation preserved original eigenvalue
+   let mut found_deflated = false;
+   for i in 0..k {
+       if (d[i] - dlamda[1]).abs() < 1e-10 {
+           found_deflated = true;
+           break;
+       }
+   }
+   assert!(found_deflated, "Deflation failed to preserve eigenvalue");
+
+   // Convert output Q to nalgebra matrix
+   let q_mat = na::DMatrix::from_row_slice(n, k, &q.iter().flatten().copied().collect::<Vec<f64>>());
+
+   // Verify Q remains orthogonal after deflation
+   let qtq = &q_mat.transpose() * &q_mat;
+   let id = na::DMatrix::<f64>::identity(k, k);
+   assert!((qtq - id).norm() < 1e-10, "Q lost orthogonality after deflation");
+
+   // Verify secular equation satisfied for non-deflated eigenvalues
+   for i in 0..k {
+       if (d[i] - dlamda[1]).abs() > 1e-10 {  // Skip deflated eigenvalue
+           let lambda = d[i];
+           let f: f64 = (0..k).map(|j| {
+               let zj = w[j];
+               zj * zj / (dlamda[j] - lambda)  
+           }).sum::<f64>();
+           assert!((1.0 + rho * f).abs() < 1e-10, "Secular equation not satisfied");
+       }
+   }
+}
+
 // Tests needed:
-//dlaed3 - No tests
 //dsteqr - No tests
