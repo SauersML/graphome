@@ -1116,36 +1116,20 @@ fn test_dlaed0_empty() {
 fn test_dlaed0_small_matrix() {
     let n = 4;
     let qsiz = 4;
-    
-    // Create tridiagonal matrix
-    let mut d = vec![2.0, 2.0, 2.0, 2.0];  // Diagonal
-    let mut e = vec![1.0, 1.0, 1.0];       // Off-diagonal
-    let mut q = vec![vec![1.0, 0.0, 0.0, 0.0],
-                    vec![0.0, 1.0, 0.0, 0.0],
-                    vec![0.0, 0.0, 1.0, 0.0],
-                    vec![0.0, 0.0, 0.0, 1.0]];
 
-    // Create same matrix in nalgebra format for reference
-    let mut matrix = DMatrix::zeros(n, n);
-    for i in 0..n {
-        matrix[(i, i)] = d[i];
-        if i < n-1 {
-            matrix[(i, i+1)] = e[i];
-            matrix[(i+1, i)] = e[i];
-        }
-    }
+    // Create tridiagonal matrix 
+    let mut d = vec![2.0, 2.0, 2.0, 2.0]; // Diagonal
+    let mut e = vec![1.0, 1.0, 1.0]; // Off-diagonal
+    let mut q = vec![
+        vec![1.0, 0.0, 0.0, 0.0],  
+        vec![0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0], 
+        vec![0.0, 0.0, 0.0, 1.0],
+    ];
     
-    // Get reference eigenvalues using nalgebra
-    let eigen = matrix.symmetric_eigen();
-    let mut expected_eigs: Vec<f64> = eigen.eigenvalues.as_slice().to_vec();
-    expected_eigs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    
-    println!("Reference eigenvalues: {:?}", expected_eigs);
-
-    // Allocate workspace arrays
     let mut qstore = vec![vec![0.0; n]; n];
-    let work_size = 1 + 4*n + n*n;
-    let iwork_size = 3 + 5*n;
+    let work_size = 1 + 4 * n + n * n;
+    let iwork_size = 3 + 5 * n;
     let mut work = vec![0.0; work_size];
     let mut iwork = vec![0; iwork_size];
     let mut qptr = vec![0; n];
@@ -1155,16 +1139,20 @@ fn test_dlaed0_small_matrix() {
     let mut givcol = vec![vec![0; 2]; n];
     let mut givnum = vec![vec![0.0; 2]; n];
 
-    println!("Input matrix:");
-    println!("Diagonal: {:?}", d);
-    println!("Off-diagonal: {:?}", e);
-
     let result = dlaed0(
-        2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
-        &mut qstore, &mut qptr, &mut prmptr, &mut perm,
-        &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        2,              // ICOMPQ = 2 for tridiagonal eigensystem
+        n, 
+        qsiz,
+        &mut d,
+        &mut e,
+        &mut q,
+        n,              // LDQ
+        &mut qstore,
+        n,              // LDQS
+        &mut work,
+        &mut iwork
     );
-    
+
     assert!(result.is_ok(), "dlaed0 failed");
     
     println!("Computed eigenvalues: {:?}", d);
