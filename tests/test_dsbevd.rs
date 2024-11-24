@@ -1178,7 +1178,7 @@ fn test_dlaed0_small_matrix() {
     println!("\nChecking eigenvector orthogonality:");
     for i in 0..n {
         for j in i..n {
-            let mut dot = 0.0;
+            let mut dot: f32 = 0.0;
             for k in 0..n {
                 dot += q[k][i] * q[k][j];
             }
