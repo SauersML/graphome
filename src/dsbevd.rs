@@ -1252,7 +1252,7 @@ pub fn dsteqr(
     // Initialize Z to identity
     dlaset('F', n, n, 0.0, 1.0, z);
 
-    let mut l1 = 1;  // FORTRAN 1-based indexing
+    let mut l1 = 1;  // FORTRAN 1-based indexing ???
     while l1 <= n {  // Use <= for 1-based comparison
         // Zero superdiagonal element
         if l1 > 1 {
