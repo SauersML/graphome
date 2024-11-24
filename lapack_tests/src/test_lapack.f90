@@ -500,7 +500,7 @@ program test_all_lapack
     write(10,*) 'F:', f
   close(10
 
-    ! 36. DLASR
+  ! 36. DLASR
   open(newunit=10, file='results/dlasr_output.txt', status='replace')
   write(10,*) 'DLASR output:'
   call dlasr('R', 'V', 'B', n, n, a, b, mat_a, ldz)
