@@ -8,7 +8,8 @@ program test_all_lapack
   integer :: one = 1
   integer :: kd, ldab, ldq 
   integer :: iamax_val, k
-  integer, dimension(n) :: indxq, index
+  integer, dimension(n) :: indxq
+  integer, dimension(n) :: index
 
   real(8) :: dlamch_val, dnrm2_val, dlapy2_val, dlassq_val, dlamc3_val
   real(8) :: cs, sn, r, f, g, tau
