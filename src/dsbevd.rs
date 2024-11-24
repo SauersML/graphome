@@ -2243,7 +2243,7 @@ pub fn dlaed2(
     let mut j = 0;
 
     while j < n {
-        let pj = indx[j];
+        let mut pj = indx[j];
         if *rho * z[pj].abs() <= tol {
             k2 -= 1;
             coltyp[pj] = 4;
