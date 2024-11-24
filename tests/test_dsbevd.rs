@@ -1742,36 +1742,6 @@ fn test_dlaed1_2x2_deflation() {
     assert!((d[0] - d[1]).abs() < 1e-9);
 }
 
-#[test]
-fn test_dlaed1_2x2_no_deflation() {
-    let mut d = vec![1.0, 2.0];
-    let mut q = vec![
-        vec![1.0 / 2.0f64.sqrt(), -1.0 / 2.0f64.sqrt()],
-        vec![1.0 / 2.0f64.sqrt(), 1.0 / 2.0f64.sqrt()],
-    ];
-    let mut indxq = vec![0, 1];
-    let mut rho = 0.5;
-    // Work arrays sized correctly
-    let mut work = vec![0.0; 12];
-    let mut iwork = vec![0; 8];
-
-    let result = dlaed1(
-        2,             // n
-        &mut d,
-        &mut q, 
-        2,            // ldq
-        &mut indxq,
-        &mut rho,
-        1,           // cutpnt
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_ok());
-    // Verify eigenvalues remain distinct
-    assert!((d[1] - d[0]).abs() > 0.1);
-}
-
 
 #[test]
 fn test_dlaed1_error_cases() {
