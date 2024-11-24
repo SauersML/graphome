@@ -151,6 +151,10 @@ pub fn dlargv(
     c: &mut [f64],
     incc: usize,
 ) {
+    if n == 0 {
+        return;
+    }
+    
     debug_assert!(incx > 0, "incx must be positive");
     debug_assert!(incy > 0, "incy must be positive");
     debug_assert!(incc > 0, "incc must be positive");
