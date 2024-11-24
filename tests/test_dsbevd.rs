@@ -1222,36 +1222,25 @@ fn test_dlaed0_small_matrix() {
 
 #[test]
 fn test_dlaed0_large_matrix() {
-    let n = 32;  // > smlsiz (25)
+    let n = 32;
     let qsiz = n;
     
     // Create tridiagonal matrix
-    let mut d = vec![2.0; n];  // Diagonal
-    let mut e = vec![1.0; n-1];  // Off-diagonal
+    let mut d = vec![2.0; n];
+    let mut e = vec![1.0; n-1];
     let mut q = vec![vec![0.0; n]; n];
     for i in 0..n {
-        q[i][i] = 1.0;  // Identity matrix
+        q[i][i] = 1.0;
     }
 
-    // Create reference matrix using nalgebra
-    let mut matrix = DMatrix::zeros(n, n);
-    for i in 0..n {
-        matrix[(i, i)] = d[i];
-        if i < n-1 {
-            matrix[(i, i+1)] = e[i];
-            matrix[(i+1, i)] = e[i];
-        }
-    }
+    // Calculate proper workspace sizes per DLAED0 docs:
+    // WORK: 1 + 3*N + 2*N*lg N + 3*N**2 for ICOMPQ = 1
+    let lgn = (n as f64).log2().ceil() as usize;
+    let work_size = 1 + 3*n + 2*n*lgn + 3*n*n;
+    // IWORK: 6 + 6*N + 5*N*lg N for ICOMPQ = 1
+    let iwork_size = 6 + 6*n + 5*n*lgn;
     
-    // Get reference eigenvalues
-    let eigen = matrix.symmetric_eigen();
-    let mut expected_eigs: Vec<f64> = eigen.eigenvalues.as_slice().to_vec();
-    expected_eigs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    
-    // Allocate workspace arrays
     let mut qstore = vec![vec![0.0; n]; n];
-    let work_size = 1 + 4*n + n*n;
-    let iwork_size = 3 + 5*n;
     let mut work = vec![0.0; work_size];
     let mut iwork = vec![0; iwork_size];
     let mut qptr = vec![0; n];
@@ -1262,11 +1251,19 @@ fn test_dlaed0_large_matrix() {
     let mut givnum = vec![vec![0.0; 2]; n];
 
     let result = dlaed0(
-        2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
-        &mut qstore, &mut qptr, &mut prmptr, &mut perm,
-        &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
+        2,              // ICOMPQ = 2 
+        n,
+        qsiz, 
+        &mut d,
+        &mut e,
+        &mut q,
+        n,              // LDQ
+        &mut qstore,
+        n,              // LDQS  
+        &mut work,
+        &mut iwork
     );
-    
+
     assert!(result.is_ok(), "dlaed0 failed for large matrix");
 
     // Check eigenvalues
