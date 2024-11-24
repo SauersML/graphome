@@ -1212,6 +1212,28 @@ pub fn dsbtrd(
 }
 
 
+/// Computes all eigenvalues and, optionally, eigenvectors of a symmetric tridiagonal matrix
+/// using the implicit QL or QR method. This implementation corresponds to LAPACK's DSTEQR subroutine.
+///
+/// # Parameters
+///
+/// - `compz`: Specifies whether to compute eigenvectors:
+///     - 'N': Compute eigenvalues only.
+///     - 'V': Compute eigenvalues and eigenvectors of the original symmetric matrix.
+///     - 'I': Compute eigenvalues and eigenvectors of the tridiagonal matrix. Z is initialized to the identity matrix.
+/// - `n`: The order of the matrix (n >= 0).
+/// - `d`: On entry, the diagonal elements of the tridiagonal matrix. On exit, the eigenvalues in ascending order.
+/// - `e`: On entry, the (n-1) subdiagonal elements of the tridiagonal matrix. On exit, destroyed.
+/// - `z`: On entry, if `compz` = 'V', Z contains the orthogonal matrix used in the reduction to tridiagonal form.
+///        On exit, if `compz` = 'V', Z contains the orthonormal eigenvectors of the original symmetric matrix,
+///        and if `compz` = 'I', Z contains the orthonormal eigenvectors of the symmetric tridiagonal matrix.
+///        If `compz` = 'N', then Z is not referenced.
+/// - `work`: Workspace array of dimension at least `2*n - 2` when `compz` != 'N'.
+///
+/// # Returns
+///
+/// - `Ok(())` on successful computation.
+/// - `Err(Error)` if an error occurred.
 pub fn dsteqr(
     compz: char,
     n: usize,
@@ -1220,300 +1242,456 @@ pub fn dsteqr(
     z: &mut [Vec<f64>],
     work: &mut [f64],
 ) -> Result<(), Error> {
-    // Validate inputs
-    if compz != 'I' {
-        return Err(Error(-1));
-    }
-    if n == 0 {
-        return Ok(());
-    }
-    if d.len() < n || (n > 1 && e.len() < n-1) || z.len() < n || 
-       work.len() < 2*n || z.iter().any(|row| row.len() < n) {
+    // Map 'compz' to an integer flag 'icompz'
+    let icompz = match compz {
+        'N' => 0, // Compute eigenvalues only
+        'V' => 1, // Compute eigenvalues and eigenvectors of the original matrix
+        'I' => 2, // Compute eigenvalues and eigenvectors of the tridiagonal matrix
+        _ => {
+            // Invalid 'compz' value
+            return Err(Error(-1));
+        }
+    };
+
+    // Check that 'n' is non-negative
+    if n < 0 {
         return Err(Error(-2));
     }
 
+    // Check dimensions and leading dimension 'ldz'
+    let ldz = z.len(); // Number of rows in 'z'
+    if ldz < 1 || (icompz > 0 && ldz < n) {
+        // 'ldz' must be at least max(1, n) when eigenvectors are computed
+        return Err(Error(-6));
+    }
+
+    // Check that the lengths of 'd', 'e', and 'work' are sufficient
+    if d.len() < n {
+        return Err(Error(-3)); // Not enough elements in 'd'
+    }
+    if e.len() < n.saturating_sub(1) {
+        return Err(Error(-4)); // Not enough elements in 'e'
+    }
+    if icompz > 0 && work.len() < 2 * n {
+        return Err(Error(-8)); // Insufficient size of 'work' array
+    }
+
+    // Check that 'z' has enough columns when eigenvectors are computed
+    if icompz > 0 {
+        for row in z.iter() {
+            if row.len() < n {
+                return Err(Error(-6)); // Not enough columns in 'z'
+            }
+        }
+    }
+
+    // Quick return if possible
+    if n == 0 {
+        // Zero-dimensional matrix; no computation needed
+        return Ok(());
+    }
+
     if n == 1 {
-        z[0][0] = 1.0;
+        // One-dimensional matrix
+        if icompz == 2 {
+            // Initialize 'z' to the identity matrix if computing eigenvectors of the tridiagonal matrix
+            z[0][0] = 1.0;
+        }
+        // Eigenvalue is the single element in 'd[0]'
         return Ok(());
     }
 
     // Machine constants
-    let eps = dlamch('E');
+    let eps = dlamch('E'); // Machine precision (epsilon)
     let eps2 = eps * eps;
-    let safmin = dlamch('S');
+    let safmin = dlamch('S'); // Safe minimum
     let safmax = 1.0 / safmin;
-    let ssfmax = (safmax).sqrt() / 3.0;
-    let ssfmin = (safmin).sqrt() / eps2;
+    let ssfmax = safmax.sqrt() / 3.0;
+    let ssfmin = safmin.sqrt() / eps2;
 
-    let nm1 = n - 1;
-    let nmaxit = n * 30;
-    let mut jtot = 0;
+    // Initialize variables for iterations
+    let maxit = 30; // Maximum number of iterations per eigenvalue
+    let nmaxit = n * maxit; // Total maximum number of iterations
+    let mut jtot = 0; // Total number of iterations
 
-    // Initialize Z to identity
-    dlaset('F', n, n, 0.0, 1.0, z);
+    // If computing eigenvectors of the tridiagonal matrix, initialize 'z' to the identity matrix
+    if icompz == 2 {
+        dlaset('F', n, n, 0.0, 1.0, z);
+    }
 
-    let mut l1 = 1;  // FORTRAN 1-based indexing ???
-    while l1 <= n {  // Use <= for 1-based comparison
-        // Zero superdiagonal element
-        if l1 > 1 {
-            e[l1-2] = 0.0;  // Convert to 0-based
+    let mut l1 = 0usize; // Start index of the current submatrix (0-based)
+
+    // Main loop to process each submatrix
+    while l1 < n {
+        let mut m: usize;
+
+        // Zero out 'e[l1 - 1]' if not at the first element
+        if l1 > 0 {
+            e[l1 - 1] = 0.0;
         }
 
-        // Find next block
-        let mut m = l1;
-        if l1 <= nm1 {
-            for m_iter in l1..=nm1 {
-                m = m_iter;
-                let tst = e[m-1].abs();  // Convert to 0-based
-                let tol = (d[m-1].abs() * d[m].abs()).sqrt() * eps;
-                if tst <= tol {
-                    e[m-1] = 0.0;
-                    break;
-                }
+        // Find the submatrix from 'l1' to 'm' where 'e[m]' is negligible
+        m = l1;
+        while m < n - 1 {
+            let tst = e[m].abs();
+            let abssd = d[m].abs() + d[m + 1].abs();
+            let tol = eps * abssd;
+            if tst <= tol {
+                // 'e[m]' is negligible; set it to zero and break
+                e[m] = 0.0;
+                break;
             }
+            m += 1;
         }
 
-        let mut l = l1 - 1;  // Convert to 0-based
-        let mut lend = m - 1;  // Convert to 0-based
-        let lsv = l;
-        let lendsv = lend;
+        // Determine the indices of the submatrix
+        let l = l1; // Start index (inclusive)
+        let lend = m; // End index (inclusive)
+        let lsv = l; // Save 'l' for later
+        let lendsv = lend; // Save 'lend' for later
+
+        // Increment 'l1' to process the next submatrix in the next iteration
+        l1 = lend + 1;
 
         if lend == l {
-            l1 = m + 1;  // Next block
+            // Submatrix is 1x1; nothing to do
             continue;
         }
 
-        // Scale submatrix
-        let anorm = dlanst('M', lend-l+1, &d[l..=lend], &e[l..lend]);
-        let mut iscale = 0;
+        // Scale the submatrix to prevent overflow/underflow
+        let mut iscale = 0; // Scaling flag
+        let subn = lend - l + 1; // Size of the submatrix
+        let anorm = dlanst('M', subn, &d[l..=lend], &e[l..lend]); // Maximum absolute value in submatrix
 
-        if anorm > 0.0 {
+        if anorm != 0.0 {
             if anorm > ssfmax {
-                iscale = 1;
                 // Scale down
-                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
-                let mut e_mat = vec![vec![0.0; 1]; lend-l];
-                for i in 0..=lend-l {
-                    d_mat[i][0] = d[l+i];
+                iscale = 1;
+                let scl = ssfmax / anorm;
+                for i in l..=lend {
+                    d[i] *= scl;
                 }
-                for i in 0..lend-l {
-                    e_mat[i][0] = e[l+i];
-                }
-                dlascl(&mut d_mat, anorm, ssfmax)?;
-                dlascl(&mut e_mat, anorm, ssfmax)?;
-                for i in 0..=lend-l {
-                    d[l+i] = d_mat[i][0];
-                }
-                for i in 0..lend-l {
-                    e[l+i] = e_mat[i][0];
+                for i in l..lend {
+                    e[i] *= scl;
                 }
             } else if anorm < ssfmin {
-                iscale = 2;
                 // Scale up
-                let mut d_mat = vec![vec![0.0; 1]; lend-l+1];
-                let mut e_mat = vec![vec![0.0; 1]; lend-l];
-                for i in 0..=lend-l {
-                    d_mat[i][0] = d[l+i];
+                iscale = 2;
+                let scl = ssfmin / anorm;
+                for i in l..=lend {
+                    d[i] *= scl;
                 }
-                for i in 0..lend-l {
-                    e_mat[i][0] = e[l+i];
-                }
-                dlascl(&mut d_mat, anorm, ssfmin)?;
-                dlascl(&mut e_mat, anorm, ssfmin)?;
-                for i in 0..=lend-l {
-                    d[l+i] = d_mat[i][0];
-                }
-                for i in 0..lend-l {
-                    e[l+i] = e_mat[i][0];
+                for i in l..lend {
+                    e[i] *= scl;
                 }
             }
         }
 
-        // Choose between QL/QR iteration
+        // Determine whether to use QL or QR iteration based on the relative sizes of the end diagonal elements
+        let mut l = l;
+        let mut lend = lend;
         if d[lend].abs() < d[l].abs() {
-            lend = lsv;
-            l = lendsv;
+            // Swap 'l' and 'lend'
+            std::mem::swap(&mut l, &mut lend);
         }
 
-        if lend >= l {
-            // QL Iteration
+        if lend > l {
+            // Perform QL Iteration
+            // Similar to the Fortran code from line 294 onwards
+            // 'l' increments towards 'lend'
+            // Initialize variables
+            let mut m = lend;
+            let mut l = l;
+
             loop {
-                if l == lend {
-                    break;
+                // Check for convergence
+                let mut convergence = false;
+                if l != lend {
+                    // Look for small subdiagonal element
+                    let mut mm;
+                    for mm_iter in l..lend {
+                        mm = mm_iter;
+                        let tst = e[mm].powi(2);
+                        let abssd = d[mm].abs() * d[mm + 1].abs();
+                        let tol = eps2 * abssd + safmin;
+                        if tst <= tol {
+                            e[mm] = 0.0;
+                            convergence = true;
+                            break;
+                        }
+                    }
+                    if !convergence {
+                        mm = lend;
+                    }
+                    m = mm;
+                } else {
+                    m = lend;
                 }
+
+                if m < lend {
+                    e[m] = 0.0;
+                }
+
+                let mut p = d[l];
+                if m == l {
+                    // Found an eigenvalue
+                    d[l] = p;
+                    l += 1; // Move to the next index
+                    if l > lend {
+                        break; // Completed processing this submatrix
+                    }
+                    continue; // Process the next eigenvalue
+                }
+
                 if jtot >= nmaxit {
-                    return Err(Error((l + 1) as i32));
+                    // Exceeded maximum iterations
+                    // Count the number of unconverged eigenvalues
+                    let mut info = 0;
+                    for i in 0..n - 1 {
+                        if e[i] != 0.0 {
+                            info += 1;
+                        }
+                    }
+                    return Err(Error(info as i32));
                 }
+
                 jtot += 1;
 
-                let mut g = (d[l+1] - d[l]) / (2.0 * e[l]);
+                // Form shift
+                let mut g = (d[l + 1] - p) / (2.0 * e[l]);
                 let mut r = dlapy2(g, 1.0);
-                g = d[m-1] - d[l] + e[l] / (g + r.copysign(g));
+                g = d[m] - p + e[l] / (g + r.copysign(g));
+
+                // Initialize rotation parameters
                 let mut s = 1.0;
                 let mut c = 1.0;
                 let mut p = 0.0;
 
-                for i in (l..=m-2).rev() {
+                // Inner loop
+                for i in (l..m).rev() {
                     let f = s * e[i];
                     let b = c * e[i];
-                    let (cs, sn) = dlartg(g, f);
-                    c = cs;
-                    s = sn;
 
-                    if i < m-2 {
-                        e[i+1] = r;
+                    let (cs, sn) = dlartg(g, f); // Generate rotation
+                    if i != m - 1 {
+                        e[i + 1] = r;
                     }
-                    g = d[i+1] - p;
-                    r = (d[i] - g) * s + 2.0 * c * b;
-                    p = s * r;
-                    d[i+1] = g + p;
-                    g = c * r - b;
 
-                    // Store rotation
-                    work[i] = c;
-                    work[n-1+i] = -s;
+                    g = d[i + 1] - p;
+                    r = (d[i] - g) * sn + 2.0 * cs * b;
+                    p = sn * r;
+                    d[i + 1] = g + p;
+                    g = cs * r - b;
+
+                    // Store rotations if eigenvectors are to be computed
+                    if icompz > 0 {
+                        work[i] = cs;
+                        work[n - 1 + i] = sn;
+                    }
                 }
 
-                // Apply rotations
-                let mm = m - l;
-                dlasr(
-                    'R', 'V', 'B',
-                    n, mm,
-                    &work[l..l+mm],
-                    &work[n-1+l..n-1+l+mm],
-                    z,
-                    n,
-                )?;
+                // Apply accumulated rotations to eigenvectors
+                if icompz > 0 {
+                    let mm = m - l + 1;
+                    dlasr(
+                        'R',         // Right side multiplication
+                        'V',         // Variable pivot
+                        'B',         // Backward direction
+                        n,           // Number of rows in 'z'
+                        mm,          // Number of columns to rotate
+                        &work[l..m],                   // Cosines
+                        &work[n - 1 + l..n - 1 + m],   // Sines
+                        z,           // Eigenvector matrix
+                        n,           // Leading dimension of 'z'
+                    )?;
+                }
 
                 d[l] = d[l] - p;
                 e[l] = g;
 
-                if e[l].abs() <= eps * (d[l].abs() + d[l+1].abs()) {
+                if e[l].abs() <= eps * (d[l].abs() + d[l + 1].abs()) {
                     e[l] = 0.0;
-                    break;
+                    l += 1;
+                    if l > lend {
+                        break;
+                    }
                 }
             }
         } else {
             // QR Iteration
+            // Similar to the Fortran code from line 401 onwards
+            // 'l' decrements towards 'lend'
+            let mut m = lend;
+            let mut l = l;
+
             loop {
-                if l == lend {
-                    break;
+                // Check for convergence
+                let mut convergence = false;
+                if l != lend {
+                    // Look for small superdiagonal element
+                    let mut mm;
+                    for mm_iter in (lend + 1..=l).rev() {
+                        mm = mm_iter - 1;
+                        let tst = e[mm].powi(2);
+                        let abssd = d[mm].abs() * d[mm + 1].abs();
+                        let tol = eps2 * abssd + safmin;
+                        if tst <= tol {
+                            e[mm] = 0.0;
+                            convergence = true;
+                            break;
+                        }
+                    }
+                    if !convergence {
+                        mm = lend;
+                    }
+                    m = mm;
+                } else {
+                    m = lend;
                 }
+
+                if m > lend {
+                    e[m - 1] = 0.0;
+                }
+
+                let mut p = d[l];
+                if m == l {
+                    // Found an eigenvalue
+                    d[l] = p;
+                    if l > 0 {
+                        l -= 1; // Move to the previous index
+                    } else {
+                        break; // Completed processing this submatrix
+                    }
+                    continue; // Process the next eigenvalue
+                }
+
                 if jtot >= nmaxit {
-                    return Err(Error((l + 1) as i32));
+                    // Exceeded maximum iterations
+                    // Count the number of unconverged eigenvalues
+                    let mut info = 0;
+                    for i in 0..n - 1 {
+                        if e[i] != 0.0 {
+                            info += 1;
+                        }
+                    }
+                    return Err(Error(info as i32));
                 }
+
                 jtot += 1;
 
-                let mut g = (d[l-1] - d[l]) / (2.0 * e[l-1]);
+                // Form shift
+                let mut g = (d[l - 1] - p) / (2.0 * e[l - 1]);
                 let mut r = dlapy2(g, 1.0);
-                g = d[m-1] - d[l] + e[l-1] / (g + r.copysign(g));
+                g = d[m] - p + e[l - 1] / (g + r.copysign(g));
+
+                // Initialize rotation parameters
                 let mut s = 1.0;
                 let mut c = 1.0;
                 let mut p = 0.0;
 
-                for i in m-1..l {
+                // Inner loop
+                for i in m..l {
                     let f = s * e[i];
                     let b = c * e[i];
-                    let (cs, sn) = dlartg(g, f);
-                    c = cs;
-                    s = sn;
 
-                    if i > m-1 {
-                        e[i-1] = r;
+                    let (cs, sn) = dlartg(g, f); // Generate rotation
+                    if i != m {
+                        e[i - 1] = r;
                     }
-                    g = d[i] - p;
-                    r = (d[i+1] - g) * s + 2.0 * c * b;
-                    p = s * r;
-                    d[i] = g + p;
-                    g = c * r - b;
 
-                    work[i] = c;
-                    work[n-1+i] = s;
+                    g = d[i] - p;
+                    r = (d[i + 1] - g) * sn + 2.0 * cs * b;
+                    p = sn * r;
+                    d[i] = g + p;
+                    g = cs * r - b;
+
+                    // Store rotations if eigenvectors are to be computed
+                    if icompz > 0 {
+                        work[i] = cs;
+                        work[n - 1 + i] = sn;
+                    }
                 }
 
-                // Apply rotations
-                let mm = l - m + 1;
-                dlasr(
-                    'R', 'V', 'F',
-                    n, mm,
-                    &work[m-1..m-1+mm],
-                    &work[n-1+m-1..n-1+m-1+mm],
-                    z,
-                    n,
-                )?;
+                // Apply accumulated rotations to eigenvectors
+                if icompz > 0 {
+                    let mm = l - m + 1;
+                    dlasr(
+                        'R',         // Right side multiplication
+                        'V',         // Variable pivot
+                        'F',         // Forward direction
+                        n,           // Number of rows in 'z'
+                        mm,          // Number of columns to rotate
+                        &work[m..=l],                   // Cosines
+                        &work[n - 1 + m..=n - 1 + l],   // Sines
+                        z,           // Eigenvector matrix
+                        n,           // Leading dimension of 'z'
+                    )?;
+                }
 
                 d[l] = d[l] - p;
-                e[l-1] = g;
+                e[l - 1] = g;
 
-                if e[l-1].abs() <= eps * (d[l-1].abs() + d[l].abs()) {
-                    e[l-1] = 0.0;
-                    break;
+                if e[l - 1].abs() <= eps * (d[l - 1].abs() + d[l].abs()) {
+                    e[l - 1] = 0.0;
+                    if l > 0 {
+                        l -= 1;
+                    } else {
+                        break;
+                    }
                 }
             }
         }
 
-        // Undo scaling
+        // Undo scaling if necessary
         if iscale == 1 {
-            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
-            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
-            for i in 0..=lendsv-lsv {
-                d_mat[i][0] = d[lsv+i];
+            // Undo scaling for the submatrix
+            let scl = anorm / ssfmax;
+            for i in lsv..=lendsv {
+                d[i] *= scl;
             }
-            for i in 0..lendsv-lsv {
-                e_mat[i][0] = e[lsv+i];
-            }
-            dlascl(&mut d_mat, ssfmax, anorm)?;
-            dlascl(&mut e_mat, ssfmax, anorm)?;
-            for i in 0..=lendsv-lsv {
-                d[lsv+i] = d_mat[i][0];
-            }
-            for i in 0..lendsv-lsv {
-                e[lsv+i] = e_mat[i][0];
+            for i in lsv..lendsv {
+                e[i] *= scl;
             }
         } else if iscale == 2 {
-            let mut d_mat = vec![vec![0.0; 1]; lendsv-lsv+1];
-            let mut e_mat = vec![vec![0.0; 1]; lendsv-lsv];
-            for i in 0..=lendsv-lsv {
-                d_mat[i][0] = d[lsv+i];
+            // Undo scaling for the submatrix
+            let scl = anorm / ssfmin;
+            for i in lsv..=lendsv {
+                d[i] *= scl;
             }
-            for i in 0..lendsv-lsv {
-                e_mat[i][0] = e[lsv+i];
-            }
-            dlascl(&mut d_mat, ssfmin, anorm)?;
-            dlascl(&mut e_mat, ssfmin, anorm)?;
-            for i in 0..=lendsv-lsv {
-                d[lsv+i] = d_mat[i][0];
-            }
-            for i in 0..lendsv-lsv {
-                e[lsv+i] = e_mat[i][0];
+            for i in lsv..lendsv {
+                e[i] *= scl;
             }
         }
-
-        l1 = l + 2;
     }
 
     // Sort eigenvalues and eigenvectors
-    for ii in 2..=n {
-        let i = ii - 1;  // i is 1-based
-        let mut k = i;   // k is 1-based
-        let mut p = d[i-1];  // Convert to 0-based for array access
-        for j in ii..=n {
-            if d[j-1] < p {
-                k = j;
-                p = d[j-1];
+    if icompz == 0 {
+        // If eigenvectors are not computed, sort eigenvalues using a quick sort
+        d.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    } else {
+        // Use selection sort to minimize swaps of eigenvectors
+        for i in 0..n - 1 {
+            let mut k = i;
+            let mut p = d[i];
+            for j in i + 1..n {
+                if d[j] < p {
+                    k = j;
+                    p = d[j];
+                }
             }
-        }
-        if k != i {
-            d[k-1] = d[i-1];
-            d[i-1] = p;
-            for row in 0..n {
-                let temp = z[row][k-1];
-                z[row][k-1] = z[row][i-1];
-                z[row][i-1] = temp;
+            if k != i {
+                // Swap eigenvalues
+                d[k] = d[i];
+                d[i] = p;
+                // Swap corresponding eigenvectors
+                for row in z.iter_mut() {
+                    row.swap(i, k);
+                }
             }
         }
     }
 
+    // Successful exit
     Ok(())
 }
 
