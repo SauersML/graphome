@@ -2357,8 +2357,8 @@ pub fn dlaed2(
     // Record the last eigenvalue if not yet processed
     if j == n {
         *k += 1;
-        dlamda[*k - 1] = d[pj];
         let pj = indx[j];
+        dlamda[*k - 1] = d[pj];
         w[*k - 1] = z[pj];
         indxp[*k - 1] = pj;
     }
