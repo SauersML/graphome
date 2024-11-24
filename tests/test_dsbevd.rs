@@ -2535,3 +2535,199 @@ fn test_dsteqr_random_matrix() {
         assert!(d[i] >= d[i-1], "Eigenvalues not sorted");
     }
 }
+
+
+// Helper function to compare two vectors within a tolerance
+fn vec_approx_equal(a: &[f64], b: &[f64], tol: f64) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    for (ai, bi) in a.iter().zip(b.iter()) {
+        if (*ai - *bi).abs() > tol {
+            return false;
+        }
+    }
+    true
+}
+
+// Helper function to compare two matrices within a tolerance
+fn mat_approx_equal(a: &[Vec<f64>], b: &[Vec<f64>], tol: f64) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    for (row_a, row_b) in a.iter().zip(b.iter()) {
+        if !vec_approx_equal(row_a, row_b, tol) {
+            return false;
+        }
+    }
+    true
+}
+
+#[test]
+fn test_dsteqr_n_1_compz_n() {
+    // Test case for n = 1 and compz = 'N'
+    let compz = 'N';
+    let n = 1;
+    let mut d = vec![5.0];  // Diagonal elements
+    let mut e = vec![];     // No off-diagonal elements for n = 1
+    let mut z = vec![];     // Z is not referenced when compz = 'N'
+    let mut work = vec![];
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+    assert_eq!(d[0], 5.0); // The single eigenvalue should be unchanged
+}
+
+#[test]
+fn test_dsteqr_n_1_compz_i() {
+    // Test case for n = 1 and compz = 'I'
+    let compz = 'I';
+    let n = 1;
+    let mut d = vec![5.0];      // Diagonal elements
+    let mut e = vec![];         // No off-diagonal elements
+    let mut z = vec![vec![0.0]]; // Initialize Z
+    let mut work = vec![0.0; 0]; // No work needed for n = 1
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+    assert_eq!(d[0], 5.0);       // The eigenvalue
+    assert_eq!(z[0][0], 1.0);    // The eigenvector should be [1.0]
+}
+
+
+#[test]
+fn test_dsteqr_random_symmetric_tridiagonal() {
+    // Test case for a random symmetric tridiagonal matrix with n = 5
+    let compz = 'I';
+    let n = 5;
+    let mut d = vec![4.0, 1.0, 3.0, 2.0, 5.0];  // Diagonal elements
+    let mut e = vec![0.2, -0.5, 0.3, -0.4];      // Sub-diagonal elements
+    let mut z = vec![vec![0.0; n]; n];           // Initialize Z
+    let mut work = vec![0.0; 2 * n - 2];
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+
+    // To validate, check the properties of the output
+
+    // Check that the eigenvalues are sorted in ascending order
+    let mut d_sorted = d.clone();
+    d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let tol = 1e-8;
+    assert!(vec_approx_equal(&d, &d_sorted, tol));
+
+    // Check that the eigenvectors are orthonormal
+    for i in 0..n {
+        let norm = z[i].iter().map(|x| x.powi(2)).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < tol, "Eigenvector {} is not normalized", i);
+    }
+
+    // Check that eigenvectors are orthogonal to each other
+    for i in 0..n {
+        for j in i+1..n {
+            let dot_product = z[i].iter().zip(z[j].iter()).map(|(a, b)| a * b).sum::<f64>();
+            assert!(dot_product.abs() < tol, "Eigenvectors {} and {} are not orthogonal", i, j);
+        }
+    }
+}
+
+#[test]
+fn test_dsteqr_zero_matrix() {
+    // Test case for a zero matrix
+    let compz = 'I';
+    let n = 3;
+    let mut d = vec![0.0; n];  // Diagonal elements are zero
+    let mut e = vec![0.0; n -1];      // Sub-diagonal elements are zero
+    let mut z = vec![vec![0.0; n]; n]; // Initialize Z
+    let mut work = vec![0.0; 2 * n - 2];
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+
+    // Eigenvalues should all be zero
+    let expected_d = vec![0.0, 0.0, 0.0];
+    let tol = 1e-8;
+    assert!(vec_approx_equal(&d, &expected_d, tol));
+
+    // Eigenvectors should form an identity matrix
+    let expected_z = vec![
+        vec![1.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 1.0],
+    ];
+    assert!(mat_approx_equal(&z, &expected_z, tol));
+}
+
+#[test]
+fn test_dsteqr_identity_matrix() {
+    // Test case for an identity matrix
+    let compz = 'I';
+    let n = 4;
+    let mut d = vec![1.0; n];  // Diagonal elements are ones
+    let mut e = vec![0.0; n - 1]; // Sub-diagonal elements are zero
+    let mut z = vec![vec![0.0; n]; n];
+    let mut work = vec![0.0; 2 * n - 2];
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+
+    // Eigenvalues should all be ones
+    let expected_d = vec![1.0, 1.0, 1.0, 1.0];
+    let tol = 1e-8;
+    assert!(vec_approx_equal(&d, &expected_d, tol));
+
+    // Eigenvectors should form an identity matrix
+    let expected_z = vec![
+        vec![1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 0.0, 1.0],
+    ];
+    assert!(mat_approx_equal(&z, &expected_z, tol));
+}
+
+#[test]
+fn test_dsteqr_negative_elements() {
+    // Test case with negative diagonal elements
+    let compz = 'I';
+    let n = 3;
+    let mut d = vec![-1.0, -2.0, -3.0];  // Diagonal elements
+    let mut e = vec![0.1, 0.2];          // Sub-diagonal elements
+    let mut z = vec![vec![0.0; n]; n];
+    let mut work = vec![0.0; 2 * n - 2];
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+
+    // Since we don't have exact expected values, check sorting and properties
+    let mut d_sorted = d.clone();
+    d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert!(vec_approx_equal(&d, &d_sorted, 1e-8));
+}
+
+#[test]
+fn test_dsteqr_compz_n() {
+    // Test case for compz = 'N' (compute eigenvalues only)
+    let compz = 'N';
+    let n = 4;
+    let mut d = vec![1.0, 2.0, 3.0, 4.0];  // Diagonal elements
+    let mut e = vec![0.1, 0.2, 0.3];       // Sub-diagonal elements
+    let mut z = vec![];                    // Z is not referenced
+    let mut work = vec![];                 // Work is not referenced when compz = 'N'
+
+    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
+
+    assert!(result.is_ok());
+
+    let tol = 1e-8;
+    // Since we don't have the exact expected eigenvalues, we can check that they are sorted
+    let mut d_sorted = d.clone();
+    d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    assert!(vec_approx_equal(&d, &d_sorted, tol));
+}
