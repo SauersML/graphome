@@ -498,4 +498,26 @@ program test_all_lapack
     write(10,*) 'CS:', cs
     write(10,*) 'SN:', sn
     write(10,*) 'F:', f
+  close(10
+
+    ! 36. DLASR
+  open(newunit=10, file='results/dlasr_output.txt', status='replace')
+  write(10,*) 'DLASR output:'
+  call dlasr('R', 'V', 'B', n, n, a, b, mat_a, ldz)
+  write(10,*) 'mat_a after DLASR:'
+  do i = 1, n
+    write(10, '(3(F8.4,1X))') mat_a(i,:)
+  enddo
   close(10)
+
+  ! 37. DSWAP
+  open(newunit=10, file='results/dswap_output.txt', status='replace')
+  write(10,*) 'DSWAP output:'
+  write(10,*) 'Original a:', a
+  write(10,*) 'Original b:', b
+  call dswap(n, a, one, b, one)
+  write(10,*) 'a after DSWAP:', a
+  write(10,*) 'b after DSWAP:', b
+  close(10)
+
+end program test_all_lapack
