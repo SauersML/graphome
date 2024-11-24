@@ -1823,6 +1823,108 @@ fn test_dlaed1_error_cases() {
     }
 }
 
+#[test]
+fn test_dlaed2_no_deflation() {
+    // Test case where no deflation occurs
+    let n = 4;
+    let n1 = 2;
+    let mut d = vec![1.0, 2.0, 3.0, 4.0]; // Eigenvalues
+    let mut q = vec![
+        vec![1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 0.0, 1.0],
+    ]; // Eigenvectors
+    let ldq = 4;
+    let mut indxq = vec![0, 1, 2, 3];
+    let mut rho = 1.0;
+    let mut z = vec![0.5, 0.5, 0.5, 0.5];
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0; n];
+    let mut indxc = vec![0; n];
+    let mut indxp = vec![0; n];
+    let mut coltyp = vec![0; n];
+    let mut k = 0;
+
+    // Call the function
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+
+    // Check that the function executed successfully
+    assert!(result.is_ok());
+    // Since deflation does not occur, k should be equal to n
+    assert_eq!(k, n);
+}
+
+#[test]
+fn test_dlaed2_with_deflation() {
+    // Test case where deflation occurs due to small z components
+    let n = 4;
+    let n1 = 2;
+    let mut d = vec![1.0, 2.0, 3.0, 4.0];
+    let mut q = vec![
+        vec![1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 0.0, 1.0],
+    ];
+    let ldq = 4;
+    let mut indxq = vec![0, 1, 2, 3];
+    let mut rho = 1.0;
+    // Set z components small enough to trigger deflation
+    let mut z = vec![1e-10, 1e-10, 1e-10, 1e-10];
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0; n];
+    let mut indxc = vec![0; n];
+    let mut indxp = vec![0; n];
+    let mut coltyp = vec![0; n];
+    let mut k = 0;
+
+    // Call the function
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+
+    // Check that the function executed successfully
+    assert!(result.is_ok());
+    // Since z components are tiny, deflation should occur, k should be 0
+    assert_eq!(k, 0);
+}
 
 // Tests needed:
 //dlaed3 - No tests
