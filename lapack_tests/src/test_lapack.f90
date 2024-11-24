@@ -279,7 +279,6 @@ program test_all_lapack
   close(28)
 
   ! 20. DLAMRG
-  integer, dimension(n) :: index
   call DLAMRG(n/2, n - n/2, a, 1, 1, index)
   open(unit=29, file='results/dlamrg_output.txt', status='replace')
   write(29,*) 'DLAMRG Output:'
