@@ -20,6 +20,7 @@ use graphome::dsbevd::dlaed4;
 use graphome::dsbevd::dlaed5;
 use graphome::dsbevd::dlaev2;
 use graphome::dsbevd::dlaed2;
+use graphome::dsbevd::dlaed3;
 use graphome::dsbevd::dlamc3;
 use graphome::dsbevd::dlamch;
 use graphome::dsbevd::dlamrg;
