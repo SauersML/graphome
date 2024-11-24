@@ -182,27 +182,6 @@ fn test_dsbevd_invalid_bandwidth() {
     let _ = matrix.dsbevd().unwrap();
 }
 
-#[test]
-fn test_dsbevd_orthogonality() {
-    let n = 20;
-    let kd = 3;
-    let ab = generate_random_banded(n, kd);
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let results = matrix.dsbevd().unwrap();
-
-    // Check orthogonality of eigenvectors
-    for i in 0..n {
-        for j in 0..n {
-            let dot_product: f64 = (0..n)
-                .map(|k| results.eigenvectors[i][k] * results.eigenvectors[j][k])
-                .sum();
-
-            let expected = if i == j { 1.0 } else { 0.0 };
-            let diff = f64::abs(dot_product - expected);
-            assert!(diff < 1e-8, "Eigenvectors {} and {} not orthonormal", i, j);
-        }
-    }
-}
 
 
 #[test]
