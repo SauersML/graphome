@@ -183,7 +183,7 @@ fn test_dsbevd_invalid_bandwidth() {
 }
 
 #[test]
-fn test_orthogonality() {
+fn test_dsbevd_orthogonality() {
     let n = 20;
     let kd = 3;
     let ab = generate_random_banded(n, kd);
@@ -228,7 +228,7 @@ fn approx_eq(a: f64, b: f64) -> bool {
 }
 
 #[test]
-fn test_symmetric_banded_matrix_dsbevd() {
+fn test_dsbevd_symmetric_banded_matrix() {
     let n = 4;
     let kd = 1;
     let ab = vec![vec![4.0, 1.0, 1.0, 1.0], vec![1.0, 4.0, 1.0, 1.0]];
