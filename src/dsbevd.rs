@@ -2165,7 +2165,7 @@ pub fn dlaed2(
     }
 
     let n2 = n - n1;
-    let n1p1 = n1 + 1;
+    let n1p1 = n1;
 
     // Scale z
     if *rho < 0.0 {
@@ -2173,47 +2173,54 @@ pub fn dlaed2(
         dscal(n2, alpha, &mut z[n1..], 1);
     }
 
-    // Normalize z
-    let t = 1.0 / 2.0f64.sqrt();
+    // Normalize z so that norm(z) = 1
+    let t = 1.0 / (2.0_f64).sqrt();
     dscal(n, t, z, 1);
 
-    // Update rho
+    // RHO = ABS( norm(z)**2 * RHO )
     *rho = (2.0 * *rho).abs();
 
-    // Sort eigenvalues into increasing order
+    // Sort the eigenvalues into increasing order
     for i in n1..n {
         indxq[i] += n1;
     }
 
-    // Re-integrate deflated parts
-    for i in 0..n-1 {
+    // Re-integrate the deflated parts from the last pass
+    for i in 0..n {
         dlamda[i] = d[indxq[i]];
     }
-    dlamrg(n1, n2, dlamda, 1, 1, indxc);
-    for i in 0..n-1 {
+
+    dlamrg(n1, n2, &dlamda[..n], 1, 1, indxc);
+
+    for i in 0..n {
         indx[i] = indxq[indxc[i]];
     }
 
-    // Calculate deflation tolerance
+    // Calculate the allowable deflation tolerance
     let imax = idamax(n, z, 1);
     let jmax = idamax(n, d, 1);
     let eps = dlamch('E');
-    let tol = 8.0 * eps * d[jmax].abs().max(z[imax].abs());
+    let tol = 8.0 * eps * d[d.index(jmax)].abs().max(z[imax].abs());
 
+    // If the rank-1 modifier is small enough, no more needs to be done
+    // except to reorganize Q so that its columns correspond with the elements in D
     if *rho * z[imax].abs() <= tol {
         *k = 0;
         for j in 0..n {
             let i = indx[j];
-            dcopy(n, &q[i], ldq as i32, &mut q2[j], 1);
+            dcopy(n, &q[i], 1, &mut q2[j], 1);
             dlamda[j] = d[i];
         }
-
-        dlacpy('A', n, n, q2, ldq, q, ldq);
-        dcopy(n, dlamda, 1, d, 1);
+        // Copy eigenvectors from q2 back to q
+        for i in 0..n {
+            q[i].copy_from_slice(&q2[i]);
+        }
+        // Copy eigenvalues from dlamda back to d
+        d.copy_from_slice(dlamda);
         return Ok(info);
     }
 
-    // Check for multiple eigenvalues and deflate
+    // Initialize coltyp
     for i in 0..n1 {
         coltyp[i] = 1;
     }
@@ -2221,28 +2228,26 @@ pub fn dlaed2(
         coltyp[i] = 3;
     }
 
+    // Deflation process
     *k = 0;
-    if n >= isize::MAX as usize - 1 {
-        return Err(Error(-1));
-    }
-    let mut k2 = n + 1;
+    let mut k2 = n;
     let mut j = 0;
     while j < n {
         let nj = indx[j];
         if *rho * z[nj].abs() <= tol {
             k2 -= 1;
             coltyp[nj] = 4;
-            indxp[k2 - 1] = nj;
+            indxp[k2] = nj;
             j += 1;
         } else {
             let mut pj = nj;
             j += 1;
-            while j < n {
+            'inner: while j < n {
                 let nj = indx[j];
                 if *rho * z[nj].abs() <= tol {
                     k2 -= 1;
                     coltyp[nj] = 4;
-                    indxp[k2 - 1] = nj;
+                    indxp[k2] = nj;
                     j += 1;
                 } else {
                     // Check if eigenvalues are close enough to allow deflation
@@ -2253,6 +2258,7 @@ pub fn dlaed2(
                     c /= tau;
                     s = -s / tau;
                     if (t * c * s).abs() <= tol {
+                        // Deflation is possible
                         z[nj] = tau;
                         z[pj] = 0.0;
 
@@ -2261,61 +2267,125 @@ pub fn dlaed2(
                         }
                         coltyp[pj] = 4;
 
-                        if pj < nj {
-                            let mut q_pj = q[pj].clone();
-                            drot(n, &mut q_pj, 1, &mut q[nj], 1, c, s);
-                            q[pj] = q_pj;
-                        } else {
-                            let mut q_nj = q[nj].clone();
-                            drot(n, &mut q_nj, 1, &mut q[pj], 1, c, s);
-                            q[nj] = q_nj;
-                        }
+                        // Apply rotation to eigenvectors
+                        drot(n, &mut q[pj], 1, &mut q[nj], 1, c, s);
 
                         let temp = d[pj] * c * c + d[nj] * s * s;
                         d[nj] = d[pj] * s * s + d[nj] * c * c;
                         d[pj] = temp;
 
                         k2 -= 1;
-                        let mut i = 1;
-
-                        while k2 - 1 + i <= n {
-                            if d[pj] < d[indxp[k2 - 1 + i - 1]] {
-                                indxp[k2 - 1 + i - 2] = indxp[k2 - 1 + i - 1];
-                                indxp[k2 - 1 + i - 1] = pj;
+                        let mut i = 0;
+                        while k2 + i < n {
+                            if d[pj] < d[indxp[k2 + i]] {
+                                indxp[k2 + i - 1] = indxp[k2 + i];
+                                indxp[k2 + i] = pj;
+                                i += 1;
                             } else {
-                                indxp[k2 - 1 + i - 2] = pj;
+                                indxp[k2 + i - 1] = pj;
                                 break;
                             }
-                            i += 1;
+                        }
+                        if k2 + i >= n {
+                            indxp[k2 + i - 1] = pj;
                         }
                         pj = nj;
                         j += 1;
+                        if j >= n {
+                            break 'inner;
+                        }
                     } else {
+                        // No deflation
                         *k += 1;
                         dlamda[*k - 1] = d[pj];
                         w[*k - 1] = z[pj];
                         indxp[*k - 1] = pj;
                         pj = nj;
                         j += 1;
+                        if j >= n {
+                            // Record the last eigenvalue
+                            *k += 1;
+                            dlamda[*k - 1] = d[pj];
+                            w[*k - 1] = z[pj];
+                            indxp[*k - 1] = pj;
+                        }
+                        break 'inner;
                     }
                 }
-                if j >= n {
-                    break;
-                }
-            }
-            if j >= n {
-                break;
             }
         }
-        if j >= n {
+    }
+
+    // Record any remaining eigenvalues
+    if j == n - 1 {
+        let pj = indx[n - 1];
+        *k += 1;
+        dlamda[*k - 1] = d[pj];
+        w[*k - 1] = z[pj];
+        indxp[*k - 1] = pj;
+    }
+
+    // Prepare the indxc array
+    let mut ctot = [0usize; 4];
+    for j in 0..n {
+        let ct = coltyp[indxp[j]] - 1; // coltyp ranges from 1 to 4
+        ctot[ct] += 1;
+    }
+
+    let mut psm = [0usize; 4];
+    psm[0] = 0;
+    for i in 1..4 {
+        psm[i] = psm[i - 1] + ctot[i - 1];
+    }
+
+    // Rearrange indx and indxc
+    for j in 0..n {
+        let js = indxp[j];
+        let ct = coltyp[js] - 1;
+        indx[psm[ct]] = js;
+        indxc[psm[ct]] = j;
+        psm[ct] += 1;
+    }
+
+    // Copy eigenvalues and eigenvectors into dlamda and q2
+    let mut i = 0;
+    let mut iq1 = 0;
+    let mut iq2 = (ctot[0] + ctot[1]) * n1;
+    while i < *k {
+        let js = indx[i];
+        if coltyp[js] == 1 {
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            q2[iq1..iq1 + n1].copy_from_slice(&q[js][..n1]);
+            iq1 += n1;
+            i += 1;
+        } else if coltyp[js] == 2 {
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            q2[iq1..iq1 + n1].copy_from_slice(&q[js][..n1]);
+            q2[iq2..iq2 + n2].copy_from_slice(&q[js][n1..]);
+            iq1 += n1;
+            iq2 += n2;
+            i += 1;
+        } else if coltyp[js] == 3 {
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            q2[iq2..iq2 + n2].copy_from_slice(&q[js][n1..]);
+            iq2 += n2;
+            i += 1;
+        } else {
+            // Deflated eigenvalues
             break;
         }
     }
 
-    *k += 1;
-    dlamda[*k - 1] = d[indx[j - 1]];
-    w[*k - 1] = z[indx[j - 1]];
-    indxp[*k - 1] = indx[j - 1];
+    // Copy deflated eigenvalues and vectors back into d and q
+    if *k < n {
+        for i in *k..n {
+            d[i] = d[indx[i]];
+            q[i] = q[indx[i]].clone();
+        }
+    }
 
     Ok(info)
 }
