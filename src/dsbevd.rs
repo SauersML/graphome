@@ -2261,6 +2261,7 @@ pub fn dlaed2(
             // Deflation due to small z component
             k2 -= 1;
             coltyp[pj] = 4; // Type 4: deflated
+            
             indxp[k2] = pj;
             j += 1;
             continue;
@@ -2358,6 +2359,7 @@ pub fn dlaed2(
         *k += 1;
         dlamda[*k - 1] = d[pj];
         w[*k - 1] = z[pj];
+        let pj = indx[j];
         indxp[*k - 1] = pj;
     }
 
