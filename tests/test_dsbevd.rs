@@ -1837,7 +1837,7 @@ fn test_dlaed2_no_deflation() {
         vec![0.0, 0.0, 0.0, 1.0],
     ]; // Eigenvectors
     let ldq = n;
-    let mut indxq = vec![0, 1, 0, 1]; // Corrected indxq
+    let mut indxq = vec![0, 1, 2, 3]; // Corrected indxq
     let mut rho = 1.0;
     let mut z = vec![0.5, 0.5, 0.5, 0.5];
     let mut dlamda = vec![0.0; n];
