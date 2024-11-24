@@ -2158,172 +2158,211 @@ pub fn dlaed2(
     indxp: &mut [usize],
     coltyp: &mut [usize],
 ) -> Result<i32, Error> {
-    // Thorough Input Validation
+    // Input Validation (same as before)
     if n == 0 {
         return Ok(0);
     }
     if n1 < 1 || n1 > n / 2 {
         return Err(Error::from("Invalid N1 value in dlaed2"));
     }
-    if ldq < max(1, n) {
+    if ldq < std::cmp::max(1, n) {
         return Err(Error::from("Invalid LDQ value in dlaed2"));
     }
-    if  d.len() != n || q.len() != n || indxq.len() != n || z.len() != n ||
-        dlamda.len() != n || w.len() != n || q2.len() != n || indx.len() != n ||
-        indxc.len() != n || indxp.len() != n || coltyp.len() != n {
+    if d.len() != n
+        || q.len() != n
+        || indxq.len() != n
+        || z.len() != n
+        || dlamda.len() != n
+        || w.len() != n
+        || q2.len() != n
+        || indx.len() != n
+        || indxc.len() != n
+        || indxp.len() != n
+        || coltyp.len() != n
+    {
         return Err(Error::from("Incorrect array dimensions in dlaed2"));
     }
     for q_vec in q.iter() {
-        if q_vec.len() != n {  // Verify correct dimensions for all nested vectors within 'q'
+        if q_vec.len() != n {
             return Err(Error::from("Incorrect nested vector dimension in dlaed2"));
         }
     }
 
     let n2 = n - n1;
 
-    // Handle rho and z
     if *rho < 0.0 {
         for zi in z[n1..].iter_mut() {
             *zi = -*zi;
         }
     }
 
-    let znorm = dnrm2(n, z, 1);
-    if znorm != 0.0 {
-        dscal(n, 1.0 / znorm, z, 1);
-    }
-    *rho = (znorm * znorm * *rho).abs();
+    // Normalize z so that norm(z) = 1. Since z is the concatenation of
+    // two normalized vectors, norm2(z) = sqrt(2), so we scale by 1/sqrt(2)
+    let t = 1.0 / (2.0f64).sqrt();
+    dscal(n, t, z, 1);
+    *rho = 2.0 * (*rho).abs(); // RHO = abs(2 * RHO)
 
-    // Sort eigenvalues and update indices
+    // Sort the eigenvalues into increasing order
+    // Update indxq: the permutation which separately sorts the two subproblems
+    // First, increment the indices in indxq[n1..n] by n1
     for i in n1..n {
         indxq[i] += n1;
     }
 
-    dlamda.copy_from_slice(d);
-    dlamrg(n1, n2, dlamda, 1, 1, indxc);
+    // Initialize dlamda by permuting d according to indxq
+    for i in 0..n {
+        dlamda[i] = d[indxq[i]];
+    }
 
+    // Merge the two sorted sublists in dlamda into indxc
+    dlamrg(n1, n - n1, &dlamda, 1, 1, indxc);
+
+    // Apply the permutation from indxc to indxq to get indx
     for i in 0..n {
         indx[i] = indxq[indxc[i]];
     }
 
-    // Deflation tolerance
+    // Calculate the allowable deflation tolerance
     let imax = idamax(n, z, 1);
     let jmax = idamax(n, d, 1);
     let eps = dlamch('E');
     let tol = 8.0 * eps * d[jmax].abs().max(z[imax].abs());
 
+    // If the rank-1 modifier is small enough, no more needs to be done
     if *rho * z[imax].abs() <= tol {
         *k = 0;
-        for j in 0..n {
-            let i = indx[j];
+        for (j, &i) in indx.iter().enumerate() {
             dlamda[j] = d[i];
             q2[j] = q[i].clone();
         }
-        d.copy_from_slice(dlamda);
+        d.copy_from_slice(&dlamda[0..n]);
+
         for i in 0..n {
-            q[i].clone_from_slice(&q2[i]);
+            q[i] = q2[i].clone();
         }
         return Ok(0);
     }
 
-
+    // Initialize coltyp to mark the types of columns
     for i in 0..n1 {
-        coltyp[i] = 1;
+        coltyp[i] = 1; // Type 1: eigenvectors from the first subproblem
     }
     for i in n1..n {
-        coltyp[i] = 3;
+        coltyp[i] = 3; // Type 3: eigenvectors from the second subproblem
     }
 
     *k = 0;
     let mut k2 = n;
+    let mut pj = indx[0];
     let mut j = 0;
 
     while j < n {
-        let mut pj = indx[j];
-        if *rho * z[pj].abs() <= tol {
+        let nj = indx[j];
+
+        if *rho * z[nj].abs() <= tol {
+            // Deflation due to small z component
             k2 -= 1;
-            coltyp[pj] = 4;
-            indxp[k2] = pj;
-            j += 1; // Increment j even if deflation occurs
-            continue; // Critical: Skip to the next iteration
+            coltyp[nj] = 4; // Type 4: deflated
+            indxp[k2] = nj;
+            j += 1;
+            continue;
         }
 
-        let mut nj = pj;
-        j += 1;
+        if j + 1 < n {
+            let nj1 = indx[j + 1];
 
-        if j < n {
-            nj = indx[j];
-            if *rho * z[nj].abs() <= tol {
+            if *rho * z[nj1].abs() <= tol {
+                // Deflation due to small z component
                 k2 -= 1;
-                coltyp[nj] = 4;
-                indxp[k2] = nj;
-                j += 1; // Increment j even if deflation occurs due to small z(nj)
+                coltyp[nj1] = 4;
+                indxp[k2] = nj1;
+                j += 2;
+                pj = nj;
                 continue;
-            } else {
-                    let s = z[pj];
-                    let c = z[nj];
-                    let tau = dlapy2(c, s);
-                    let t = d[nj] - d[pj];
-                    let c = c / tau;
-                    let s = -s / tau;
-                if (t * c * s).abs() <= tol {
-                    // Deflation is possible.
-                    z[nj] = tau;
-                    z[pj] = 0.0;
-                    if coltyp[nj] != coltyp[pj] {
-                        coltyp[nj] = 2;
-                    }
-                    coltyp[pj] = 4;
-                    let (q_pj, q_nj) = if pj < nj {
-                        let (q_left, q_right) = q.split_at_mut(nj);
-                        (&mut q_left[pj], &mut q_right[0])
-                    } else {  // Handles pj > nj and pj == nj correctly.
-                        let (q_left, q_right) = q.split_at_mut(pj);
-                        (&mut q_right[0], &mut q_left[nj])
-                        // If pj==nj, drot is called with same vector for q_pj and q_nj but c=1 and s=0 so its still ok.
-                    };
-                    drot(n, q_pj, 1, q_nj, 1, c, s);
-
-                    let temp = d[pj] * c * c + d[nj] * s * s;
-                    d[nj] = d[pj] * s * s + d[nj] * c * c;
-                    d[pj] = temp;
-
-                    k2 -= 1;
-                    indxp[k2] = pj;
-
-
-                    // No more pj=nj for this iteration of the j loop, move onto the next j.
-
-                } else {
-                    *k += 1;
-                    dlamda[*k - 1] = d[pj];
-                    w[*k - 1] = z[pj];
-                    indxp[*k - 1] = pj;
-                    pj = nj; // Set pj=nj for next check but DO NOT increment j.
-                }
             }
-        } else {
-           // j has reached n. Exit while loop.
+
+            // Check if eigenvalues are close enough to allow deflation
+            let s = z[pj];
+            let c = z[nj1];
+            let tau = dlapy2(c, s);
+            let t = d[nj1] - d[pj];
+            let c_norm = c / tau;
+            let s_norm = -s / tau;
+
+            if (t * c_norm * s_norm).abs() <= tol {
+                // Deflation is possible
+                z[nj1] = tau;
+                z[pj] = 0.0;
+                if coltyp[nj1] != coltyp[pj] {
+                    coltyp[nj1] = 2; // Type 2: overlapping eigenvectors
+                }
+                coltyp[pj] = 4; // Deflated
+
+                // Apply rotation to eigenvectors
+                drot(n, &mut q[pj], 1, &mut q[nj1], 1, c_norm, s_norm);
+
+                // Update d
+                let d_pj = d[pj];
+                let d_nj1 = d[nj1];
+                d[nj1] = d_pj * s_norm * s_norm + d_nj1 * c_norm * c_norm;
+                d[pj] = d_pj * c_norm * c_norm + d_nj1 * s_norm * s_norm;
+
+                // Place deflated eigenvalue at the end
+                k2 -= 1;
+                indxp[k2] = pj;
+
+                // Ensure the eigenvalues remain sorted
+                let mut i = 1;
+                while k2 + i < n && d[pj] > d[indxp[k2 + i]] {
+                    indxp[k2 + i - 1] = indxp[k2 + i];
+                    indxp[k2 + i] = pj;
+                    i += 1;
+                }
+                if k2 + i - 1 < n {
+                    indxp[k2 + i - 1] = pj;
+                }
+
+                pj = nj1;
+                j += 2;
+                continue;
+            }
         }
+
+        // No deflation
+        *k += 1;
+        dlamda[*k - 1] = d[pj];
+        w[*k - 1] = z[pj];
+        indxp[*k - 1] = pj;
+        pj = nj;
+        j += 1;
     }
 
+    // Record the last eigenvalue
+    if j == n {
+        *k += 1;
+        dlamda[*k - 1] = d[pj];
+        w[*k - 1] = z[pj];
+        indxp[*k - 1] = pj;
+    }
 
-    let mut ctot = [0; 4];
-    for &i in indxp.iter() {
+    // Count up the total number of the various types of columns
+    let mut ctot = [0usize; 4];
+    for &i in indxp.iter().take(n) {
         let ct = coltyp[i];
         if ct >= 1 && ct <= 4 {
             ctot[ct - 1] += 1;
         }
     }
 
-
-    let mut psm = [0; 4];
+    // Form a permutation which positions the four column types into four uniform groups
+    // psm holds the starting positions of each type
+    let mut psm = [0usize; 4];
     psm[0] = 0;
     for i in 1..4 {
         psm[i] = psm[i - 1] + ctot[i - 1];
     }
 
-
+    // Fill indx and indxc according to the types
     for j in 0..n {
         let js = indxp[j];
         let ct = coltyp[js];
@@ -2334,27 +2373,32 @@ pub fn dlaed2(
         }
     }
 
+    // Reset psm for use in copying data
+    psm[0] = 0;
+    for i in 1..4 {
+        psm[i] = psm[i - 1] + ctot[i - 1];
+    }
 
-
+    // Sort the eigenvalues and corresponding eigenvectors into dlamda and q2
+    // The eigenvalues/vectors which were not deflated go into the first k slots
     let mut iq1 = 0;
     let mut iq2 = (ctot[0] + ctot[1]) * n1;
-
-
     for i in 0..*k {
         let js = indx[i];
-
         match coltyp[js] {
             1 => {
                 dlamda[i] = d[js];
                 w[i] = z[js];
-                q2[iq1].clone_from_slice(&q[js][0..n1]); // slicing and safe copy
+                q2[iq1].clone_from_slice(&q[js][..n1]);
                 iq1 += 1;
             }
             2 => {
                 dlamda[i] = d[js];
                 w[i] = z[js];
-                q2[iq1] = q[js].clone();
+                q2[iq1].clone_from_slice(&q[js][..n1]);
+                q2[iq2].clone_from_slice(&q[js][n1..]);
                 iq1 += 1;
+                iq2 += 1;
             }
             3 => {
                 dlamda[i] = d[js];
@@ -2362,22 +2406,22 @@ pub fn dlaed2(
                 q2[iq2].clone_from_slice(&q[js][n1..]);
                 iq2 += 1;
             }
-            _ => (), // Do nothing for type 4
+            _ => {} // Ignore deflated
         }
-
     }
 
-    // Handle deflated eigenvalues and vectors
+    // The deflated eigenvalues and their corresponding vectors go back into the last N - K slots
     if *k < n {
-         for i in *k..n {
-           d[i] = d[indx[i]];
-           q[i] = q[indx[i]].clone();
-         }
+        for i in *k..n {
+            d[i] = d[indx[i]];
+            q[i] = q[indx[i]].clone();
+        }
     }
 
-
-    coltyp[..4].copy_from_slice(&ctot[..4]);
-
+    // Copy ctot into coltyp for referencing in the next step
+    for i in 0..4 {
+        coltyp[i] = ctot[i];
+    }
 
     Ok(0) // Return success
 }
