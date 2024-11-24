@@ -2255,7 +2255,7 @@ pub fn dlaed2(
     let mut j = 0;
 
     while j < n {
-        let pj = indx[j];
+        let mut pj = indx[j];
 
         if *rho * z[pj].abs() <= tol {
             // Deflation due to small z component
@@ -2357,7 +2357,7 @@ pub fn dlaed2(
     // Record the last eigenvalue if not yet processed
     if j == n {
         *k += 1;
-        let pj = indx[j];
+        let mut pj = indx[j];
         dlamda[*k - 1] = d[pj];
         w[*k - 1] = z[pj];
         indxp[*k - 1] = pj;
