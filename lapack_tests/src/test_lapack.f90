@@ -16,7 +16,7 @@ program test_all_lapack
 
   real(8), dimension(n) :: d, e, diag, offdiag, w, z
   real(8), dimension(n, n) :: mat_a, mat_b, mat_c, q
-  real(8), dimension(ldab, n) :: ab
+  real(8), allocatable :: ab(:,:)
 
   ! Arrays and matrices
   real(8), allocatable :: a(:), b(:), c(:), work(:), work_alloc(:)
@@ -72,9 +72,10 @@ program test_all_lapack
   close(11)
 
   ! 2. DSBTRD
+  allocate(ab(ldab,n))
   ab = 0.0d0
   ab(kd+1,:) = d(1:n)
-  if (kd > 0 .and. n > 1) ab(kd,2:n) = e(1:n-1)
+  if (kd > 0 .and. n > 1) ab(kd+1,2:n) = e(1:n-1)
   diag = 0.0d0
   offdiag = 0.0d0
   call DSBTRD('N', 'U', n, kd, ab, ldab, diag, offdiag(1:n-1), q, ldq, work, info)
@@ -430,6 +431,6 @@ program test_all_lapack
   close(41)
 
   ! Deallocate
-  deallocate(a, b, c, work, iwork, work_alloc, iwork_alloc)
+  deallocate(a, b, c, work, iwork, work_alloc, iwork_alloc, ab)
 
 end program test_all_lapack
