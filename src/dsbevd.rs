@@ -2349,9 +2349,10 @@ pub fn dlaed2(
     // Count up the total number of the various types of columns
     let mut ctot = [0usize; 4];
     for &i in indxp.iter().take(n) {
-        if i < n {
+        if i < n && i < coltyp.len() {  // Add bounds check for coltyp
             let ct = coltyp[i];
-            if ct >= 1 && ct <= 4 {
+            // Validate ct before using it as an index
+            if ct > 0 && ct <= 4 {
                 ctot[ct - 1] += 1;
             }
         }
