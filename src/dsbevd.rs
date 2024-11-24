@@ -2319,7 +2319,7 @@ pub fn dlaed2(
                 k2 -= 1;
                 indxp[k2] = pj;
 
-                // Ensure the eigenvalues remain sorted
+                // The eigenvalues remain sorted
                 let mut i = 1;
                 while k2 + i < n && d[pj] < d[indxp[k2 + i]] {
                     indxp[k2 + i - 1] = indxp[k2 + i];
@@ -2447,7 +2447,7 @@ pub fn dlamrg(
     let mut n1sv = n1 as isize;
     let mut n2sv = n2 as isize;
 
-    // ind1 and ind2 are starting indices for the two subarrays
+    // Initialize indices exactly as LAPACK does
     let mut ind1 = if dtrd1 > 0 {
         0isize  // Start of first array
     } else {
@@ -2460,9 +2460,8 @@ pub fn dlamrg(
     };
 
     let mut i = 0;
-
     while n1sv > 0 && n2sv > 0 {
-        // Ensure indices are within bounds
+        // Indices are within bounds
         if ind1 < 0 || ind1 >= a.len() as isize || ind2 < 0 || ind2 >= a.len() as isize {
             panic!("Index out of bounds in dlamrg");
         }
@@ -2480,7 +2479,7 @@ pub fn dlamrg(
         }
     }
 
-    // Copy remaining elements from first subarray
+    // Handle remaining elements
     while n1sv > 0 {
         if ind1 < 0 || ind1 >= a.len() as isize {
             panic!("Index out of bounds in dlamrg");
@@ -2491,7 +2490,6 @@ pub fn dlamrg(
         n1sv -= 1;
     }
 
-    // Copy remaining elements from second subarray
     while n2sv > 0 {
         if ind2 < 0 || ind2 >= a.len() as isize {
             panic!("Index out of bounds in dlamrg");
@@ -3992,7 +3990,7 @@ pub fn dlaed1(
         // We can reuse q2_storage (size n*n) to store s (size k*k)
         let s_storage_size = k * k;
         if q2_storage.len() < s_storage_size {
-            return Err(Error(-8)); // Ensure storage is sufficient
+            return Err(Error(-8)); // Storage is sufficient
         }
         let s_storage = &mut q2_storage[..s_storage_size];
         let mut s_matrix: Vec<Vec<f64>> = Vec::with_capacity(k);
@@ -4023,7 +4021,7 @@ pub fn dlaed1(
 
         // Adjust indxq to be 0-based (since dlamrg may produce 1-based indices)
         for i in 0..n {
-            indxq[i] = indxq[i].saturating_sub(1); // Ensure no underflow
+            indxq[i] = indxq[i].saturating_sub(1); // No underflow
         }
     } else {
         // All eigenvalues were deflated; set indxq to identity permutation
