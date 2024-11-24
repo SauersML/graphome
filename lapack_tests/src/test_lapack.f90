@@ -1,5 +1,5 @@
 ! src/test_lapack.f90
-! gfortran src/test_lapack.f90 -o test_lapack -llapack -lblas && ./src/test_lapack
+! gfortran src/test_lapack.f90 -o test_lapack -llapack -lblas && ./test_lapack
 program test_all_lapack
   implicit none
 
