@@ -2290,37 +2290,31 @@ fn test_dlaed2_identical_eigenvalues() {
 
 #[test]
 fn test_dlaed3_mechanical() {
-   // Test basic 2x2 case hitting k=2 special path
-   let k = 2;
-   let n = 2;
-   let n1 = 1;
-   let ldq = 2;
-   
-   // Initial eigenvalues d1, d2 from previous step 
-   let mut dlamda = vec![1.0, 3.0];
-   
-   // Initial k-by-k eigenvector matrix for the rank-1 update
-   let mut q = vec![
-       vec![1.0, 0.0], 
-       vec![0.0, 1.0]
-   ];
-   
-   // Components of rank-1 update vector z 
-   let mut w = vec![0.5, 0.5];
-   
-   let mut d = vec![0.0; n]; // Output eigenvalues
-   let rho = 0.25; // Small update
-   
-   // Setup remaining required inputs
-   let q2 = vec![vec![1.0, 0.0], vec![0.0, 1.0]];
-   let indx = vec![1, 2]; // 1-based indexing
-   let ctot = vec![1, 0, 1, 0];
-   let mut s = vec![vec![0.0; k]; k];
+    // Test basic 2x2 case hitting k=2 special path
+    let k = 2;
+    let n = 4; // Doubled size to handle dlaed4's array needs
+    let n1 = 2; 
+    let ldq = n;
+    
+    let mut dlamda = vec![1.0, 2.0, 3.0, 4.0]; // Room for combined arrays
+    let mut q = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        q[i][i] = 1.0;  // Initialize to identity
+    }
+    let mut w = vec![0.5, 0.5, 0.0, 0.0]; 
+    let mut d = vec![0.0; n];
+    let rho = 0.25;
+    
+    // Setup all inputs with proper n-sized arrays
+    let q2 = q.clone(); 
+    let indx = vec![1, 2, 3, 4];
+    let ctot = vec![2, 0, 2, 0];
+    let mut s = vec![vec![0.0; n]; n];
 
-   let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho, 
-                      &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
+    let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho, 
+                       &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
 
-   assert!(result.is_ok());
+    assert!(result.is_ok());
 
    // Convert output Q to nalgebra matrix for verification
    let q_mat = na::DMatrix::from_row_slice(n, k, &q.iter().flatten().copied().collect::<Vec<f64>>());
