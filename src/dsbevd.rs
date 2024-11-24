@@ -2358,8 +2358,8 @@ pub fn dlaed2(
     if j == n {
         *k += 1;
         dlamda[*k - 1] = d[pj];
-        w[*k - 1] = z[pj];
         let pj = indx[j];
+        w[*k - 1] = z[pj];
         indxp[*k - 1] = pj;
     }
 
