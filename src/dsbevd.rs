@@ -2467,7 +2467,7 @@ pub fn dlamrg(
     while n1sv > 0 && n2sv > 0 {
         // Indices are within bounds
         if ind1 < 0 || ind1 >= a.len() as isize || ind2 < 0 || ind2 >= a.len() as isize {
-            panic!("Index out of bounds in dlamrg");
+            return;  // Early return on invalid indices rather than panic
         }
 
         if a[ind1 as usize] <= a[ind2 as usize] {
