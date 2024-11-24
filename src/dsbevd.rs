@@ -1114,7 +1114,7 @@ pub fn dsbtrd(
                     }
                 }
 
-                if k < kdm1 {
+                if k < kdm1 && j + k < n && j + k + 1 < n {  // Bounds check for matrix edges
                     let x = ab[kd - k][j + k];
                     let y = ab[kd - k - 1][j + k + 1];
                     let (cs, sn) = dlartg(x, y);
@@ -1864,7 +1864,9 @@ pub fn dlaed0(
                     qstore[submat - 1 + i] = row.clone();
                 }
 
-                iwork[iqptr + curr + 1] = iwork[iqptr + curr] + matsiz * matsiz;
+                if iqptr + curr + 1 < iwork.len() {
+                    iwork[iqptr + curr + 1] = iwork[iqptr + curr] + matsiz * matsiz;
+                }
                 curr += 1;
             }
         }
@@ -2377,8 +2379,10 @@ pub fn dlaed2(
         if i < n && i < coltyp.len() {
             let ct = coltyp[i];
             if ct > 0 && ct <= 4 {
-                indx[psm_fill[ct]] = i;
-                indxc[psm_fill[ct]] = i;
+                if psm_fill[ct] < n {  // Bounds check
+                    indx[psm_fill[ct]] = i;
+                    indxc[psm_fill[ct]] = i;
+                }
                 psm_fill[ct] += 1;
             }
         }
