@@ -66,7 +66,6 @@ impl SymmetricBandedMatrix {
                 e[i] = self.ab[1][i];
             }
         }
-        }
         let anrm = dlanst('M', self.n, &d, &e);
 
         let mut scale = 1.0;
