@@ -1837,7 +1837,7 @@ fn test_dlaed2_no_deflation() {
         vec![0.0, 0.0, 0.0, 1.0],
     ]; // Eigenvectors
     let ldq = 4;
-    let mut indxq = vec![0, 1, 2, 3];
+    let mut indxq = vec![0, 1, 0, 1]; // Corrected indxq
     let mut rho = 1.0;
     let mut z = vec![0.5, 0.5, 0.5, 0.5];
     let mut dlamda = vec![0.0; n];
@@ -1888,7 +1888,7 @@ fn test_dlaed2_with_deflation() {
         vec![0.0, 0.0, 0.0, 1.0],
     ];
     let ldq = 4;
-    let mut indxq = vec![0, 1, 2, 3];
+    let mut indxq = vec![0, 1, 0, 1]; // Corrected indxq
     let mut rho = 1.0;
     // Set z components small enough to trigger deflation
     let mut z = vec![1e-10, 1e-10, 1e-10, 1e-10];
@@ -1926,7 +1926,6 @@ fn test_dlaed2_with_deflation() {
     // Since z components are tiny, deflation should occur, k should be 0
     assert_eq!(k, 0);
 }
-
 
 #[test]
 fn test_idamax_basic() {
