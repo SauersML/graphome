@@ -2255,7 +2255,7 @@ pub fn dlaed2(
     let mut k2 = n;
     let mut j = 0;
     while j < n {
-        let mut pj = indx[j];
+        let pj = indx[j];
 
         if *rho * z[pj].abs() <= tol {
             // Deflation due to small z component
@@ -2266,16 +2266,15 @@ pub fn dlaed2(
             continue;
         }
 
-        j += 1;
-        if j < n {
-            let nj = indx[j];
+        if j + 1 < n {
+            let nj = indx[j + 1];
+
             if *rho * z[nj].abs() <= tol {
                 // Deflation due to small z component at nj
                 k2 -= 1;
                 coltyp[nj] = 4; // Type 4
                 indxp[k2] = nj;
-                pj = nj; // Update pj to nj for next iteration
-                j += 1;
+                j += 2; // Skip over nj
                 continue;
             }
 
@@ -2332,16 +2331,14 @@ pub fn dlaed2(
                     indxp[k2 + i - 1] = pj;
                 }
 
-                pj = nj;
-                j += 1;
+                j += 2; // Processed pj and nj
             } else {
-                // No deflation, record this eigenvalue
+                // No deflation, record pj
                 *k += 1;
                 dlamda[*k - 1] = d[pj];
                 w[*k - 1] = z[pj];
                 indxp[*k - 1] = pj;
-                pj = nj;
-                // Do not increment j here, we need to process nj in the next iteration
+                j += 1; // Move to next eigenvalue
             }
         } else {
             // Last eigenvalue
@@ -2349,10 +2346,9 @@ pub fn dlaed2(
             dlamda[*k - 1] = d[pj];
             w[*k - 1] = z[pj];
             indxp[*k - 1] = pj;
+            j += 1;
         }
     }
-
-    // All eigenvalues have been processed
 
     // Count up the total number of the various types of columns
     let mut ctot = [0usize; 4];
@@ -2372,16 +2368,17 @@ pub fn dlaed2(
         psm[i] = psm[i - 1] + ctot[i - 1];
     }
 
-    // Reset psm for filling indx and indxc
+    // Fill indx and indxc according to the types
     let mut psm_fill = psm.clone();
 
-    for j in 0..n {
-        let js = indxp[j];
-        let ct = coltyp[js];
-        if ct >= 1 && ct <= 4 {
-            indx[psm_fill[ct - 1]] = js;
-            indxc[psm_fill[ct - 1]] = j;
-            psm_fill[ct - 1] += 1;
+    for &i in indxp.iter().take(n) {
+        if i < n {
+            let ct = coltyp[i];
+            if ct >= 1 && ct <= 4 {
+                indx[psm_fill[ct - 1]] = i;
+                indxc[psm_fill[ct - 1]] = i;
+                psm_fill[ct - 1] += 1;
+            }
         }
     }
 
