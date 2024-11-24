@@ -2202,9 +2202,7 @@ pub fn dlaed2(
     dscal(n, t, z, 1);
     *rho = 2.0 * (*rho).abs();
 
-    // Sort the eigenvalues into increasing order
-    // Update indxq: the permutation which separately sorts the two subproblems
-    // First, increment the indices in indxq[n1..n] by n1
+    // Update indxq: increment indices in second half
     for i in n1..n {
         indxq[i] += n1;
     }
@@ -2266,6 +2264,8 @@ pub fn dlaed2(
             continue;
         }
 
+        let mut deflate = false;
+
         if j + 1 < n {
             let nj = indx[j + 1];
 
@@ -2274,7 +2274,8 @@ pub fn dlaed2(
                 k2 -= 1;
                 coltyp[nj] = 4; // Type 4
                 indxp[k2] = nj;
-                j += 2; // Skip over nj
+                // Process pj in next iteration
+                j += 2;
                 continue;
             }
 
@@ -2305,8 +2306,6 @@ pub fn dlaed2(
                         (&mut q_right[0], &mut q_left[nj])
                     };
                     drot(n, q_pj, 1, q_nj, 1, c_norm, s_norm);
-                } else {
-                    // When pj == nj, drot would have no effect, skip it
                 }
 
                 // Update d
@@ -2331,23 +2330,20 @@ pub fn dlaed2(
                     indxp[k2 + i - 1] = pj;
                 }
 
-                j += 2; // Processed pj and nj
-            } else {
-                // No deflation, record pj
-                *k += 1;
-                dlamda[*k - 1] = d[pj];
-                w[*k - 1] = z[pj];
-                indxp[*k - 1] = pj;
-                j += 1; // Move to next eigenvalue
+                // Deflation occurred
+                deflate = true;
             }
-        } else {
-            // Last eigenvalue
+        }
+
+        if !deflate {
+            // No deflation, record this eigenvalue
             *k += 1;
             dlamda[*k - 1] = d[pj];
             w[*k - 1] = z[pj];
             indxp[*k - 1] = pj;
-            j += 1;
         }
+
+        j += 1;
     }
 
     // Count up the total number of the various types of columns
@@ -2362,10 +2358,10 @@ pub fn dlaed2(
     }
 
     // Form a permutation which positions the four column types into four groups
-    let mut psm = [0usize; 4];
-    psm[0] = 0;
-    for i in 1..4 {
-        psm[i] = psm[i - 1] + ctot[i - 1];
+    let mut psm = [0usize; 5]; // psm[0] is unused to match Fortran 1-based indexing
+    psm[1] = 0;
+    for i in 2..5 {
+        psm[i] = psm[i - 1] + ctot[i - 2];
     }
 
     // Fill indx and indxc according to the types
@@ -2375,17 +2371,18 @@ pub fn dlaed2(
         if i < n {
             let ct = coltyp[i];
             if ct >= 1 && ct <= 4 {
-                indx[psm_fill[ct - 1]] = i;
-                indxc[psm_fill[ct - 1]] = i;
-                psm_fill[ct - 1] += 1;
+                indx[psm_fill[ct] as usize] = i;
+                indxc[psm_fill[ct] as usize] = i;
+                psm_fill[ct] += 1;
             }
         }
     }
 
     // Sort the eigenvalues and corresponding eigenvectors into dlamda and q2
     // The eigenvalues/vectors which were not deflated go into the first k slots
-    let mut iq1 = 0;
+    let mut iq1 = 0usize;
     let mut iq2 = (ctot[0] + ctot[1]) * n1;
+
     for i in 0..*k {
         let js = indx[i];
         match coltyp[js] {
@@ -2429,10 +2426,7 @@ pub fn dlaed2(
         }
     }
 
-    // Copy ctot into coltyp for referencing in the next step
-    for i in 0..4 {
-        coltyp[i] = ctot[i];
-    }
+    // The counts in ctot are needed in dlaed3. Do they need to be copied?
 
     Ok(0)
 }
