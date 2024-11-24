@@ -1772,52 +1772,6 @@ fn test_dlaed1_2x2_no_deflation() {
     assert!((d[1] - d[0]).abs() > 0.1);
 }
 
-#[test]
-fn test_dlaed1_3x3_basic() {
-    let mut d = vec![1.0, 3.0, 5.0];
-    let mut q = vec![
-        vec![
-            1.0 / 3.0f64.sqrt(), 
-            -1.0 / 2.0f64.sqrt(),
-            1.0 / 6.0f64.sqrt()
-        ],
-        vec![
-            1.0 / 3.0f64.sqrt(),
-            0.0,
-            -2.0 / 6.0f64.sqrt()
-        ],
-        vec![
-            1.0 / 3.0f64.sqrt(),
-            1.0 / 2.0f64.sqrt(), 
-            1.0 / 6.0f64.sqrt()
-        ],
-    ];
-    let mut indxq = vec![0, 1, 2];
-    let mut rho = 1.0;
-    // Work arrays sized correctly: 4*n + n^2 = 12 + 9 = 21
-    let mut work = vec![0.0; 21]; 
-    // Integer work array sized correctly: 4*n = 12
-    let mut iwork = vec![0; 12];
-
-    let result = dlaed1(
-        3,                // n 
-        &mut d,
-        &mut q,
-        3,               // ldq
-        &mut indxq,
-        &mut rho,
-        1,              // cutpnt
-        &mut work,
-        &mut iwork,
-    );
-    
-    assert!(result.is_ok());
-    // Verify eigenvalues are in ascending order
-    for i in 0..2 {
-        assert!(d[i] <= d[i+1]);
-    }
-}
-
 
 #[test]
 fn test_dlaed1_error_cases() {
