@@ -2434,46 +2434,71 @@ pub fn dlaed2(
 
 /// Creates a permutation list to merge two sorted sets into a single sorted set.
 /// This function corresponds to LAPACK's DLAMRG subroutine.
-pub fn dlamrg(n1: usize, n2: usize, a: &[f64], dtrd1: i32, dtrd2: i32, index: &mut [usize]) {
-    // Convert input sizes to i64 for calculations
-    let mut n1sv = n1 as i64;
-    let mut n2sv = n2 as i64;
-    
-    // Initialize indices as i64 so they can go negative
-    let mut ind1 = if dtrd1 > 0 { 0i64 } else { (n1 as i64) - 1 };
-    let mut ind2 = if dtrd2 > 0 { n1 as i64 } else { (n1 + n2) as i64 - 1 };
-    
+pub fn dlamrg(
+    n1: usize,
+    n2: usize,
+    a: &[f64],
+    dtrd1: i32,
+    dtrd2: i32,
+    index: &mut [usize],
+) {
+    // Initialize variables as isize to handle negative strides
+    let mut n1sv = n1 as isize;
+    let mut n2sv = n2 as isize;
+
+    // ind1 and ind2 are starting indices for the two subarrays
+    let mut ind1 = if dtrd1 > 0 {
+        0isize  // Start of first array
+    } else {
+        n1 as isize - 1  // End of first array
+    };
+    let mut ind2 = if dtrd2 > 0 {
+        n1 as isize  // Start of second array
+    } else {
+        n1 as isize + n2 as isize - 1  // End of second array
+    };
+
     let mut i = 0;
-    
-    // Main merge loop
+
     while n1sv > 0 && n2sv > 0 {
-        // Convert indices to usize only when accessing array
+        // Ensure indices are within bounds
+        if ind1 < 0 || ind1 >= a.len() as isize || ind2 < 0 || ind2 >= a.len() as isize {
+            panic!("Index out of bounds in dlamrg");
+        }
+
         if a[ind1 as usize] <= a[ind2 as usize] {
             index[i] = ind1 as usize;
             i += 1;
-            ind1 = ind1 + dtrd1 as i64;  // Now safe to add/subtract
+            ind1 += dtrd1 as isize;  // Move forward or backward depending on stride
             n1sv -= 1;
         } else {
             index[i] = ind2 as usize;
             i += 1;
-            ind2 = ind2 + dtrd2 as i64;  // Now safe to add/subtract
+            ind2 += dtrd2 as isize;  // Move forward or backward depending on stride
             n2sv -= 1;
         }
     }
-    
-    // Handle remaining elements
-    if n1sv > 0 {
-        for _ in 0..n1sv {
-            index[i] = ind1 as usize;
-            i += 1;
-            ind1 = ind1 + dtrd1 as i64;
+
+    // Copy remaining elements from first subarray
+    while n1sv > 0 {
+        if ind1 < 0 || ind1 >= a.len() as isize {
+            panic!("Index out of bounds in dlamrg");
         }
-    } else {
-        for _ in 0..n2sv {
-            index[i] = ind2 as usize;
-            i += 1;
-            ind2 = ind2 + dtrd2 as i64;
+        index[i] = ind1 as usize;
+        i += 1;
+        ind1 += dtrd1 as isize;
+        n1sv -= 1;
+    }
+
+    // Copy remaining elements from second subarray
+    while n2sv > 0 {
+        if ind2 < 0 || ind2 >= a.len() as isize {
+            panic!("Index out of bounds in dlamrg");
         }
+        index[i] = ind2 as usize;
+        i += 1;
+        ind2 += dtrd2 as isize;
+        n2sv -= 1;
     }
 }
 
