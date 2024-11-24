@@ -2399,5 +2399,160 @@ fn test_dlaed3_deflation() {
    }
 }
 
-// Tests needed:
-//dsteqr - No tests
+
+/// 1. Checking if eigenvalues are sorted in ascending order
+/// 2. Verifying Av = λv for each eigenpair
+/// 3. Checking orthogonality of eigenvectors
+fn verify_eigen_solution(
+    d: &[f64],          // original diagonal
+    e: &[f64],          // original subdiagonal
+    eigenvals: &[f64],  // computed eigenvalues
+    eigenvecs: &[Vec<f64>], // computed eigenvectors
+    tol: f64,
+) -> bool {
+    let n = d.len();
+    
+    // Check if eigenvalues are sorted
+    for i in 1..n {
+        if eigenvals[i] < eigenvals[i-1] {
+            println!("Eigenvalues not sorted at index {}", i);
+            return false;
+        }
+    }
+    
+    // Construct original tridiagonal matrix
+    let mut mat = na::DMatrix::zeros(n, n);
+    for i in 0..n {
+        mat[(i, i)] = d[i];
+        if i < n-1 {
+            mat[(i, i+1)] = e[i];
+            mat[(i+1, i)] = e[i];
+        }
+    }
+    
+    // Check Av = λv for each eigenpair
+    for i in 0..n {
+        let v = na::DVector::from_vec(eigenvecs[i].clone());
+        let av = &mat * &v;
+        let lambda_v = &v * eigenvals[i];
+        
+        let diff = (&av - &lambda_v).norm();
+        if diff > tol {
+            println!("Eigenpair {} failed Av = λv check with diff {}", i, diff);
+            return false;
+        }
+    }
+    
+    // Check orthogonality
+    for i in 0..n {
+        for j in i+1..n {
+            let dot = eigenvecs[i].iter().zip(eigenvecs[j].iter())
+                                      .map(|(a, b)| a * b)
+                                      .sum::<f64>();
+            if dot.abs() > tol {
+                println!("Vectors {} and {} not orthogonal: dot = {}", i, j, dot);
+                return false;
+            }
+        }
+        
+        // Check normalization
+        let norm = eigenvecs[i].iter().map(|x| x*x).sum::<f64>().sqrt();
+        if (norm - 1.0).abs() > tol {
+            println!("Vector {} not normalized: norm = {}", i, norm);
+            return false;
+        }
+    }
+    
+    true
+}
+
+#[test]
+fn test_2x2_matrix() {
+    let n = 2;
+    let mut d = vec![2.0, 5.0];  // diagonal
+    let mut e = vec![1.0];       // subdiagonal
+    let mut z = vec![vec![0.0; n]; n];
+    let mut work = vec![0.0; 2*n];
+    
+    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
+    assert!(result.is_ok());
+    
+    // Known eigenvalues for this matrix: (5.618034, 1.381966) - golden ratio related
+    let expected_eigenvals = vec![1.381966011250105, 5.618033988749895];
+    for (computed, expected) in d.iter().zip(expected_eigenvals.iter()) {
+        assert_abs_diff_eq!(computed, expected, epsilon = 1e-12);
+    }
+    
+    assert!(verify_eigen_solution(&vec![2.0, 5.0], &vec![1.0], &d, &z, 1e-12));
+}
+
+#[test]
+fn test_3x3_matrix() {
+    let n = 3;
+    let mut d = vec![1.0, 2.0, 1.0];  // diagonal
+    let mut e = vec![1.0, 1.0];       // subdiagonal
+    let mut z = vec![vec![0.0; n]; n];
+    let mut work = vec![0.0; 2*n];
+    
+    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
+    assert!(result.is_ok());
+    
+    // Expected eigenvalues for this symmetric tridiagonal matrix
+    let expected_eigenvals = vec![0.0, 2.0, 2.0];
+    for (computed, expected) in d.iter().zip(expected_eigenvals.iter()) {
+        assert_abs_diff_eq!(computed, expected, epsilon = 1e-12);
+    }
+    
+    assert!(verify_eigen_solution(&vec![1.0, 2.0, 1.0], &vec![1.0, 1.0], &d, &z, 1e-12));
+}
+
+#[test]
+fn test_degenerate_cases() {
+    // Test n = 0
+    {
+        let mut d = vec![];
+        let mut e = vec![];
+        let mut z = vec![];
+        let mut work = vec![];
+        let result = dsteqr('I', 0, &mut d, &mut e, &mut z, &mut work);
+        assert!(result.is_ok());
+    }
+    
+    // Test n = 1
+    {
+        let mut d = vec![42.0];
+        let mut e = vec![];
+        let mut z = vec![vec![0.0; 1]; 1];
+        let mut work = vec![0.0; 2];
+        let result = dsteqr('I', 1, &mut d, &mut e, &mut z, &mut work);
+        assert!(result.is_ok());
+        assert_abs_diff_eq!(d[0], 42.0);
+        assert_abs_diff_eq!(z[0][0], 1.0);
+    }
+}
+
+#[test]
+fn test_random_matrix() {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    
+    let n = 5;
+    let mut d: Vec<f64> = (0..n).map(|_| rng.gen_range(-10.0..10.0)).collect();
+    let mut e: Vec<f64> = (0..n-1).map(|_| rng.gen_range(-5.0..5.0)).collect();
+    let d_orig = d.clone();
+    let e_orig = e.clone();
+    
+    let mut z = vec![vec![0.0; n]; n];
+    let mut work = vec![0.0; 2*n];
+    
+    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
+    assert!(result.is_ok());
+    
+    // Verify solution
+    assert!(verify_eigen_solution(&d_orig, &e_orig, &d, &z, 1e-10));
+    
+    // Additional verification that eigenvalues are sorted
+    for i in 1..n {
+        assert!(d[i] >= d[i-1], "Eigenvalues not sorted");
+    }
+}
