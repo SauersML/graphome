@@ -1819,7 +1819,7 @@ pub fn dlaed0(
 
     // Divide matrix using rank-1 modifications
     for i in 0..spm1 {
-        let submat = iwork[i] + 1;
+        let submat = if i < iwork.len() { iwork[i] } else { 0 } + 1;
         let smm1 = submat - 1;
         d[smm1] = d[smm1] - e[smm1].abs();
         d[submat] = d[submat] - e[smm1].abs();
@@ -2323,7 +2323,7 @@ pub fn dlaed2(
 
                 // Place deflated eigenvalue at the end
                 k2 -= 1;
-                indxp[k2] = pj;
+                indxp[k2] = pj; // Any bounds issues?
 
                 // The eigenvalues remain sorted
                 let mut i = 1;
