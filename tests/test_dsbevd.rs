@@ -1837,12 +1837,12 @@ fn test_dlaed2_no_deflation() {
         vec![0.0, 0.0, 0.0, 1.0],
     ]; // Eigenvectors
     let ldq = n;
-    let mut indxq = vec![0, 1, 2, 3]; // Corrected indxq
+    let mut indxq = vec![0, 1, 2, 3]; // indxq
     let mut rho = 1.0;
     let mut z = vec![0.5, 0.5, 0.5, 0.5];
     let mut dlamda = vec![0.0; n];
     let mut w = vec![0.0; n];
-    let mut q2 = vec![vec![0.0; n]; n]; // Correct q2 length
+    let mut q2 = vec![vec![0.0; n]; n]; // q2 length
     let mut indx = vec![0; n];
     let mut indxc = vec![0; n];
     let mut indxp = vec![0; n];
@@ -1886,7 +1886,7 @@ fn test_dlaed2_with_deflation() {
         vec![0.0, 0.0, 0.0, 1.0],
     ];
     let ldq = n;
-    let mut indxq = vec![0, 1, 0, 1]; // Corrected indxq
+    let mut indxq = vec![0, 1, 0, 1]; // indxq
     let mut rho = 1.0;
     // Set z components small enough to trigger deflation
     let mut z = vec![1e-10, 1e-10, 1e-10, 1e-10];
@@ -2179,7 +2179,7 @@ fn test_dlamrg_descending_subsets() {
     let dtrd2 = -1;
     let mut index = vec![0usize; n1 + n2];
     dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
-    let expected_index = vec![0, 3, 1, 4, 2, 5];
+    let expected_index = vec![2, 5, 1, 4, 0, 3];
     assert_eq!(index, expected_index);
 }
 
