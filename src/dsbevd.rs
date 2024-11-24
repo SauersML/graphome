@@ -741,7 +741,7 @@ pub fn dlanst(norm_type: char, n: usize, d: &[f64], e: &[f64]) -> f64 {
 
             scale * sumsq.sqrt()
         }
-        _ => panic!("Invalid norm type for dlanst"),
+        _ => return 0.0, // Return zero for invalid norm type, matching LAPACK behavior
     }
 }
 
