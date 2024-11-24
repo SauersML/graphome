@@ -58,14 +58,14 @@ impl SymmetricBandedMatrix {
 
         // Extract diagonal and subdiagonal elements from banded matrix
         let mut d = vec![0.0; self.n];
+        let mut d = vec![0.0; self.n];
         let mut e = vec![0.0; self.n - 1];
         for i in 0..self.n {
             d[i] = self.ab[0][i]; // Diagonal is in first row of banded storage
-            if i < self.n - 1 {
-                if i < self.ab[1].len() {
-                    e[i] = self.ab[1][i]
-                }
+            if i < self.n - 1 && self.kd > 0 {  // Only access ab[1] if we have off-diagonal elements
+                e[i] = self.ab[1][i];
             }
+        }
         }
         let anrm = dlanst('M', self.n, &d, &e);
 
@@ -2221,7 +2221,9 @@ pub fn dlaed2(
 
     // Apply the permutation from indxc to indxq to get indx
     for i in 0..n {
-        indx[i] = indxq[indxc[i]];
+        if i < n && indxc[i] < indxq.len() {
+            indx[i] = indxq[indxc[i]];
+        }
     }
 
     // Calculate the allowable deflation tolerance
