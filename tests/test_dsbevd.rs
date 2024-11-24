@@ -2157,6 +2157,331 @@ fn test_dscal_stride() {
 }
 
 
+#[test]
+fn test_dlamrg_basic_ascending_subsets() {
+    let n1 = 3;
+    let n2 = 3;
+    let a = vec![1.0, 3.0, 5.0, 2.0, 4.0, 6.0];
+    let dtrd1 = 1;
+    let dtrd2 = 1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 3, 1, 4, 2, 5];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_descending_subsets() {
+    let n1 = 3;
+    let n2 = 3;
+    let a = vec![5.0, 3.0, 1.0, 6.0, 4.0, 2.0];
+    let dtrd1 = -1;
+    let dtrd2 = -1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 3, 1, 4, 2, 5];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_mixed_strides() {
+    let n1 = 3;
+    let n2 = 3;
+    let a = vec![1.0, 2.0, 3.0, 6.0, 5.0, 4.0];
+    let dtrd1 = 1;
+    let dtrd2 = -1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 1, 2, 5, 4, 3];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_empty_first_subset() {
+    let n1 = 0;
+    let n2 = 3;
+    let a = vec![2.0, 4.0, 6.0];
+    let dtrd1 = 1;
+    let dtrd2 = 1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 1, 2];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_empty_second_subset() {
+    let n1 = 3;
+    let n2 = 0;
+    let a = vec![1.0, 3.0, 5.0];
+    let dtrd1 = 1;
+    let dtrd2 = 1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 1, 2];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_single_element_subsets() {
+    let n1 = 1;
+    let n2 = 1;
+    let a = vec![3.0, 2.0];
+    let dtrd1 = 1;
+    let dtrd2 = 1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![1, 0];
+    assert_eq!(index, expected_index);
+}
+
+#[test]
+fn test_dlamrg_identical_elements() {
+    let n1 = 3;
+    let n2 = 3;
+    let a = vec![2.0, 2.0, 2.0, 2.0, 2.0, 2.0];
+    let dtrd1 = 1;
+    let dtrd2 = 1;
+    let mut index = vec![0usize; n1 + n2];
+    dlamrg(n1, n2, &a, dtrd1, dtrd2, &mut index);
+    let expected_index = vec![0, 1, 2, 3, 4, 5];
+    assert_eq!(index, expected_index);
+}
+
+// Tests for dlaed2
+#[test]
+fn test_dlaed2_basic() {
+    let n = 6;
+    let n1 = 3;
+    let mut d = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let mut q = vec![
+        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    ];
+    let ldq = n;
+    let mut indxq = vec![0, 1, 2, 0, 1, 2];
+    let mut rho = 0.5;
+    let mut z = vec![0.0; n];
+    // Simulate z vector as last row of q1 and first row of q2
+    for i in 0..n1 {
+        z[i] = q[n1 - 1][i];
+    }
+    for i in n1..n {
+        z[i] = q[i][i];
+    }
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0usize; n];
+    let mut indxc = vec![0usize; n];
+    let mut indxp = vec![0usize; n];
+    let mut coltyp = vec![0usize; n];
+    let mut k = 0;
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_dlaed2_all_deflated() {
+    let n = 6;
+    let n1 = 3;
+    let mut d = vec![1.0; n];
+    let mut q = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        q[i][i] = 1.0;
+    }
+    let ldq = n;
+    let mut indxq = vec![0, 1, 2, 0, 1, 2];
+    let mut rho = 0.5;
+    let mut z = vec![1e-20; n]; // Very small z components
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0usize; n];
+    let mut indxc = vec![0usize; n];
+    let mut indxp = vec![0usize; n];
+    let mut coltyp = vec![0usize; n];
+    let mut k = 0;
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+    assert_eq!(k, 0);
+}
+
+#[test]
+fn test_dlaed2_negative_rho() {
+    let n = 6;
+    let n1 = 3;
+    let mut d = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    let mut q = vec![
+        vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+    ];
+    let ldq = n;
+    let mut indxq = vec![0, 1, 2, 0, 1, 2];
+    let mut rho = -0.5;
+    let mut z = vec![0.0; n];
+    for i in 0..n1 {
+        z[i] = q[n1 - 1][i];
+    }
+    for i in n1..n {
+        z[i] = q[i][i];
+    }
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0usize; n];
+    let mut indxc = vec![0usize; n];
+    let mut indxp = vec![0usize; n];
+    let mut coltyp = vec![0usize; n];
+    let mut k = 0;
+    let z_before = z.clone();
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+    // Verify that the second part of z was negated
+    for i in n1..n {
+        assert_eq!(z_before[i], -z[i]);
+    }
+}
+
+#[test]
+fn test_dlaed2_invalid_n1() {
+    let n = 6;
+    let n1 = 7; // Invalid n1 (> n)
+    let mut d = vec![1.0; n];
+    let mut q = vec![vec![0.0; n]; n];
+    let ldq = n;
+    let mut indxq = vec![0; n];
+    let mut rho = 0.5;
+    let mut z = vec![0.0; n];
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0usize; n];
+    let mut indxc = vec![0usize; n];
+    let mut indxp = vec![0usize; n];
+    let mut coltyp = vec![0usize; n];
+    let mut k = 0;
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dlaed2_identical_eigenvalues() {
+    let n = 4;
+    let n1 = 2;
+    let mut d = vec![1.0, 1.0, 1.0, 1.0];
+    let mut q = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        q[i][i] = 1.0;
+    }
+    let ldq = n;
+    let mut indxq = vec![0, 1, 0, 1];
+    let mut rho = 0.5;
+    let mut z = vec![1.0; n];
+    let mut dlamda = vec![0.0; n];
+    let mut w = vec![0.0; n];
+    let mut q2 = vec![vec![0.0; n]; n];
+    let mut indx = vec![0usize; n];
+    let mut indxc = vec![0usize; n];
+    let mut indxp = vec![0usize; n];
+    let mut coltyp = vec![0usize; n];
+    let mut k = 0;
+    let result = dlaed2(
+        &mut k,
+        n,
+        n1,
+        &mut d,
+        &mut q,
+        ldq,
+        &mut indxq,
+        &mut rho,
+        &mut z,
+        &mut dlamda,
+        &mut w,
+        &mut q2,
+        &mut indx,
+        &mut indxc,
+        &mut indxp,
+        &mut coltyp,
+    );
+    assert!(k < n);
+}
+
+
 // Tests needed:
 //dlaed3 - No tests
 //dsteqr - No tests
