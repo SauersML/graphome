@@ -2467,7 +2467,7 @@ fn verify_eigen_solution(
 }
 
 #[test]
-fn test_2x2_matrix() {
+fn test_dsteqr_2x2_matrix() {
     let n = 2;
     let mut d = vec![2.0, 5.0];  // diagonal
     let mut e = vec![1.0];       // subdiagonal
@@ -2487,7 +2487,7 @@ fn test_2x2_matrix() {
 }
 
 #[test]
-fn test_3x3_matrix() {
+fn test_dsteqr_3x3_matrix() {
     let n = 3;
     let mut d = vec![1.0, 2.0, 1.0];  // diagonal
     let mut e = vec![1.0, 1.0];       // subdiagonal
@@ -2507,7 +2507,7 @@ fn test_3x3_matrix() {
 }
 
 #[test]
-fn test_degenerate_cases() {
+fn test_dsteqr_degenerate_cases() {
     // Test n = 0
     {
         let mut d = vec![];
@@ -2532,7 +2532,7 @@ fn test_degenerate_cases() {
 }
 
 #[test]
-fn test_random_matrix() {
+fn test_dsteqr_random_matrix() {
     use rand::Rng;
     let mut rng = rand::thread_rng();
     
