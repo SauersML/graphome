@@ -1,5 +1,3 @@
-! src/test_lapack.f90
-! gfortran src/test_lapack.f90 -o test_lapack -llapack -lblas && ./test_lapack
 program test_all_lapack
   implicit none
 
@@ -8,21 +6,21 @@ program test_all_lapack
   integer :: info, i, j
   integer :: lwork, liwork
   integer :: one = 1
-  integer :: kd, ldab
+  integer :: kd, ldab, ldq 
+  integer :: iamax_val, k
+  integer, dimension(n) :: indxq, index
 
   real(8) :: dlamch_val, dnrm2_val, dlapy2_val, dlassq_val, dlamc3_val
   real(8) :: cs, sn, r, f, g, tau
   real(8), parameter :: alpha = 2.0d0, beta = 0.5d0
 
+  real(8), dimension(n) :: d, e, diag, offdiag, w, z
+  real(8), dimension(n, n) :: mat_a, mat_b, mat_c, q
+  real(8), dimension(ldab, n) :: ab
+
   ! Arrays and matrices
   real(8), allocatable :: a(:), b(:), c(:), work(:), work_alloc(:)
   integer, allocatable :: iwork(:), iwork_alloc(:)
-
-  real(8), dimension(n) :: d, e, diag, offdiag, w, z
-  real(8), dimension(n, n) :: mat_a, mat_b, mat_c, q
-  integer, dimension(n) :: indxq
-  integer :: iamax_val
-  integer :: k
 
   ! External functions
   real(8), external :: DLAMCH, DLANST, DLAMC3, DLAPY2, DNRM2
@@ -41,6 +39,7 @@ program test_all_lapack
   liwork = 1000
   kd = 1
   ldab = kd + 1
+  ldq = n
   k = n / 2
 
   allocate(a(n), b(n), c(n))
@@ -73,8 +72,6 @@ program test_all_lapack
   close(11)
 
   ! 2. DSBTRD
-  integer, parameter :: ldq = n
-  real(8), dimension(ldab, n) :: ab
   ab = 0.0d0
   ab(kd+1,:) = d(1:n)
   if (kd > 0 .and. n > 1) ab(kd,2:n) = e(1:n-1)
