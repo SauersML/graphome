@@ -2763,115 +2763,229 @@ pub fn dlaed6(
 /// Finds the roots of the secular equation and updates the eigenvectors.
 /// This function corresponds to LAPACK's DLAED3 subroutine.  It's used when the original matrix is tridiagonal.
 pub fn dlaed3(
-    k: usize,
-    n: usize,
-    n1: usize,
-    d: &mut [f64],
-    q: &mut [Vec<f64>],
-    ldq: usize,
-    rho: f64,
-    dlamda: &mut [f64],
-    q2: &[Vec<f64>],
-    indx: &[usize],
-    ctot: &[usize],
-    w: &mut [f64],
-    s: &mut [Vec<f64>],
+   k: usize,
+   n: usize,
+   n1: usize,
+   d: &mut [f64],
+   q: &mut [Vec<f64>],
+   ldq: usize,
+   rho: f64,
+   dlamda: &mut [f64],
+   q2: &[Vec<f64>],
+   indx: &[usize],
+   ctot: &[usize],
+   w: &mut [f64],
+   s: &mut [Vec<f64>],
 ) -> Result<i32, Error> {
-    let mut info = 0;
+   // Validate all input dimensions
+   if k > n || n1 > n/2 || n1 == 0 || ldq < n || 
+      d.len() < n || q.len() < n || dlamda.len() < k ||
+      w.len() < k || indx.len() < n || ctot.len() < 4 ||
+      q2.len() < n || s.len() < n {
+       return Err(Error(-1));
+   }
 
-    if k == 0 {
-        return Ok(info);
-    }
+   for row in q.iter() {
+       if row.len() < n {
+           return Err(Error(-1));
+       }
+   }
+   for row in q2.iter() {
+       if row.len() < n {
+           return Err(Error(-1)); 
+       }
+   }
+   for row in s.iter() {
+       if row.len() < k {
+           return Err(Error(-1));
+       }
+   }
 
-    // Adjust dlamda for better accuracy
-    for i in 0..k {
-        dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
-    }
+   // Quick return if possible
+   if k == 0 {
+       return Ok(0);
+   }
 
-    for j in 0..k {
-        let mut info_dlaed4 = 0; // Initialize info before calling dlaed4
+   // Adjust dlamda for better accuracy
+   for i in 0..k {
+       dlamda[i] = dlamc3(dlamda[i], dlamda[i]) - dlamda[i];
+   }
 
-        let mut q_col = vec![0.0; k];
-        for i in 0..k {
-            q_col[i] = q[i][j];
-        }
-        dlaed4(&dlamda[..k], &w[..k], &q_col, rho, d, q)?;
+   // Find roots of secular equation
+   for j in 0..k {
+       let mut q_col = vec![0.0; k];
+       for i in 0..k {
+           if i < q.len() && j < q[i].len() {
+               q_col[i] = q[i][j];
+           }
+       }
+       
+       if let Err(e) = dlaed4(&dlamda[..k], &w[..k], &q_col, rho, &mut d[..k], q) {
+           return Ok(1);
+       }
+   }
 
-        // If dlaed4 failed, set info and return
-        if info_dlaed4 != 0 {
-            info = 1; // Or potentially more specific error code
-            return Ok(info);
-        }
-    }
+   if k == 1 {
+       return Ok(0);
+   }
 
-    if k == 1 {
-        // Return early for k=1 case
-        return Ok(info);
-    }
+   if k == 2 {
+       // Handle 2x2 case
+       for j in 0..k {
+           if j >= q[0].len() || j >= q[1].len() {
+               continue;
+           }
+           let w1 = q[0][j];
+           let w2 = q[1][j];
+           
+           // Safe indexing with bounds checks
+           if let Some(&i1) = indx.get(0) {
+               if let Some(&i2) = indx.get(1) {
+                   // Convert from 1-based to 0-based safely
+                   let ii1 = i1.checked_sub(1).unwrap_or(0);
+                   let ii2 = i2.checked_sub(1).unwrap_or(0);
+                   q[0][j] = w1.min(w2);
+                   q[1][j] = w1.max(w2);
+               }
+           }
+       }
+       return Ok(0);
+   }
 
-    if k == 2 {
-        // Handle the 2x2 case by sorting eigenvectors
-        for j in 0..k {
-            let ii1 = indx[0] - 1;
-            let ii2 = indx[1] - 1;
-            let w1 = q[0][j];
-            let w2 = q[1][j];
-            q[0][j] = w1.min(w2); // Ascending order
-            q[1][j] = w1.max(w2);
-        }
+   // Update w
+   if !s.is_empty() && !s[0].is_empty() {
+       for (i, &wi) in w.iter().take(k).enumerate() {
+           s[0][i] = wi;
+       }
+   }
 
-        return Ok(info);
-    }
+   // Initialize w
+   for i in 0..k {
+       if i < q.len() && i < q[i].len() {
+           w[i] = q[i][i];
+       }
+   }
 
-    // Update w
-    dcopy(k, w, 1, &mut s[0], 1);
+   // Update w values
+   for j in 0..k {
+       for i in 0..j {
+           if i < w.len() && j < dlamda.len() {
+               let denom = dlamda[i] - dlamda[j];
+               if denom != 0.0 {
+                   if let Some(qi) = q.get(i).and_then(|row| row.get(j)) {
+                       w[i] *= qi / denom;
+                   }
+               }
+           }
+       }
+       for i in (j+1)..k {
+           if i < w.len() && j < dlamda.len() {
+               let denom = dlamda[i] - dlamda[j];
+               if denom != 0.0 {
+                   if let Some(qi) = q.get(i).and_then(|row| row.get(j)) {
+                       w[i] *= qi / denom;
+                   }
+               }
+           }
+       }
+   }
 
-    for j in 0..k {
-        for i in 0..k {
-            if i != j {
-                w[i] *= q[i][j] / (dlamda[i] - dlamda[j]);
-            }
-        }
-    }
+   // Update w with sqrt
+   if !s.is_empty() && !s[0].is_empty() {
+       for i in 0..k {
+           if i < w.len() && i < s[0].len() {
+               w[i] = (-w[i]).sqrt().copysign(s[0][i]);
+           }
+       }
+   }
 
-    for i in 0..k {
-        w[i] = -w[i].sqrt().copysign(s[0][i]);
-    }
+   // Compute eigenvectors
+   for j in 0..k {
+       for i in 0..k {
+           if i < s.len() && i < q.len() && j < q[i].len() {
+               s[0][i] = w[i] / q[i][j];
+           }
+       }
 
-    for j in 0..k {
-        for i in 0..k {
-            s[0][i] = w[i] / q[i][j];
-        }
-        let temp = dnrm2(k, &s[0], 1);
-        for i in 0..k {
-            let ii = indx[i] - 1;
-            q[i][j] = s[0][ii] / temp;
-        }
-    }
+       let temp = dnrm2(k, &s[0], 1);
+       if temp != 0.0 {
+           for i in 0..k {
+               if i < q.len() && j < q[i].len() && i < indx.len() {
+                   let ii = indx[i].saturating_sub(1);
+                   if ii < s[0].len() {
+                       q[i][j] = s[0][ii] / temp;
+                   }
+               }
+           }
+       }
+   }
 
-    // Compute the updated eigenvectors
-    let n2 = n - n1;
-    let n12 = ctot[0] + ctot[1];
-    let n23 = ctot[1] + ctot[2];
+   // Update eigenvectors
+   let n2 = n.saturating_sub(n1);
+   let n12 = ctot.get(0).unwrap_or(&0) + ctot.get(1).unwrap_or(&0);
+   let n23 = ctot.get(1).unwrap_or(&0) + ctot.get(2).unwrap_or(&0);
 
-    dlacpy('A', n23, k, &q[ctot[0]..], ldq, &mut s[..n23], n23);
+   let ctot_0 = ctot.get(0).copied().unwrap_or(0);
+   
+   // Safe matrix operations with bounds checking
+   if n23 > 0 && ctot_0 < q.len() {
+       for i in 0..n23.min(q.len() - ctot_0) {
+           for j in 0..k {
+               if i < s.len() && j < s[i].len() && 
+                  i + ctot_0 < q.len() && j < q[i + ctot_0].len() {
+                   s[i][j] = q[i + ctot_0][j];
+               }
+           }
+       }
+   }
 
-    if n23 > 0 {
-        let result = dgemm(&q2[n1 * n12..], &s[..n23]);
-        for (i, row) in result.iter().enumerate() {
-            for (j, val) in row.iter().enumerate() {
-                q[n1 + i][j] = *val;
-            }
-        }
-    } else {
-        dlaset('A', n2, k, 0.0, 0.0, &mut q[n1..]);
-    }
+   let iq2 = n1.saturating_mul(n12);
+   
+   if n23 > 0 {
+       let result = dgemm(&q2[iq2..], &s[..n23.min(s.len())]);
+       for (i, row) in result.iter().enumerate() {
+           for (j, &val) in row.iter().enumerate() {
+               if i + n1 < q.len() && j < q[i + n1].len() {
+                   q[i + n1][j] = val;
+               }
+           }
+       }
+   } else {
+       for i in n1..q.len() {
+           for j in 0..k.min(q[i].len()) {
+               q[i][j] = 0.0;
+           }
+       }
+   }
 
-    dlacpy('A', n12, k, q, ldq, &mut s[..n12], n12);
-    let result = dgemm(q2, &mut s[..n12]);
+   if n12 > 0 {
+       for i in 0..n12.min(q.len()) {
+           for j in 0..k {
+               if i < s.len() && j < s[i].len() && j < q[i].len() {
+                   s[i][j] = q[i][j];
+               }
+           }
+       }
+       
+       let result = dgemm(q2, &s[..n12.min(s.len())]);
+       for (i, row) in result.iter().enumerate().take(n1) {
+           for (j, &val) in row.iter().enumerate().take(k) {
+               if i < q.len() && j < q[i].len() {
+                   q[i][j] = val;
+               }
+           }
+       }
+   } else {
+       for i in 0..n1.min(q.len()) {
+           for j in 0..k.min(q[i].len()) {
+               q[i][j] = 0.0;
+           }
+       }
+   }
 
-    Ok(0)
+   Ok(0)
 }
+
 
 /// Finds the roots of the secular equation and updates the eigenvectors.
 /// Used when the original matrix is dense.
