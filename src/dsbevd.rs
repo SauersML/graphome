@@ -2369,11 +2369,11 @@ pub fn dlaed2(
     let mut psm_fill = psm.clone();
 
     for &i in indxp.iter().take(n) {
-        if i < n {
+        if i < n && i < coltyp.len() {
             let ct = coltyp[i];
-            if ct >= 1 && ct <= 4 {
-                indx[psm_fill[ct] as usize] = i;
-                indxc[psm_fill[ct] as usize] = i;
+            if ct > 0 && ct <= 4 {
+                indx[psm_fill[ct]] = i;
+                indxc[psm_fill[ct]] = i;
                 psm_fill[ct] += 1;
             }
         }
