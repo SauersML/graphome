@@ -1513,20 +1513,21 @@ pub fn dsteqr(
     for ii in 2..=n {
         let i = ii - 1;
         let mut k = i;
-        let mut p = d[i - 1];
+        let mut p = d[i];
         for j in ii..=n {
-            if d[j - 1] < p {
+            if d[j - 1] < p {  // j-1 since j ranges from ii
                 k = j;
                 p = d[j - 1];
             }
         }
         if k != i {
-            d.swap(k - 1, i - 1);
+            d[k] = d[i];
+            d[i] = p;
             // Perform vector swap without splitting
             for row in 0..n {
-                let temp = z[row][k - 1];
-                z[row][k - 1] = z[row][i - 1];
-                z[row][i - 1] = temp;
+                let temp = z[row][k];
+                z[row][k] = z[row][i];
+                z[row][i] = temp;
             }
         }
     }
