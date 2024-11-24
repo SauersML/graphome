@@ -1259,7 +1259,7 @@ pub fn dsteqr(
     }
 
     // Check dimensions and leading dimension 'ldz'
-    let ldz = z.len(); // Number of rows in 'z'
+    let ldz = if !z.is_empty() { z[0].len() } else { 0 }; // Number of columns in 'z'
     if ldz < 1 || (icompz > 0 && ldz < n) {
         // 'ldz' must be at least max(1, n) when eigenvectors are computed
         return Err(Error(-6));
@@ -1269,20 +1269,16 @@ pub fn dsteqr(
     if d.len() < n {
         return Err(Error(-3)); // Not enough elements in 'd'
     }
-    if e.len() < n.saturating_sub(1) {
+    if n > 1 && e.len() < n - 1 {
         return Err(Error(-4)); // Not enough elements in 'e'
     }
-    if icompz > 0 && work.len() < 2 * n {
+    if icompz > 0 && work.len() < 2 * n - 2 {
         return Err(Error(-8)); // Insufficient size of 'work' array
     }
 
-    // Check that 'z' has enough columns when eigenvectors are computed
-    if icompz > 0 {
-        for row in z.iter() {
-            if row.len() < n {
-                return Err(Error(-6)); // Not enough columns in 'z'
-            }
-        }
+    // Check that 'z' has enough rows when eigenvectors are computed
+    if icompz > 0 && z.len() < n {
+        return Err(Error(-6)); // Not enough rows in 'z'
     }
 
     // Quick return if possible
@@ -1345,8 +1341,8 @@ pub fn dsteqr(
         }
 
         // Determine the indices of the submatrix
-        let l = l1; // Start index (inclusive)
-        let lend = m; // End index (inclusive)
+        let mut l = l1; // Start index (inclusive)
+        let mut lend = m; // End index (inclusive)
         let lsv = l; // Save 'l' for later
         let lendsv = lend; // Save 'lend' for later
 
@@ -1388,8 +1384,6 @@ pub fn dsteqr(
         }
 
         // Determine whether to use QL or QR iteration based on the relative sizes of the end diagonal elements
-        let mut l = l;
-        let mut lend = lend;
         if d[lend].abs() < d[l].abs() {
             // Swap 'l' and 'lend'
             std::mem::swap(&mut l, &mut lend);
@@ -1397,35 +1391,27 @@ pub fn dsteqr(
 
         if lend > l {
             // Perform QL Iteration
-            // Similar to the Fortran code from line 294 onwards
             // 'l' increments towards 'lend'
-            // Initialize variables
-            let mut m = lend;
-            let mut l = l;
-
             loop {
                 // Check for convergence
-                let mut convergence = false;
+                let mut m = lend; // Initialize m to lend
                 if l != lend {
                     // Look for small subdiagonal element
-                    let mut mm;
-                    for mm_iter in l..lend {
-                        mm = mm_iter;
+                    let mut convergence = false;
+                    for mm in l..lend {
                         let tst = e[mm].powi(2);
                         let abssd = d[mm].abs() * d[mm + 1].abs();
                         let tol = eps2 * abssd + safmin;
                         if tst <= tol {
                             e[mm] = 0.0;
+                            m = mm;
                             convergence = true;
                             break;
                         }
                     }
                     if !convergence {
-                        mm = lend;
+                        m = lend;
                     }
-                    m = mm;
-                } else {
-                    m = lend;
                 }
 
                 if m < lend {
@@ -1445,7 +1431,6 @@ pub fn dsteqr(
 
                 if jtot >= nmaxit {
                     // Exceeded maximum iterations
-                    // Count the number of unconverged eigenvalues
                     let mut info = 0;
                     for i in 0..n - 1 {
                         if e[i] != 0.0 {
@@ -1486,7 +1471,7 @@ pub fn dsteqr(
                     // Store rotations if eigenvectors are to be computed
                     if icompz > 0 {
                         work[i] = cs;
-                        work[n - 1 + i] = sn;
+                        work[n - 2 + i] = sn; // Adjusted index to match size of work
                     }
                 }
 
@@ -1500,7 +1485,7 @@ pub fn dsteqr(
                         n,           // Number of rows in 'z'
                         mm,          // Number of columns to rotate
                         &work[l..m],                   // Cosines
-                        &work[n - 1 + l..n - 1 + m],   // Sines
+                        &work[n - 2 + l..n - 2 + m],   // Sines
                         z,           // Eigenvector matrix
                         n,           // Leading dimension of 'z'
                     )?;
@@ -1517,36 +1502,31 @@ pub fn dsteqr(
                     }
                 }
             }
+
         } else {
             // QR Iteration
-            // Similar to the Fortran code from line 401 onwards
             // 'l' decrements towards 'lend'
-            let mut m = lend;
-            let mut l = l;
-
             loop {
                 // Check for convergence
-                let mut convergence = false;
+                let mut m = lend; // Initialize m to lend
                 if l != lend {
                     // Look for small superdiagonal element
-                    let mut mm;
+                    let mut convergence = false;
                     for mm_iter in (lend + 1..=l).rev() {
-                        mm = mm_iter - 1;
+                        let mm = mm_iter - 1;
                         let tst = e[mm].powi(2);
                         let abssd = d[mm].abs() * d[mm + 1].abs();
                         let tol = eps2 * abssd + safmin;
                         if tst <= tol {
                             e[mm] = 0.0;
+                            m = mm;
                             convergence = true;
                             break;
                         }
                     }
                     if !convergence {
-                        mm = lend;
+                        m = lend;
                     }
-                    m = mm;
-                } else {
-                    m = lend;
                 }
 
                 if m > lend {
@@ -1567,7 +1547,6 @@ pub fn dsteqr(
 
                 if jtot >= nmaxit {
                     // Exceeded maximum iterations
-                    // Count the number of unconverged eigenvalues
                     let mut info = 0;
                     for i in 0..n - 1 {
                         if e[i] != 0.0 {
@@ -1608,7 +1587,7 @@ pub fn dsteqr(
                     // Store rotations if eigenvectors are to be computed
                     if icompz > 0 {
                         work[i] = cs;
-                        work[n - 1 + i] = sn;
+                        work[n - 2 + i] = sn; // Adjusted index to match size of work
                     }
                 }
 
@@ -1622,7 +1601,7 @@ pub fn dsteqr(
                         n,           // Number of rows in 'z'
                         mm,          // Number of columns to rotate
                         &work[m..=l],                   // Cosines
-                        &work[n - 1 + m..=n - 1 + l],   // Sines
+                        &work[n - 2 + m..=n - 2 + l],   // Sines
                         z,           // Eigenvector matrix
                         n,           // Leading dimension of 'z'
                     )?;
