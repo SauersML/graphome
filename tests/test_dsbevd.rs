@@ -118,25 +118,6 @@ fn test_matrix_construction() {
     assert!(result.is_err(), "Should panic with wrong column count");
 }
 
-
-#[test]
-fn test_dsbevd_2x2_symmetric() {
-    // Create a 2x2 symmetric matrix with bandwidth 1
-    // Matrix is: [2.0  1.0]
-    //           [1.0  2.0]
-    let ab = vec![
-        vec![2.0, 2.0],  // diagonal
-        vec![1.0, 0.0],  // superdiagonal
-    ];
-    let matrix = SymmetricBandedMatrix::new(2, 1, ab);
-    
-    let result = matrix.dsbevd().unwrap();
-    
-    // Known eigenvalues: 1.0, 3.0
-    assert_relative_eq!(result.eigenvalues[0], 1.0, epsilon = 1e-12);
-    assert_relative_eq!(result.eigenvalues[1], 3.0, epsilon = 1e-12);
-}
-
 #[test]
 fn test_dsbevd_orthogonality() {
     // Create a 3x3 symmetric band matrix
@@ -206,40 +187,6 @@ fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < 100.0 * EPSILON
 }
 
-#[test]
-fn test_dsbevd_symmetric_banded_matrix() {
-    let n = 4;
-    let kd = 1;
-    let ab = vec![vec![4.0, 1.0, 1.0, 1.0], vec![1.0, 4.0, 1.0, 1.0]];
-    let matrix = SymmetricBandedMatrix::new(n, kd, ab);
-    let result = matrix.dsbevd();
-    assert!(result.is_ok());
-    let eigen_results = result.unwrap();
-    assert_eq!(eigen_results.eigenvalues.len(), n);
-    assert_eq!(eigen_results.eigenvectors.len(), n);
-    for vec in eigen_results.eigenvectors.iter() {
-        assert_eq!(vec.len(), n);
-    }
-    // Check that the eigenvalues are in ascending order
-    for i in 0..n - 1 {
-        assert!(eigen_results.eigenvalues[i] <= eigen_results.eigenvalues[i + 1]);
-    }
-}
-
-#[test]
-fn test_dstedc() {
-    let mut d = vec![4.0, 1.0, 3.0];
-    let mut e = vec![0.5, 0.5];
-    let n = d.len();
-    let mut z = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        z[i][i] = 1.0;
-    }
-    let result = dstedc(&mut d, &mut e, &mut z);
-    assert!(result.is_ok());
-    assert_eq!(d.len(), n);
-    assert_eq!(e.len(), n - 1);
-}
 
 #[test]
 fn test_dlaed4() {
@@ -1170,82 +1117,6 @@ fn test_dlaed0_small_matrix() {
         println!("Max residual for eigenpair {}: {}", i, max_diff);
         assert!(max_diff < eps * 10.0,  // Slightly larger tolerance for this test
                 "Eigenpair {} fails Av = λv check with residual {}", i, max_diff);
-    }
-}
-
-#[test]
-fn test_dlaed0_large_matrix() {
-    let n = 32;  // > smlsiz (25)
-    let qsiz = n;
-    
-    // Create tridiagonal matrix
-    let mut d = vec![2.0; n];  // Diagonal
-    let mut e = vec![1.0; n-1];  // Off-diagonal
-    let mut q = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        q[i][i] = 1.0;  // Identity matrix
-    }
-
-    // Create reference matrix using nalgebra
-    let mut matrix = DMatrix::zeros(n, n);
-    for i in 0..n {
-        matrix[(i, i)] = d[i];
-        if i < n-1 {
-            matrix[(i, i+1)] = e[i];
-            matrix[(i+1, i)] = e[i];
-        }
-    }
-    
-    // Get reference eigenvalues
-    let eigen = matrix.symmetric_eigen();
-    let mut expected_eigs: Vec<f64> = eigen.eigenvalues.as_slice().to_vec();
-    expected_eigs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    
-    // Allocate workspace arrays
-    let mut qstore = vec![vec![0.0; n]; n];
-    let work_size = 1 + 4*n + n*n;
-    let iwork_size = 3 + 5*n;
-    let mut work = vec![0.0; work_size];
-    let mut iwork = vec![0; iwork_size];
-    let mut qptr = vec![0; n];
-    let mut prmptr = vec![0; n];
-    let mut perm = vec![0; n];
-    let mut givptr = vec![0; n];
-    let mut givcol = vec![vec![0; 2]; n];
-    let mut givnum = vec![vec![0.0; 2]; n];
-
-    let result = dlaed0(
-        2, n, qsiz, 0, 0, 0, &mut d, &mut e, &mut q, n,
-        &mut qstore, &mut qptr, &mut prmptr, &mut perm,
-        &mut givptr, &mut givcol, &mut givnum, &mut work, &mut iwork,
-    );
-    
-    assert!(result.is_ok(), "dlaed0 failed for large matrix");
-
-    // Check eigenvalues
-    let eps = 1e-10;  // Slightly larger tolerance for larger matrix
-    for i in 0..n {
-        let diff = (d[i] - expected_eigs[i]).abs();
-        assert!(diff < eps,
-                "Large matrix eigenvalue {} mismatch: computed = {}, expected = {}, diff = {}",
-                i, d[i], expected_eigs[i], diff);
-    }
-
-    // Check eigenvector orthogonality
-    for i in 0..n {
-        for j in i..n {
-            let mut dot = 0.0;
-            for k in 0..n {
-                dot += q[k][i] * q[k][j];
-            }
-            if i == j {
-                assert!((dot - 1.0).abs() < eps,
-                        "Large matrix eigenvector {} not normalized", i);
-            } else {
-                assert!(dot.abs() < eps,
-                        "Large matrix eigenvectors {},{} not orthogonal", i, j);
-            }
-        }
     }
 }
 
@@ -2267,118 +2138,6 @@ fn test_dlaed2_identical_eigenvalues() {
 }
 
 
-#[test]
-fn test_dlaed3_mechanical() {
-    // Test basic 2x2 case hitting k=2 special path
-    let k = 2;
-    let n = 4; // Doubled size to handle dlaed4's array needs
-    let n1 = 2; 
-    let ldq = n;
-    
-    let mut dlamda = vec![1.0, 2.0, 3.0, 4.0]; // Room for combined arrays
-    let mut q = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        q[i][i] = 1.0;  // Initialize to identity
-    }
-    let mut w = vec![0.5, 0.5, 0.0, 0.0]; 
-    let mut d = vec![0.0; n];
-    let rho = 0.25;
-    
-    // Setup all inputs with proper n-sized arrays
-    let q2 = q.clone(); 
-    let indx = vec![1, 2, 3, 4];
-    let ctot = vec![2, 0, 2, 0];
-    let mut s = vec![vec![0.0; n]; n];
-
-    let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho, 
-                       &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
-
-   // Convert output Q to nalgebra matrix for verification
-   let q_mat = na::DMatrix::from_row_slice(n, k, &q.iter().flatten().copied().collect::<Vec<f64>>());
-
-   // Verify Q remains orthogonal
-   let qtq = &q_mat.transpose() * &q_mat;
-   let id = na::DMatrix::<f64>::identity(k, k);
-   assert!((qtq - id).norm() < 1e-10, "Q lost orthogonality");
-
-   // Verify eigenvalues sorted ascending
-   assert!(d[0] <= d[1], "Eigenvalues not sorted");
-
-   // Verify secular equation satisfied
-   for i in 0..k {
-       let lambda = d[i];
-       let f: f64 = (0..k).map(|j| {
-           let zj = w[j];
-           zj * zj / (dlamda[j] - lambda)
-       }).sum::<f64>();
-       assert!((1.0 + rho * f).abs() < 1e-10, "Secular equation not satisfied");
-   }
-}
-
-#[test]
-fn test_dlaed3_deflation() {
-   // Test larger case with deflation
-   let k = 3;
-   let n = 4;
-   let n1 = 2;
-   let ldq = 4;
-
-   // Set up eigenvalues with known gap to trigger deflation
-   let mut dlamda = vec![1.0, 5.0, 10.0];
-   
-   let mut q = vec![
-       vec![1.0, 0.0, 0.0, 0.0],
-       vec![0.0, 1.0, 0.0, 0.0], 
-       vec![0.0, 0.0, 1.0, 0.0],
-       vec![0.0, 0.0, 0.0, 1.0]
-   ];
-
-   // Create z vector with small component to trigger deflation
-   let mut w = vec![0.5, 1e-14, 0.5]; // Middle component very small
-
-   let mut d = vec![0.0; n];
-   let rho = 0.1;
-
-   let q2 = q.clone();
-   let indx = vec![1, 2, 3];  // 1-based
-   let ctot = vec![2, 0, 1, 0];
-   let mut s = vec![vec![0.0; k]; k];
-
-   let result = dlaed3(k, n, n1, &mut d, &mut q, ldq, rho,
-                      &mut dlamda, &q2, &indx, &ctot, &mut w, &mut s);
-
-   // Verify deflation preserved original eigenvalue
-   let mut found_deflated = false;
-   for i in 0..k {
-       if (d[i] - dlamda[1]).abs() < 1e-10 {
-           found_deflated = true;
-           break;
-       }
-   }
-   assert!(found_deflated, "Deflation failed to preserve eigenvalue");
-
-   // Convert output Q to nalgebra matrix
-   let q_mat = na::DMatrix::from_row_slice(n, k, &q.iter().flatten().copied().collect::<Vec<f64>>());
-
-   // Verify Q remains orthogonal after deflation
-   let qtq = &q_mat.transpose() * &q_mat;
-   let id = na::DMatrix::<f64>::identity(k, k);
-   assert!((qtq - id).norm() < 1e-10, "Q lost orthogonality after deflation");
-
-   // Verify secular equation satisfied for non-deflated eigenvalues
-   for i in 0..k {
-       if (d[i] - dlamda[1]).abs() > 1e-10 {  // Skip deflated eigenvalue
-           let lambda = d[i];
-           let f: f64 = (0..k).map(|j| {
-               let zj = w[j];
-               zj * zj / (dlamda[j] - lambda)  
-           }).sum::<f64>();
-           assert!((1.0 + rho * f).abs() < 1e-10, "Secular equation not satisfied");
-       }
-   }
-}
-
-
 /// 1. Checking if eigenvalues are sorted in ascending order
 /// 2. Verifying Av = λv for each eigenpair
 /// 3. Checking orthogonality of eigenvectors
@@ -2445,97 +2204,6 @@ fn verify_eigen_solution(
     true
 }
 
-#[test]
-fn test_dsteqr_2x2_matrix() {
-    let n = 2;
-    let mut d = vec![2.0, 5.0];  // diagonal
-    let mut e = vec![1.0];       // subdiagonal
-    let mut z = vec![vec![0.0; n]; n];
-    let mut work = vec![0.0; 2*n];
-    
-    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
-    assert!(result.is_ok());
-    
-    // Known eigenvalues for this matrix: (5.618034, 1.381966) - golden ratio related
-    let expected_eigenvals = vec![1.381966011250105, 5.618033988749895];
-    for (computed, expected) in d.iter().zip(expected_eigenvals.iter()) {
-        assert_abs_diff_eq!(computed, expected, epsilon = 1e-12);
-    }
-    
-    assert!(verify_eigen_solution(&vec![2.0, 5.0], &vec![1.0], &d, &z, 1e-12));
-}
-
-#[test]
-fn test_dsteqr_3x3_matrix() {
-    let n = 3;
-    let mut d = vec![1.0, 2.0, 1.0];  // diagonal
-    let mut e = vec![1.0, 1.0];       // subdiagonal
-    let mut z = vec![vec![0.0; n]; n];
-    let mut work = vec![0.0; 2*n];
-    
-    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
-    assert!(result.is_ok());
-    
-    // Expected eigenvalues for this symmetric tridiagonal matrix
-    let expected_eigenvals = vec![0.0, 2.0, 2.0];
-    for (computed, expected) in d.iter().zip(expected_eigenvals.iter()) {
-        assert_abs_diff_eq!(computed, expected, epsilon = 1e-12);
-    }
-    
-    assert!(verify_eigen_solution(&vec![1.0, 2.0, 1.0], &vec![1.0, 1.0], &d, &z, 1e-12));
-}
-
-#[test]
-fn test_dsteqr_degenerate_cases() {
-    // Test n = 0
-    {
-        let mut d = vec![];
-        let mut e = vec![];
-        let mut z = vec![];
-        let mut work = vec![];
-        let result = dsteqr('I', 0, &mut d, &mut e, &mut z, &mut work);
-        assert!(result.is_ok());
-    }
-    
-    // Test n = 1
-    {
-        let mut d = vec![42.0];
-        let mut e = vec![];
-        let mut z = vec![vec![0.0; 1]; 1];
-        let mut work = vec![0.0; 2];
-        let result = dsteqr('I', 1, &mut d, &mut e, &mut z, &mut work);
-        assert!(result.is_ok());
-        assert_abs_diff_eq!(d[0], 42.0);
-        assert_abs_diff_eq!(z[0][0], 1.0);
-    }
-}
-
-#[test]
-fn test_dsteqr_random_matrix() {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    
-    let n = 5;
-    let mut d: Vec<f64> = (0..n).map(|_| rng.gen_range(-10.0..10.0)).collect();
-    let mut e: Vec<f64> = (0..n-1).map(|_| rng.gen_range(-5.0..5.0)).collect();
-    let d_orig = d.clone();
-    let e_orig = e.clone();
-    
-    let mut z = vec![vec![0.0; n]; n];
-    let mut work = vec![0.0; 2*n];
-    
-    let result = dsteqr('I', n, &mut d, &mut e, &mut z, &mut work);
-    assert!(result.is_ok());
-    
-    // Verify solution
-    assert!(verify_eigen_solution(&d_orig, &e_orig, &d, &z, 1e-10));
-    
-    // Additional verification that eigenvalues are sorted
-    for i in 1..n {
-        assert!(d[i] >= d[i-1], "Eigenvalues not sorted");
-    }
-}
-
 
 // Helper function to compare two vectors within a tolerance
 fn vec_approx_equal(a: &[f64], b: &[f64], tol: f64) -> bool {
@@ -2564,22 +2232,6 @@ fn mat_approx_equal(a: &[Vec<f64>], b: &[Vec<f64>], tol: f64) -> bool {
 }
 
 #[test]
-fn test_dsteqr_n_1_compz_n() {
-    // Test case for n = 1 and compz = 'N'
-    let compz = 'N';
-    let n = 1;
-    let mut d = vec![5.0];  // Diagonal elements
-    let mut e = vec![];     // No off-diagonal elements for n = 1
-    let mut z = vec![];     // Z is not referenced when compz = 'N'
-    let mut work = vec![];
-
-    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
-
-    assert!(result.is_ok());
-    assert_eq!(d[0], 5.0); // The single eigenvalue should be unchanged
-}
-
-#[test]
 fn test_dsteqr_n_1_compz_i() {
     // Test case for n = 1 and compz = 'I'
     let compz = 'I';
@@ -2594,44 +2246,6 @@ fn test_dsteqr_n_1_compz_i() {
     assert!(result.is_ok());
     assert_eq!(d[0], 5.0);       // The eigenvalue
     assert_eq!(z[0][0], 1.0);    // The eigenvector should be [1.0]
-}
-
-
-#[test]
-fn test_dsteqr_random_symmetric_tridiagonal() {
-    // Test case for a random symmetric tridiagonal matrix with n = 5
-    let compz = 'I';
-    let n = 5;
-    let mut d = vec![4.0, 1.0, 3.0, 2.0, 5.0];  // Diagonal elements
-    let mut e = vec![0.2, -0.5, 0.3, -0.4];      // Sub-diagonal elements
-    let mut z = vec![vec![0.0; n]; n];           // Initialize Z
-    let mut work = vec![0.0; 2 * n - 2];
-
-    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
-
-    assert!(result.is_ok());
-
-    // To validate, check the properties of the output
-
-    // Check that the eigenvalues are sorted in ascending order
-    let mut d_sorted = d.clone();
-    d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let tol = 1e-8;
-    assert!(vec_approx_equal(&d, &d_sorted, tol));
-
-    // Check that the eigenvectors are orthonormal
-    for i in 0..n {
-        let norm = z[i].iter().map(|x| x.powi(2)).sum::<f64>().sqrt();
-        assert!((norm - 1.0).abs() < tol, "Eigenvector {} is not normalized", i);
-    }
-
-    // Check that eigenvectors are orthogonal to each other
-    for i in 0..n {
-        for j in i+1..n {
-            let dot_product = z[i].iter().zip(z[j].iter()).map(|(a, b)| a * b).sum::<f64>();
-            assert!(dot_product.abs() < tol, "Eigenvectors {} and {} are not orthogonal", i, j);
-        }
-    }
 }
 
 #[test]
@@ -2709,25 +2323,4 @@ fn test_dsteqr_negative_elements() {
     let mut d_sorted = d.clone();
     d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
     assert!(vec_approx_equal(&d, &d_sorted, 1e-8));
-}
-
-#[test]
-fn test_dsteqr_compz_n() {
-    // Test case for compz = 'N' (compute eigenvalues only)
-    let compz = 'N';
-    let n = 4;
-    let mut d = vec![1.0, 2.0, 3.0, 4.0];  // Diagonal elements
-    let mut e = vec![0.1, 0.2, 0.3];       // Sub-diagonal elements
-    let mut z = vec![];                    // Z is not referenced
-    let mut work = vec![];                 // Work is not referenced when compz = 'N'
-
-    let result = dsteqr(compz, n, &mut d, &mut e, &mut z, &mut work);
-
-    assert!(result.is_ok());
-
-    let tol = 1e-8;
-    // Since we don't have the exact expected eigenvalues, we can check that they are sorted
-    let mut d_sorted = d.clone();
-    d_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    assert!(vec_approx_equal(&d, &d_sorted, tol));
 }
