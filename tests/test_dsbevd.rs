@@ -1842,7 +1842,7 @@ fn test_dlaed2_no_deflation() {
     let mut z = vec![0.5, 0.5, 0.5, 0.5];
     let mut dlamda = vec![0.0; n];
     let mut w = vec![0.0; n];
-    let mut q2 = vec![vec![0.0; n]; 2 * n]; // Adjusted length of q2
+    let mut q2 = vec![vec![0.0; n]; n]; // Correct q2 length
     let mut indx = vec![0; n];
     let mut indxc = vec![0; n];
     let mut indxp = vec![0; n];
@@ -1850,7 +1850,7 @@ fn test_dlaed2_no_deflation() {
     let mut k = 0;
 
     // Call the function
-    let result = dlaed2(
+    dlaed2(
         &mut k,
         n,
         n1,
@@ -1867,7 +1867,7 @@ fn test_dlaed2_no_deflation() {
         &mut indxc,
         &mut indxp,
         &mut coltyp,
-    );
+    ).expect("dlaed2 failed");
 
     // Since deflation does not occur, k should be equal to n
     assert_eq!(k, n);
