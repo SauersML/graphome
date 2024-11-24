@@ -2146,7 +2146,7 @@ pub fn dlaed2(
     n1: usize,
     d: &mut [f64],
     q: &mut [Vec<f64>],
-    ldq: usize,
+    _ldq: usize,
     indxq: &mut [usize],
     rho: &mut f64,
     z: &mut [f64],
@@ -2158,29 +2158,37 @@ pub fn dlaed2(
     indxp: &mut [usize],
     coltyp: &mut [usize],
 ) -> Result<i32, Error> {
-    let mut info = 0;
+    // Initialize info
+    let info = 0;
 
+    // Test input parameters
     if n == 0 {
         return Ok(info);
     }
 
+    // Compute N2, the size of the second submatrix
     let n2 = n - n1;
-    let n1p1 = n1;
 
-    // Scale z
+    // If RHO < 0, negate the second half of Z
     if *rho < 0.0 {
-        let alpha = -1.0;
-        dscal(n2, alpha, &mut z[n1..], 1);
+        for i in n1..n {
+            z[i] = -z[i];
+        }
     }
 
-    // Normalize z so that norm(z) = 1
-    let t = 1.0 / (2.0_f64).sqrt();
-    dscal(n, t, z, 1);
+    // Normalize Z so that norm(Z) = 1
+    let t = z.iter().map(|zi| zi * zi).sum::<f64>().sqrt();
+    if t != 0.0 {
+        for zi in z.iter_mut() {
+            *zi /= t;
+        }
+    }
 
-    // RHO = ABS( norm(z)**2 * RHO )
-    *rho = (2.0 * *rho).abs();
+    // Update RHO to reflect the scaling
+    *rho = (t * t * *rho).abs();
 
-    // Sort the eigenvalues into increasing order
+    // Sort the eigenvalues into a single increasing sequence
+    // Adjust INDXQ: for the second half, increase indices by N1
     for i in n1..n {
         indxq[i] += n1;
     }
@@ -2190,8 +2198,10 @@ pub fn dlaed2(
         dlamda[i] = d[indxq[i]];
     }
 
-    dlamrg(n1, n2, &dlamda[..n], 1, 1, indxc);
+    // Merge the two sets of eigenvalues together
+    dlamrg(n1, n2, dlamda, 1, 1, indxc);
 
+    // Reorder INDXQ according to the sorted order in INDXC
     for i in 0..n {
         indx[i] = indxq[indxc[i]];
     }
@@ -2200,27 +2210,26 @@ pub fn dlaed2(
     let imax = idamax(n, z, 1);
     let jmax = idamax(n, d, 1);
     let eps = dlamch('E');
-    let tol = 8.0 * eps * d[d.index(jmax)].abs().max(z[imax].abs());
+    let tol = 8.0 * eps * d[jmax].abs().max(z[imax].abs());
 
-    // If the rank-1 modifier is small enough, no more needs to be done
-    // except to reorganize Q so that its columns correspond with the elements in D
+    // Check if the rank-1 modifier is small enough to merit deflation
     if *rho * z[imax].abs() <= tol {
         *k = 0;
+        // Copy eigenvalues and eigenvectors to output
         for j in 0..n {
             let i = indx[j];
-            dcopy(n, &q[i], 1, &mut q2[j], 1);
             dlamda[j] = d[i];
+            q2[j] = q[i].clone();
         }
-        // Copy eigenvectors from q2 back to q
+        // Copy back to D and Q
+        d.copy_from_slice(&dlamda[0..n]);
         for i in 0..n {
-            q[i].copy_from_slice(&q2[i]);
+            q[i] = q2[i].clone();
         }
-        // Copy eigenvalues from dlamda back to d
-        d.copy_from_slice(dlamda);
         return Ok(info);
     }
 
-    // Initialize coltyp
+    // Initialize COLTYP array
     for i in 0..n1 {
         coltyp[i] = 1;
     }
@@ -2232,23 +2241,22 @@ pub fn dlaed2(
     *k = 0;
     let mut k2 = n;
     let mut j = 0;
+
     while j < n {
-        let nj = indx[j];
-        if *rho * z[nj].abs() <= tol {
+        let pj = indx[j];
+        if *rho * z[pj].abs() <= tol {
             k2 -= 1;
-            coltyp[nj] = 4;
-            indxp[k2] = nj;
-            j += 1;
+            coltyp[pj] = 4;
+            indxp[k2] = pj;
         } else {
-            let mut pj = nj;
+            let mut nj = pj;
             j += 1;
-            'inner: while j < n {
-                let nj = indx[j];
+            if j < n {
+                nj = indx[j];
                 if *rho * z[nj].abs() <= tol {
                     k2 -= 1;
                     coltyp[nj] = 4;
                     indxp[k2] = nj;
-                    j += 1;
                 } else {
                     // Check if eigenvalues are close enough to allow deflation
                     let mut s = z[pj];
@@ -2261,7 +2269,6 @@ pub fn dlaed2(
                         // Deflation is possible
                         z[nj] = tau;
                         z[pj] = 0.0;
-
                         if coltyp[nj] != coltyp[pj] {
                             coltyp[nj] = 2;
                         }
@@ -2270,30 +2277,14 @@ pub fn dlaed2(
                         // Apply rotation to eigenvectors
                         drot(n, &mut q[pj], 1, &mut q[nj], 1, c, s);
 
+                        // Update eigenvalues
                         let temp = d[pj] * c * c + d[nj] * s * s;
                         d[nj] = d[pj] * s * s + d[nj] * c * c;
                         d[pj] = temp;
 
+                        // Place the deflated eigenvalue at the end
                         k2 -= 1;
-                        let mut i = 0;
-                        while k2 + i < n {
-                            if d[pj] < d[indxp[k2 + i]] {
-                                indxp[k2 + i - 1] = indxp[k2 + i];
-                                indxp[k2 + i] = pj;
-                                i += 1;
-                            } else {
-                                indxp[k2 + i - 1] = pj;
-                                break;
-                            }
-                        }
-                        if k2 + i >= n {
-                            indxp[k2 + i - 1] = pj;
-                        }
-                        pj = nj;
-                        j += 1;
-                        if j >= n {
-                            break 'inner;
-                        }
+                        indxp[k2] = pj;
                     } else {
                         // No deflation
                         *k += 1;
@@ -2301,85 +2292,91 @@ pub fn dlaed2(
                         w[*k - 1] = z[pj];
                         indxp[*k - 1] = pj;
                         pj = nj;
-                        j += 1;
-                        if j >= n {
-                            // Record the last eigenvalue
-                            *k += 1;
-                            dlamda[*k - 1] = d[pj];
-                            w[*k - 1] = z[pj];
-                            indxp[*k - 1] = pj;
-                        }
-                        break 'inner;
                     }
                 }
+            } else {
+                // Last eigenvalue
+                *k += 1;
+                dlamda[*k - 1] = d[pj];
+                w[*k - 1] = z[pj];
+                indxp[*k - 1] = pj;
             }
+        }
+        j += 1;
+    }
+
+    // Record the last eigenvalue if not already done
+    if j == n - 1 {
+        let pj = indx[n - 1];
+        if *rho * z[pj].abs() > tol {
+            *k += 1;
+            dlamda[*k - 1] = d[pj];
+            w[*k - 1] = z[pj];
+            indxp[*k - 1] = pj;
+        } else {
+            k2 -= 1;
+            coltyp[pj] = 4;
+            indxp[k2] = pj;
         }
     }
 
-    // Record any remaining eigenvalues
-    if j == n - 1 {
-        let pj = indx[n - 1];
-        *k += 1;
-        dlamda[*k - 1] = d[pj];
-        w[*k - 1] = z[pj];
-        indxp[*k - 1] = pj;
-    }
-
-    // Prepare the indxc array
-    let mut ctot = [0usize; 4];
+    // Count up the total number of the various types of columns
+    let mut ctot = [0; 4]; // Types 1 to 4
     for j in 0..n {
-        let ct = coltyp[indxp[j]] - 1; // coltyp ranges from 1 to 4
-        ctot[ct] += 1;
+        let ct = coltyp[indxp[j]]; // coltyp ranges from 1 to 4
+        if ct >= 1 && ct <= 4 {
+            ctot[ct - 1] += 1;
+        }
     }
 
-    let mut psm = [0usize; 4];
+    // Form a permutation to position the columns according to COLTYP
+    let mut psm = [0; 4];
     psm[0] = 0;
     for i in 1..4 {
         psm[i] = psm[i - 1] + ctot[i - 1];
     }
 
-    // Rearrange indx and indxc
     for j in 0..n {
         let js = indxp[j];
-        let ct = coltyp[js] - 1;
-        indx[psm[ct]] = js;
-        indxc[psm[ct]] = j;
-        psm[ct] += 1;
-    }
-
-    // Copy eigenvalues and eigenvectors into dlamda and q2
-    let mut i = 0;
-    let mut iq1 = 0;
-    let mut iq2 = (ctot[0] + ctot[1]) * n1;
-    while i < *k {
-        let js = indx[i];
-        if coltyp[js] == 1 {
-            dlamda[i] = d[js];
-            w[i] = z[js];
-            q2[iq1..iq1 + n1].copy_from_slice(&q[js][..n1]);
-            iq1 += n1;
-            i += 1;
-        } else if coltyp[js] == 2 {
-            dlamda[i] = d[js];
-            w[i] = z[js];
-            q2[iq1..iq1 + n1].copy_from_slice(&q[js][..n1]);
-            q2[iq2..iq2 + n2].copy_from_slice(&q[js][n1..]);
-            iq1 += n1;
-            iq2 += n2;
-            i += 1;
-        } else if coltyp[js] == 3 {
-            dlamda[i] = d[js];
-            w[i] = z[js];
-            q2[iq2..iq2 + n2].copy_from_slice(&q[js][n1..]);
-            iq2 += n2;
-            i += 1;
-        } else {
-            // Deflated eigenvalues
-            break;
+        let ct = coltyp[js];
+        if ct >= 1 && ct <= 4 {
+            indx[psm[ct - 1]] = js;
+            indxc[psm[ct - 1]] = j;
+            psm[ct - 1] += 1;
         }
     }
 
-    // Copy deflated eigenvalues and vectors back into d and q
+    // Sort the eigenvalues and corresponding eigenvectors into Dlamda and Q2 respectively
+    let mut iq1 = 0;
+    let mut iq2 = (ctot[0] + ctot[1]) * n1;
+    for i in 0..*k {
+        let js = indx[i];
+        if coltyp[js] == 1 {
+            // Type 1 column
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            // Copy upper half of eigenvector
+            q2[iq1] = q[js][..n1].to_vec();
+            iq1 += 1;
+        } else if coltyp[js] == 2 {
+            // Type 2 column
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            // Copy entire eigenvector
+            q2[iq1] = q[js].clone(); // Stores upper half
+            iq1 += 1;
+        } else if coltyp[js] == 3 {
+            // Type 3 column
+            dlamda[i] = d[js];
+            w[i] = z[js];
+            // Copy lower half of eigenvector
+            q2[iq2] = q[js][n1..].to_vec();
+            iq2 += 1;
+        }
+        // Type 4 columns are deflated and not copied here
+    }
+
+    // Deflated eigenvalues and their vectors go back into the last N-K slots of D and Q respectively
     if *k < n {
         for i in *k..n {
             d[i] = d[indx[i]];
@@ -2387,8 +2384,14 @@ pub fn dlaed2(
         }
     }
 
+    // Copy counts into COLTYP for reference in DLAED3
+    for i in 0..4 {
+        coltyp[i] = ctot[i];
+    }
+
     Ok(info)
 }
+
 
 /// Creates a permutation list to merge two sorted sets into a single sorted set.
 /// This function corresponds to LAPACK's DLAMRG subroutine.
