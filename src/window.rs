@@ -151,21 +151,3 @@ pub fn parallel_extract_windows<P: AsRef<Path>>(
     
     Ok(())
 }
-
-// Example usage
-pub fn main() -> io::Result<()> {
-    let config = WindowConfig::new(
-        0,      // Start of range
-        1000,   // End of range
-        100,    // Window size
-        50,     // Overlap size
-    );
-    
-    parallel_extract_windows(
-        "path/to/input.gam",
-        "output/directory",
-        config,
-    )?;
-    
-    Ok(())
-}
