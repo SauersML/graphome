@@ -37,9 +37,9 @@ class BenchmarkConfig:
     output_dir: str
     sizes: List[int]
     samples_per_size: int
-    max_node_id: int = 110_884_673  # From the Rust code
+    max_node_id: int = 110_000_000  # ~800K buffer
     overlap_ratio: float = 0.4
-    rust_binary: str = "./target/release/graphome"
+    rust_binary: str = "../target/release/graphome"
 
 class EigenSolver:
     """Base class for eigensolvers"""
