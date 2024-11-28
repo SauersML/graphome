@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::cmp::min;
 use nalgebra::{DMatrix, DVector};
+use ndarray_npy::write_npy;
 
 use crate::eigen::{
     call_eigendecomp, 
