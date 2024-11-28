@@ -77,6 +77,63 @@ class DenseEigenSolver(EigenSolver):
             raise ValueError("Matrix must be symmetric")
         return self.method(matrix, **self.kwargs)
 
+class SparseEigenSolver(EigenSolver):
+    """Sparse matrix eigensolvers using scipy.sparse.linalg"""
+    def __init__(self, method="eigsh", **kwargs):
+        super().__init__(f"sparse_{method}")
+        self.method = method
+        self.kwargs = kwargs
+    
+    def to_sparse(self, matrix: np.ndarray):
+        """Convert dense matrix to sparse format"""
+        from scipy.sparse import csr_matrix
+        return csr_matrix(matrix)
+    
+    def solve(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if not self.check_symmetry(matrix):
+            raise ValueError("Matrix must be symmetric")
+        
+        sparse_matrix = self.to_sparse(matrix)
+        
+        if self.method == "eigsh":
+            from scipy.sparse.linalg import eigsh
+            # Get all eigenvalues/vectors
+            n = matrix.shape[0] - 1
+            vals, vecs = eigsh(sparse_matrix, k=n, which='LM')
+            # Sort them
+            idx = np.argsort(vals)
+            return vals[idx], vecs[:, idx]
+        else:
+            raise ValueError(f"Unknown sparse method: {self.method}")
+
+class IterativeEigenSolver(EigenSolver):
+    """Iterative eigensolvers for sparse matrices"""
+    def __init__(self, method="lobpcg", **kwargs):
+        super().__init__(f"iterative_{method}")
+        self.method = method
+        self.kwargs = kwargs
+    
+    def to_sparse(self, matrix: np.ndarray):
+        from scipy.sparse import csr_matrix
+        return csr_matrix(matrix)
+    
+    def solve(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        if not self.check_symmetry(matrix):
+            raise ValueError("Matrix must be symmetric")
+            
+        sparse_matrix = self.to_sparse(matrix)
+        
+        if self.method == "lobpcg":
+            from scipy.sparse.linalg import lobpcg
+            n = matrix.shape[0]
+            X = np.eye(n)  # Initial guess for all eigenvectors
+            vals, vecs = lobpcg(sparse_matrix, X, largest=False)
+            # Sort them
+            idx = np.argsort(vals)
+            return vals[idx], vecs[:, idx]
+        else:
+            raise ValueError(f"Unknown iterative method: {self.method}")
+
 class BandedEigenSolver(EigenSolver):
     """Banded matrix eigensolvers"""
     def __init__(self, method, **kwargs):
@@ -118,7 +175,10 @@ def get_solvers() -> List[EigenSolver]:
         
         # Banded solvers
         BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
-
+        
+        # Sparse solvers
+        SparseEigenSolver("eigsh"),
+        IterativeEigenSolver("lobpcg"),
     ]
     return solvers
 
