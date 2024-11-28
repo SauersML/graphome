@@ -143,11 +143,9 @@ def get_solvers() -> List[EigenSolver]:
         DenseEigenSolver(scipy.linalg.eigh, driver='evx'),
         DenseEigenSolver(scipy.linalg.eigh, subset_by_value=[-np.inf, np.inf]),
         DenseEigenSolver(scipy.linalg.eigh, lower=True, overwrite_a=True),
-        DenseEigenSolver(scipy.linalg.eigvalsh, lower=True, overwrite_a=True),
         
         # Banded solvers
         BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
-        BandedEigenSolver(scipy.linalg.eigvals_banded, lower=True),
         
         # Sparse solvers
         SparseEigenSolver(
