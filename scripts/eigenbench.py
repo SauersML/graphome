@@ -279,7 +279,7 @@ def benchmark_solver_batch(args: Tuple[EigenSolver, List[np.ndarray], str]) -> L
     if results:
         # Save batch results to temporary parquet file
         df = pd.DataFrame(results)
-        temp_file = os.path.join(temp_dir, f"{solver.name}_{time.time()}.parquet")
+        temp_file = os.path.join(temp_dir, f"{solver.name}_{time.time()}.csv")
         df.to_parquet(temp_file)
         save_event.set()
     
