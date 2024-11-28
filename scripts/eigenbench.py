@@ -25,6 +25,7 @@ from queue import Queue
 import signal
 import atexit
 import tempfile
+import concurrent.futures
 
 # Initialize colorama
 init(autoreset=True)
@@ -324,68 +325,127 @@ def verify_results(results: List[Dict]) -> bool:
 
 def run_benchmarks(config: BenchmarkConfig):
     """Main benchmark orchestration with parallel processing"""
+    logger.info("=== Starting Benchmark Run ===")
     solvers = get_solvers()
+    logger.info(f"Initialized {len(solvers)} solvers: {[s.name for s in solvers]}")
     
     # Create temporary directory for intermediate results
     temp_dir = tempfile.mkdtemp()
+    logger.info(f"Created temporary directory at {temp_dir}")
     
     # Start result saver thread
     output_path = os.path.join(config.output_dir, f"results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
+    logger.info(f"Results will be saved to {output_path}")
     saver = ResultSaver(output_path, temp_dir)
     saver.start()
+    logger.info("Started result saver thread")
     
     try:
+        logger.info(f"Starting ProcessPoolExecutor with {config.n_processes} workers")
         with ProcessPoolExecutor(max_workers=config.n_processes) as executor:
             for size in config.sizes:
-                logger.info(f"Benchmarking matrices of size {size}x{size}")
+                logger.info(f"\n{'='*80}\nStarting benchmark for size {size}x{size}\n{'='*80}")
                 
                 # Generate matrix batches
                 matrix_batches = []
-                for _ in range(0, config.samples_per_size, config.batch_size):
+                batch_count = 0
+                for batch_num in range(0, config.samples_per_size, config.batch_size):
+                    logger.info(f"Generating batch {batch_num}/{config.samples_per_size} for size {size}")
                     batch = []
-                    for _ in range(config.batch_size):
+                    for sample_idx in range(config.batch_size):
+                        logger.info(f"  Generating sample {sample_idx} in batch {batch_num}")
                         start_node = random.randint(0, config.max_node_id - size)
-                        output_path = run_rust_extractor(config, start_node, size)
-                        npy_files = list(Path(output_path).glob("*.npy"))
-                        if npy_files:
-                            matrix = load_laplacian(str(npy_files[0]))
-                            batch.append(matrix)
+                        try:
+                            output_path = run_rust_extractor(config, start_node, size)
+                            npy_files = list(Path(output_path).glob("*.npy"))
+                            if npy_files:
+                                matrix = load_laplacian(str(npy_files[0]))
+                                batch.append(matrix)
+                                logger.info(f"    Successfully loaded matrix from {npy_files[0]}")
+                            else:
+                                logger.warning(f"    No NPY files found in {output_path}")
+                        except Exception as e:
+                            logger.error(f"    Failed to generate sample: {e}")
+                    
                     if batch:
                         matrix_batches.append(batch)
+                        batch_count += 1
+                        logger.info(f"  Added batch {batch_num} with {len(batch)} matrices")
+                
+                logger.info(f"Generated {batch_count} batches for size {size}")
                 
                 # Submit solver tasks
-                future_to_solver = {
-                    executor.submit(benchmark_solver_batch, (solver, batch, temp_dir)): solver
-                    for solver in solvers
-                    for batch in matrix_batches
-                }
+                logger.info(f"\nSubmitting solver tasks for size {size}")
+                future_to_solver = {}
+                task_count = 0
+                for solver in solvers:
+                    for batch_idx, batch in enumerate(matrix_batches):
+                        logger.info(f"Submitting task: Solver={solver.name}, Batch={batch_idx}, Size={size}")
+                        future = executor.submit(benchmark_solver_batch, (solver, batch, temp_dir))
+                        future_to_solver[future] = (solver, batch_idx)
+                        task_count += 1
+                
+                logger.info(f"Submitted {task_count} tasks for size {size}")
                 
                 # Process results as they complete
                 batch_results = []
+                completed_tasks = 0
+                failed_tasks = 0
+                logger.info(f"\nProcessing results for size {size}")
+                
                 for future in tqdm(future_to_solver, desc="Processing batches"):
-                    solver = future_to_solver[future]
+                    solver, batch_idx = future_to_solver[future]
                     try:
-                        results = future.result()
+                        logger.info(f"Waiting for results: Solver={solver.name}, Batch={batch_idx}")
+                        start_time = time.time()
+                        results = future.result(timeout=3600)  # 1 hour timeout
+                        elapsed = time.time() - start_time
+                        logger.info(f"Completed: Solver={solver.name}, Batch={batch_idx}, Time={elapsed:.2f}s")
+                        
                         batch_results.extend(results)
+                        completed_tasks += 1
+                        
+                    except concurrent.futures.TimeoutError:
+                        logger.error(f"TIMEOUT: Solver={solver.name}, Batch={batch_idx}")
+                        failed_tasks += 1
                     except Exception as e:
-                        logger.error(f"Error in {solver.name}: {e}")
+                        logger.error(f"ERROR: Solver={solver.name}, Batch={batch_idx}, Error={str(e)}")
+                        failed_tasks += 1
+                
+                logger.info(f"\nSize {size} Summary:")
+                logger.info(f"Completed tasks: {completed_tasks}/{task_count}")
+                logger.info(f"Failed tasks: {failed_tasks}")
+                logger.info(f"Total results: {len(batch_results)}")
                 
                 # Verify results for this size
-                if not verify_results(batch_results):
-                    logger.warning(f"Result verification failed for size={size}")
+                if batch_results:
+                    verification_result = verify_results(batch_results)
+                    logger.info(f"Result verification for size {size}: {'PASSED' if verification_result else 'FAILED'}")
+                else:
+                    logger.warning(f"No results to verify for size {size}")
+                
+                logger.info(f"\nFinished processing size {size}")
+    
+    except Exception as e:
+        logger.error(f"Critical error in benchmark run: {e}", exc_info=True)
     
     finally:
+        logger.info("\nCleaning up...")
         # Stop result saver and clean up
         saver.stop()
         saver.join()
+        logger.info("Stopped result saver thread")
         
         # Final save
         saver.save_results()
+        logger.info("Saved final results")
         
         # Clean up temp directory
         import shutil
         shutil.rmtree(temp_dir)
-
+        logger.info("Cleaned up temporary directory")
+        
+        logger.info("=== Benchmark Run Complete ===")
 def plot_results(df: pd.DataFrame, output_dir: str):
     """Generate plots from benchmark results"""
     plots_dir = os.path.join(output_dir, "plots")
