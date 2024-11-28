@@ -423,6 +423,7 @@ def run_benchmarks(config: BenchmarkConfig):
             SparseEigenSolver("eigsh", k=None),   # Full spectrum sparse solver
             IterativeEigenSolver("lobpcg", maxiter=1000),  # Iterative for large matrices
             BandedEigenSolver(scipy.linalg.eigh_banded)  # For banded structure
+            BandedEigenSolver(eigh_banded, lower=True, select='a')
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
         
