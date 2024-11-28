@@ -1,19 +1,20 @@
 use ndarray::prelude::*;
 use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
-use std::io::Seek;
+use memmap2::MmapOptions;
+use indicatif::{ProgressBar, ProgressStyle};
+use parking_lot::Mutex;
 
-/// Configuration for windowed extraction
 pub struct WindowConfig {
-    pub start: usize,      // Start of full range
-    pub end: usize,        // End of full range
-    pub window_size: usize,// Size of each window
-    pub overlap: usize,    // Size of overlap between windows
+    pub start: usize,
+    pub end: usize,
+    pub window_size: usize,
+    pub overlap: usize,
 }
 
 impl WindowConfig {
@@ -30,9 +31,10 @@ impl WindowConfig {
         }
     }
 
-    /// Generate all window ranges based on configuration
     pub fn generate_windows(&self) -> Vec<(usize, usize)> {
-        let mut windows = Vec::new();
+        let mut windows = Vec::with_capacity(
+            ((self.end - self.start) / (self.window_size - self.overlap)).max(1)
+        );
         let step_size = self.window_size - self.overlap;
         
         let mut window_start = self.start;
@@ -41,7 +43,6 @@ impl WindowConfig {
             window_start += step_size;
         }
         
-        // Handle last window if there's remaining space
         if window_start < self.end {
             windows.push((self.end - self.window_size, self.end));
         }
@@ -50,70 +51,100 @@ impl WindowConfig {
     }
 }
 
-/// Fast Laplacian construction for a single window
-fn fast_laplacian_for_window(
-    reader: &mut BufReader<File>,
-    window_start: usize,
-    window_end: usize,
-) -> io::Result<Array2<f64>> {
-    let dim = window_end - window_start;
-    let mut laplacian = Array2::<f64>::zeros((dim, dim));
-    let mut degrees = Array1::<f64>::zeros(dim);
-    let mut buffer = [0u8; 8];
+#[derive(Clone)]
+struct EdgeList {
+    data: Arc<Vec<(usize, usize)>>,
+    index: Arc<Vec<(usize, usize)>>, // (start_idx, end_idx) ranges for each node
+}
 
-    // Seek to start of file
-    reader.seek(std::io::SeekFrom::Start(0))?;
+impl EdgeList {
+    fn new(path: &Path) -> io::Result<Self> {
+        // Memory map the file for fastest possible reading
+        let file = File::open(path)?;
+        let mmap = unsafe { MmapOptions::new().map(&file)? };
+        
+        // Pre-allocate vectors with capacity
+        let file_size = mmap.len();
+        let edge_count = file_size / 8;
+        let mut edges = Vec::with_capacity(edge_count);
+        let mut max_node = 0usize;
 
-    // Single pass through file
-    while let Ok(_) = reader.read_exact(&mut buffer) {
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
-
-        if (window_start..window_end).contains(&from) && (window_start..window_end).contains(&to) {
-            let i = from - window_start;
-            let j = to - window_start;
-            
-            laplacian[[i, j]] = -1.0;
-            degrees[i] += 1.0;
+        // Fast batch processing of memory mapped file
+        for chunk in mmap.chunks_exact(8) {
+            let from = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
+            let to = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;
+            max_node = max_node.max(from).max(to);
+            edges.push((from, to));
         }
+
+        // Sort edges for better cache locality
+        edges.par_sort_unstable();
+
+        // Build index for O(1) node access
+        let mut index = vec![(0, 0); max_node + 1];
+        let mut current_node = 0;
+        let mut start_idx = 0;
+
+        for (i, &(from, _)) in edges.iter().enumerate() {
+            while current_node < from {
+                index[current_node] = (start_idx, i);
+                current_node += 1;
+                start_idx = i;
+            }
+        }
+        while current_node <= max_node {
+            index[current_node] = (start_idx, edges.len());
+            current_node += 1;
+        }
+
+        Ok(Self {
+            data: Arc::new(edges),
+            index: Arc::new(index),
+        })
+    }
+
+    fn get_edges_for_window(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
+        let mut result = Vec::new();
+        
+        // Use index to get relevant edge ranges
+        for node in start..end {
+            if node >= self.index.len() {
+                break;
+            }
+            let (start_idx, end_idx) = self.index[node];
+            for &edge in &self.data[start_idx..end_idx] {
+                if edge.1 < end {
+                    result.push(edge);
+                }
+            }
+        }
+        
+        result
+    }
+}
+
+fn compute_laplacian(
+    edges: &[(usize, usize)],
+    window_start: usize,
+    window_size: usize,
+) -> Array2<f64> {
+    let mut laplacian = Array2::<f64>::zeros((window_size, window_size));
+    let mut degrees = vec![0.0; window_size];
+
+    // Process edges
+    for &(from, to) in edges {
+        let i = from - window_start;
+        let j = to - window_start;
+        laplacian[[i, j]] = -1.0;
+        degrees[i] += 1.0;
     }
 
     // Fill diagonal with degrees
-    for i in 0..dim {
-        laplacian[[i, i]] = degrees[i];
-    }
-
-    Ok(laplacian)
+    laplacian.diag_mut().assign(&Array1::from(degrees));
+    
+    laplacian
 }
 
-/// Process a single window and save its Laplacian
-fn process_window(
-    file_path: &Path,
-    output_dir: &Path,
-    window_start: usize,
-    window_end: usize,
-) -> io::Result<()> {
-    let file = File::open(file_path)?;
-    let mut reader = BufReader::new(file);
-    
-    // Compute Laplacian for this window
-    let laplacian = fast_laplacian_for_window(&mut reader, window_start, window_end)?;
-    
-    // Create output filename with window range
-    let output_file = output_dir.join(format!(
-        "laplacian_{:06}_{:06}.npy",
-        window_start,
-        window_end
-    ));
-    
-    // Save to .npy file
-    write_npy(&output_file, &laplacian)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    
-    Ok(())
-}
-
-/// Extract and save Laplacian matrices for all windows in parallel
 pub fn parallel_extract_windows<P: AsRef<Path>>(
     edge_list_path: P,
     output_dir: P,
@@ -121,33 +152,58 @@ pub fn parallel_extract_windows<P: AsRef<Path>>(
 ) -> io::Result<()> {
     let start_time = Instant::now();
     println!("🚀 Starting parallel window extraction");
-    
-    // Create output directory if it doesn't exist
+
+    // Create output directory
     std::fs::create_dir_all(&output_dir)?;
-    
-    // Generate all window ranges
+
+    // Load edges with indexing
+    println!("📚 Loading and indexing edge list...");
+    let edge_list = EdgeList::new(edge_list_path.as_ref())?;
+    println!("✅ Loaded {} edges", edge_list.data.len());
+
+    // Generate windows
     let windows = config.generate_windows();
-    println!("📊 Processing {} windows", windows.len());
-    
-    // Convert paths to Arc for thread safety
-    let edge_list_path = Arc::new(edge_list_path.as_ref().to_path_buf());
-    let output_dir = Arc::new(output_dir.as_ref().to_path_buf());
-    
-    // Process windows in parallel
-    windows.par_iter().try_for_each(|(start, end)| {
-        let edge_list = edge_list_path.clone();
-        let out_dir = output_dir.clone();
-        
-        process_window(
-            edge_list.as_ref(),
-            out_dir.as_ref(),
-            *start,
-            *end,
-        )
+    println!("📊 Processing {} windows in parallel", windows.len());
+
+    // Setup progress bar
+    let progress = Arc::new(Mutex::new(ProgressBar::new(windows.len() as u64)));
+    progress.lock().set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} windows {msg}")
+            .expect("Invalid progress bar template")
+    );
+
+    // Process windows in parallel with chunk size optimization
+    windows.par_chunks(num_cpus::get().max(1)).try_for_each(|chunk| {
+        let edge_list = edge_list.clone();
+        let output_dir = output_dir.as_ref().to_path_buf();
+        let progress = Arc::clone(&progress);
+
+        chunk.iter().try_for_each(|&(start, end)| {
+            // Get relevant edges for this window
+            let window_edges = edge_list.get_edges_for_window(start, end);
+            
+            // Compute Laplacian
+            let window_size = end - start;
+            let laplacian = compute_laplacian(&window_edges, start, window_size);
+
+            // Save to NPY
+            let output_file = output_dir.join(format!(
+                "laplacian_{:06}_{:06}.npy",
+                start, end
+            ));
+            write_npy(&output_file, &laplacian)
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+            progress.lock().inc(1);
+            Ok(())
+        })
     })?;
 
+    progress.lock().finish_with_message("✨ Complete!");
+    
     let duration = start_time.elapsed();
-    println!("✨ Completed processing {} windows in {:.2?}", windows.len(), duration);
+    println!("✨ Processed {} windows in {:.2?}", windows.len(), duration);
     
     Ok(())
 }
