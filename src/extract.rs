@@ -153,7 +153,7 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
     Ok(edges)
 }
 
-/// Extracts submatrices and saves them as .npy files without eigenanalysis
+/// Extracts and saves just the Laplacian matrix as .npy file
 pub fn extract_and_save_matrices<P: AsRef<Path>>(
     edge_list_path: P,
     start_node: usize,
@@ -189,15 +189,10 @@ pub fn extract_and_save_matrices<P: AsRef<Path>>(
     let output_dir = output_dir.as_ref();
     std::fs::create_dir_all(output_dir)?;
 
-    // Save matrices as .npy files
-    println!("💾 Saving matrices to .npy files...");
-    
-    let adj_path = output_dir.join("adjacency.npy");
+    // Save just the Laplacian matrix as .npy file
+    println!("💾 Saving Laplacian matrix to .npy file...");
+
     let lap_path = output_dir.join("laplacian.npy");
-    
-    println!("Saving adjacency matrix to {:?}", adj_path);
-    write_npy(&adj_path, &adj_matrix).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-    
     println!("Saving Laplacian matrix to {:?}", lap_path);
     write_npy(&lap_path, &laplacian).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
