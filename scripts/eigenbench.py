@@ -9,13 +9,13 @@ import argparse
 from dataclasses import dataclass
 import logging
 import logging.handlers
-import scipy.linalg
-import scipy.sparse.linalg
 import warnings
 import json
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
+from scipy.sparse.linalg import eigsh, lobpcg
+from scipy.linalg import eigh, eigh_banded, eig_banded
 import seaborn as sns
 from tqdm import tqdm
 import multiprocessing as mp
