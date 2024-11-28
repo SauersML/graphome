@@ -165,7 +165,6 @@ def get_solvers() -> List[EigenSolver]:
     """Configure all eigensolvers to benchmark"""
     solvers = [
         # Dense solvers from numpy
-        DenseEigenSolver(np.linalg.eigh),
         DenseEigenSolver(np.linalg.eig),
         
         # Dense solvers from scipy
