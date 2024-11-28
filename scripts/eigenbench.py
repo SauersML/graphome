@@ -412,7 +412,7 @@ def run_benchmarks(config: BenchmarkConfig):
     try:
         # Create solvers
         solvers = [
-            DenseEigenSolver(scipy.linalg.eigh),  # Full-rank symmetric solver
+            #DenseEigenSolver(scipy.linalg.eigh),  # Full-rank symmetric solver
             BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
             BandedEigenSolver(scipy.linalg.eig_banded, lower=False),
             SparseEigenSolver("eigsh", which='LM'),  # Largest magnitude
