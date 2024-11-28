@@ -195,23 +195,25 @@ class SparseEigenSolver(EigenSolver):
             sparse_matrix = self.to_sparse(matrix)
             
             if self.method == "eigsh":
-                from scipy.sparse.linalg import eigsh
                 start = time.perf_counter()
                 
-                n = matrix.shape[0] - 1
-                self.logger.debug(f"[PID:{pid}] Computing {n} eigenvalues")
+                n = matrix.shape[0]
+                self.logger.debug(f"[PID:{pid}] Computing all {n} eigenvalues")
                 
-                vals, vecs = eigsh(sparse_matrix, k=n, which='LM')
+                # k=None means compute all eigenvalues
+                vals, vecs = eigsh(sparse_matrix, k=n-1)  # n-1 since one is always 0
                 elapsed = time.perf_counter() - start
                 
                 self.logger.debug(f"[PID:{pid}] Sparse solve completed in {elapsed:.2f}s")
                 
+                # Sort and verify eigenvalues are non-negative
                 idx = np.argsort(vals)
-                return vals[idx], vecs[:, idx]
+                vals, vecs = vals[idx], vecs[:, idx]
                 
-        except Exception as e:
-            self.logger.error(f"[PID:{pid}] Error in sparse solve: {str(e)}")
-            raise
+                if not np.all(vals >= -1e-10):  # Allow small numerical error
+                    self.logger.warning(f"[PID:{pid}] Found negative eigenvalues!")
+                
+                return vals, vecs
 
 class IterativeEigenSolver(EigenSolver):
     """Iterative eigensolvers with detailed logging"""
@@ -412,14 +414,10 @@ def run_benchmarks(config: BenchmarkConfig):
     try:
         # Create solvers
         solvers = [
-            #DenseEigenSolver(scipy.linalg.eigh),  # Full-rank symmetric solver
-            BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
-            BandedEigenSolver(scipy.linalg.eig_banded, lower=False),
-            SparseEigenSolver("eigsh", which='LM'),  # Largest magnitude
-            SparseEigenSolver("eigsh", which='SM'),  # Smallest magnitude
-            SparseEigenSolver("eigsh", which='BE'),  # Both ends
-            #IterativeEigenSolver("lobpcg", largest=True),
-            #IterativeEigenSolver("lobpcg", largest=False)
+            DenseEigenSolver(scipy.linalg.eigh),  # Dense direct solver for small matrices
+            SparseEigenSolver("eigsh", k=None),   # Full spectrum sparse solver
+            IterativeEigenSolver("lobpcg", maxiter=1000),  # Iterative for large matrices
+            BandedEigenSolver(scipy.linalg.eigh_banded)  # For banded structure
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
         
@@ -502,8 +500,14 @@ def run_benchmarks(config: BenchmarkConfig):
                     if all_results:
                         verification_result = verify_results(all_results[-len(completed_solvers):])
                         logger.info(f"Result verification: {'PASSED' if verification_result else 'FAILED'}")
+                        
+                        # Save results periodically
+                        if len(all_results) % 5 == 0:
+                            interim_df = pd.DataFrame(all_results)
+                            save_results(interim_df, config.output_dir)
+                            logger.info(f"Saved interim results, {len(all_results)} benchmarks completed")
             
-            return pd.DataFrame(all_results)
+                return pd.DataFrame(all_results)
     
     finally:
         monitor.stop()
@@ -552,15 +556,23 @@ def verify_results(results: List[Dict]) -> bool:
             if time_std / time_mean > 0.5:  # Allow up to 50% variation
                 logger.warning(f"High timing variance for {solver}: std/mean = {time_std/time_mean:.2f}")
             
-            # Check eigenvalue consistency if available
-            for result in solver_data:
-                if result["eigenvalues"] is not None:
-                    if not isinstance(result["eigenvalues"], list):
-                        logger.error(f"Eigenvalues not in list format for {solver}")
-                        return False
-                    if len(result["eigenvalues"]) > 6:
-                        logger.error(f"Too many eigenvalues stored for {solver}")
-                        return False
+        # Check eigenvalue consistency and Laplacian properties
+        for result in solver_data:
+            if result["eigenvalues"] is not None:
+                if not isinstance(result["eigenvalues"], list):
+                    logger.error(f"Eigenvalues not in list format for {solver}")
+                    return False
+                if len(result["eigenvalues"]) > 6:
+                    logger.error(f"Too many eigenvalues stored for {solver}")
+                    return False
+                
+                # Verify Laplacian properties
+                eigs = result["eigenvalues"]
+                if not all(e >= -1e-10 for e in eigs):
+                    logger.error(f"Found negative eigenvalues in {solver}")
+                    return False
+                if abs(eigs[0]) > 1e-10:
+                    logger.warning(f"Smallest eigenvalue not zero in {solver}")
         
         logger.info("All verification checks passed successfully")
         return True
