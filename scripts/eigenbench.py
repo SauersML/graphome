@@ -209,11 +209,16 @@ class SparseEigenSolver(EigenSolver):
                 # Sort and verify eigenvalues are non-negative
                 idx = np.argsort(vals)
                 vals, vecs = vals[idx], vecs[:, idx]
-                
+    
                 if not np.all(vals >= -1e-10):  # Allow small numerical error
                     self.logger.warning(f"[PID:{pid}] Found negative eigenvalues!")
                 
                 return vals, vecs
+                
+        except Exception as e:
+            self.logger.error(f"[PID:{pid}] Error in sparse solve: {str(e)}")
+            raise
+
 
 class IterativeEigenSolver(EigenSolver):
     """Iterative eigensolvers with detailed logging"""
