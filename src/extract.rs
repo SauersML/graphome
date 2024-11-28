@@ -153,6 +153,43 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
     Ok(edges)
 }
 
+/// Fast Laplacian construction directly from GAM file
+pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
+    path: P,
+    start_node: usize,
+    end_node: usize,
+) -> io::Result<Array2<f64>> {
+    let dim = end_node - start_node + 1;
+    let mut laplacian = Array2::<f64>::zeros((dim, dim));
+    let mut degrees = Array1::<f64>::zeros(dim);
+    
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut buffer = [0u8; 8];
+
+    // Single pass through file
+    while let Ok(_) = reader.read_exact(&mut buffer) {
+        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+
+        if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to) {
+            let i = from - start_node;
+            let j = to - start_node;
+            
+            // Update Laplacian and degrees in one pass
+            laplacian[[i, j]] = -1.0;
+            degrees[i] += 1.0;
+        }
+    }
+
+    // Fill in diagonal with degrees
+    for i in 0..dim {
+        laplacian[[i, i]] = degrees[i];
+    }
+
+    Ok(laplacian)
+}
+
 /// Extracts and saves just the Laplacian matrix as .npy file
 pub fn extract_and_save_matrices<P: AsRef<Path>>(
     edge_list_path: P,
@@ -162,42 +199,21 @@ pub fn extract_and_save_matrices<P: AsRef<Path>>(
 ) -> io::Result<()> {
     let start_time = Instant::now();
 
-    // Load the adjacency matrix from the .gam file
-    println!(
-        "📂 Loading adjacency matrix from {:?}",
-        edge_list_path.as_ref()
-    );
+    println!("📂 Computing Laplacian directly from {:?}", edge_list_path.as_ref());
 
-    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(
-        &edge_list_path,
-        start_node,
-        end_node,
-    )?));
+    // Single pass construction
+    let laplacian = fast_laplacian_from_gam(&edge_list_path, start_node, end_node)?;
 
-    println!("✅ Loaded adjacency matrix.");
-
-    // Convert to ndarray format
-    let adj_matrix = 
-        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
-
-    // Compute degree matrix and Laplacian
-    let degrees = adj_matrix.sum_axis(Axis(1));
-    let degree_matrix = Array2::<f64>::from_diag(&degrees);
-    let laplacian = &degree_matrix - &adj_matrix;
-
-    // Create output directory if it doesn't exist
+    // Save result
     let output_dir = output_dir.as_ref();
     std::fs::create_dir_all(output_dir)?;
-
-    // Save just the Laplacian matrix as .npy file
-    println!("💾 Saving Laplacian matrix to .npy file...");
-
+    
     let lap_path = output_dir.join("laplacian.npy");
     println!("Saving Laplacian matrix to {:?}", lap_path);
     write_npy(&lap_path, &laplacian).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     let duration = start_time.elapsed();
     println!("⏰ Completed in {:.2?} seconds.", duration);
-
+    
     Ok(())
 }
