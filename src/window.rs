@@ -145,7 +145,7 @@ fn compute_laplacian(
     laplacian
 }
 
-pub fn parallel_extract_windows<P: AsRef<Path>>(
+pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
     edge_list_path: P,
     output_dir: P,
     config: WindowConfig,
@@ -160,6 +160,10 @@ pub fn parallel_extract_windows<P: AsRef<Path>>(
     println!("📚 Loading and indexing edge list...");
     let edge_list = EdgeList::new(edge_list_path.as_ref())?;
     println!("✅ Loaded {} edges", edge_list.data.len());
+
+    // Convert output_dir to PathBuf once, before parallel processing
+    let output_dir = PathBuf::from(output_dir.as_ref());
+    let output_dir = Arc::new(output_dir);
 
     // Generate windows
     let windows = config.generate_windows();
@@ -176,7 +180,7 @@ pub fn parallel_extract_windows<P: AsRef<Path>>(
     // Process windows in parallel with chunk size optimization
     windows.par_chunks(num_cpus::get().max(1)).try_for_each(|chunk| {
         let edge_list = edge_list.clone();
-        let output_dir = output_dir.as_ref().to_path_buf();
+        let output_dir = Arc::clone(&output_dir);
         let progress = Arc::clone(&progress);
 
         chunk.iter().try_for_each(|&(start, end)| {
