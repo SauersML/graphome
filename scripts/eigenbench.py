@@ -484,6 +484,66 @@ def run_benchmarks(config: BenchmarkConfig):
         monitor.stop()
         logger.info("Benchmark run complete")
 
+
+def verify_results(results: List[Dict]) -> bool:
+    """
+    Verify benchmark results for consistency and validity.
+    
+    Args:
+        results: List of benchmark result dictionaries
+    
+    Returns:
+        bool: True if all verification checks pass, False otherwise
+    """
+    logger = logging.getLogger("verification")
+    
+    try:
+        if not results:
+            logger.warning("No results to verify")
+            return False
+            
+        # Check that all results have required fields
+        required_fields = {"solver", "size", "time", "std", "eigenvalues", "timestamp", "process_id"}
+        for result in results:
+            missing_fields = required_fields - set(result.keys())
+            if missing_fields:
+                logger.error(f"Missing required fields: {missing_fields}")
+                return False
+        
+        # Group results by solver
+        solver_results = {}
+        for result in results:
+            solver = result["solver"]
+            if solver not in solver_results:
+                solver_results[solver] = []
+            solver_results[solver].append(result)
+        
+        # Verify each solver's results
+        for solver, solver_data in solver_results.items():
+            # Check timing consistency
+            times = [r["time"] for r in solver_data]
+            time_std = np.std(times)
+            time_mean = np.mean(times)
+            if time_std / time_mean > 0.5:  # Allow up to 50% variation
+                logger.warning(f"High timing variance for {solver}: std/mean = {time_std/time_mean:.2f}")
+            
+            # Check eigenvalue consistency if available
+            for result in solver_data:
+                if result["eigenvalues"] is not None:
+                    if not isinstance(result["eigenvalues"], list):
+                        logger.error(f"Eigenvalues not in list format for {solver}")
+                        return False
+                    if len(result["eigenvalues"]) > 6:
+                        logger.error(f"Too many eigenvalues stored for {solver}")
+                        return False
+        
+        logger.info("All verification checks passed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error during result verification: {str(e)}", exc_info=True)
+        return False
+
 def load_results_from_temp(temp_dir: str) -> pd.DataFrame:
     """Load and combine all result files from temp directory"""
     logger = logging.getLogger("results")
