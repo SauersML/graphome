@@ -401,26 +401,28 @@ def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray,
         return None
 
 def run_benchmarks(config: BenchmarkConfig):
-    """Main benchmark orchestration with improved parallelism and monitoring"""
+    """Main benchmark orchestration with improved parallelism, monitoring, and timeout logic"""
     logger = logging.getLogger("main")
     
-    # Start process monitor
     monitor = ProcessMonitor()
     monitor.start()
     
     try:
         # Create solvers
         solvers = [
+            DenseEigenSolver(scipy.linalg.eigh),  # Full-rank symmetric solver
             BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
-            SparseEigenSolver("eigsh"),
-            IterativeEigenSolver("lobpcg")
+            BandedEigenSolver(scipy.linalg.eig_banded, lower=False),
+            SparseEigenSolver("eigsh", which='LM'),  # Largest magnitude
+            SparseEigenSolver("eigsh", which='SM'),  # Smallest magnitude
+            SparseEigenSolver("eigsh", which='BE'),  # Both ends
+            IterativeEigenSolver("lobpcg", largest=True),
+            IterativeEigenSolver("lobpcg", largest=False)
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
         
-        # Create temporary directory for results
         with tempfile.TemporaryDirectory() as temp_dir:
             logger.info(f"Created temporary directory: {temp_dir}")
-            
             all_results = []
             
             # Process each matrix size sequentially
@@ -430,8 +432,8 @@ def run_benchmarks(config: BenchmarkConfig):
                 # Generate matrices for this size
                 matrices = []
                 for i in range(config.samples_per_size):
-                    start_node = random.randint(0, config.max_node_id - size)
                     try:
+                        start_node = random.randint(0, config.max_node_id - size)
                         output_path = run_rust_extractor(config, start_node, size)
                         npy_files = list(Path(output_path).glob("*.npy"))
                         if npy_files:
@@ -443,40 +445,61 @@ def run_benchmarks(config: BenchmarkConfig):
                 
                 logger.info(f"Generated {len(matrices)} matrices for size {size}")
                 
-                # Create benchmark tasks
-                tasks = [
-                    (solver, matrix, temp_dir, size)
-                    for solver in solvers
-                    for matrix in matrices
-                ]
-                
-                # Run benchmarks with process pool
-                size_results = []
-                with ProcessPoolExecutor(max_workers=config.n_processes) as executor:
-                    future_to_task = {
-                        executor.submit(run_single_benchmark, *task): task
-                        for task in tasks
-                    }
+                # For each matrix...
+                for matrix_idx, matrix in enumerate(matrices):
+                    logger.info(f"Running solvers on matrix {matrix_idx + 1}/{len(matrices)}")
                     
-                    for future in concurrent.futures.as_completed(future_to_task):
-                        solver, matrix, _, _ = future_to_task[future]
-                        try:
-                            result = future.result(timeout=config.timeout)
-                            if result:
-                                size_results.append(result)
-                                logger.info(f"Completed {solver.name} benchmark")
-                        except concurrent.futures.TimeoutError:
-                            logger.error(f"Timeout for {solver.name}")
-                        except Exception as e:
-                            logger.error(f"Error in {solver.name}: {e}")
-                
-                logger.info(f"Completed {len(size_results)}/{len(tasks)} benchmarks for size {size}")
-                all_results.extend(size_results)
-                
-                # Verify results for this size
-                if size_results:
-                    verification_result = verify_results(size_results)
-                    logger.info(f"Result verification for size {size}: {'PASSED' if verification_result else 'FAILED'}")
+                    # Track completed solvers and their times
+                    completed_solvers = {}
+                    
+                    # Create tasks for all solvers
+                    with ProcessPoolExecutor(max_workers=config.n_processes) as executor:
+                        futures = {}
+                        for solver in solvers:
+                            future = executor.submit(run_single_benchmark, solver, matrix, temp_dir, size)
+                            futures[future] = solver
+                        
+                        # Wait for completion or timeout
+                        pending = set(futures.keys())
+                        
+                        while pending:
+                            # Wait for next result
+                            done, pending = concurrent.futures.wait(
+                                pending, 
+                                timeout=1.0,
+                                return_when=concurrent.futures.FIRST_COMPLETED
+                            )
+                            
+                            # Process completed solvers
+                            for future in done:
+                                solver = futures[future]
+                                try:
+                                    result = future.result(timeout=0)
+                                    if result:
+                                        completed_solvers[solver.name] = result["time"]
+                                        all_results.append(result)
+                                        logger.info(f"Completed {solver.name} benchmark")
+                                except Exception as e:
+                                    logger.error(f"Error in {solver.name}: {e}")
+                            
+                            # Check if we should timeout remaining solvers
+                            if len(completed_solvers) >= 2:  # At least 2 methods finished
+                                # Get the two fastest times
+                                fastest_times = sorted(completed_solvers.values())[:2]
+                                fastest_time = sum(fastest_times) / len(fastest_times)
+                                
+                                # Check if remaining solvers are taking too long
+                                elapsed = time.perf_counter() - monitor.start_time
+                                if elapsed > fastest_time + 10:  # 10 second grace period
+                                    logger.warning(f"Cancelling {len(pending)} remaining solvers after 10s timeout")
+                                    for future in pending:
+                                        future.cancel()
+                                    break
+                        
+                    # Verify results for this matrix
+                    if all_results:
+                        verification_result = verify_results(all_results[-len(completed_solvers):])
+                        logger.info(f"Result verification: {'PASSED' if verification_result else 'FAILED'}")
             
             return pd.DataFrame(all_results)
     
