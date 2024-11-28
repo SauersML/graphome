@@ -418,8 +418,8 @@ def run_benchmarks(config: BenchmarkConfig):
             SparseEigenSolver("eigsh", which='LM'),  # Largest magnitude
             SparseEigenSolver("eigsh", which='SM'),  # Smallest magnitude
             SparseEigenSolver("eigsh", which='BE'),  # Both ends
-            IterativeEigenSolver("lobpcg", largest=True),
-            IterativeEigenSolver("lobpcg", largest=False)
+            #IterativeEigenSolver("lobpcg", largest=True),
+            #IterativeEigenSolver("lobpcg", largest=False)
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
         
