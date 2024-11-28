@@ -119,9 +119,6 @@ def get_solvers() -> List[EigenSolver]:
         # Banded solvers
         BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
 
-        
-        # Randomized methods
-        RandomizedSolver(),
     ]
     return solvers
 
