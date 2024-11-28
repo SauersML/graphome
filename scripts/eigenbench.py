@@ -163,7 +163,16 @@ class BandedEigenSolver(EigenSolver):
 
 def get_solvers() -> List[EigenSolver]:
     """Configure all eigensolvers to benchmark"""
-    solvers = [                
+    solvers = [
+        # Dense solvers from numpy
+        DenseEigenSolver(np.linalg.eig),
+        
+        # Dense solvers from scipy
+        DenseEigenSolver(scipy.linalg.eigh, driver='evr'),
+        DenseEigenSolver(scipy.linalg.eigh, driver='evx'),
+        DenseEigenSolver(scipy.linalg.eigh, subset_by_value=[-np.inf, np.inf]),
+        DenseEigenSolver(scipy.linalg.eigh, lower=True, overwrite_a=True),
+        
         # Banded solvers
         BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
         
