@@ -299,9 +299,9 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     // Write (from, to)
                     writer.write_all(&from_index.to_le_bytes()).unwrap();
                     writer.write_all(&to_index.to_le_bytes()).unwrap();
-                    // Write (to, from) for bidirectionality
-                    writer.write_all(&to_index.to_le_bytes()).unwrap();
-                    writer.write_all(&from_index.to_le_bytes()).unwrap();
+                    // Write (to, from) for bidirectionality -- unnecessary if we understand that all edges are bidirectional
+                    //writer.write_all(&to_index.to_le_bytes()).unwrap();
+                    //writer.write_all(&from_index.to_le_bytes()).unwrap();
 
                     let mut edge_counter = edge_counter.lock().unwrap();
                     *edge_counter += 2;
