@@ -11,7 +11,6 @@ import logging
 from colorama import init, Fore, Style
 import scipy.linalg
 import scipy.sparse.linalg
-from sklearn.utils.extmath import randomized_svd
 import warnings
 import json
 from datetime import datetime
@@ -103,19 +102,6 @@ class BandedEigenSolver(EigenSolver):
             raise ValueError("Matrix must be symmetric")
         bands, _ = self.extract_bands(matrix)
         return self.method(bands, **self.kwargs)
-
-class RandomizedSolver(EigenSolver):
-    """Randomized SVD-based solvers"""
-    def __init__(self, n_components=None):
-        super().__init__("randomized_svd")
-        self.n_components = n_components
-    
-    def solve(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        if not self.check_symmetry(matrix):
-            raise ValueError("Matrix must be symmetric")
-        n_components = self.n_components or matrix.shape[0] // 10
-        U, S, Vt = randomized_svd(matrix, n_components=n_components)
-        return S, U
 
 def get_solvers() -> List[EigenSolver]:
     """Configure all eigensolvers to benchmark"""
