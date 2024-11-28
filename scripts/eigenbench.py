@@ -104,20 +104,6 @@ class BandedEigenSolver(EigenSolver):
         bands, _ = self.extract_bands(matrix)
         return self.method(bands, **self.kwargs)
 
-class SparseEigenSolver(EigenSolver):
-    """Sparse matrix eigensolvers"""
-    def __init__(self, name: str, method, **kwargs):
-        super().__init__(f"sparse_{name}")
-        self.method = method
-        self.kwargs = kwargs
-    
-    def solve(self, matrix: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        if not self.check_symmetry(matrix):
-            raise ValueError("Matrix must be symmetric")
-        from scipy.sparse import csr_matrix
-        sparse_matrix = csr_matrix(matrix)
-        return self.method(sparse_matrix, **self.kwargs)
-
 class RandomizedSolver(EigenSolver):
     """Randomized SVD-based solvers"""
     def __init__(self, n_components=None):
@@ -146,20 +132,7 @@ def get_solvers() -> List[EigenSolver]:
         
         # Banded solvers
         BandedEigenSolver(scipy.linalg.eig_banded, lower=True),
-        
-        # Sparse solvers
-        SparseEigenSolver(
-            "eigsh_smallest",
-            scipy.sparse.linalg.eigsh,
-            k=6,
-            which='SM'
-        ),
-        SparseEigenSolver(
-            "eigsh_largest",
-            scipy.sparse.linalg.eigsh,
-            k=6,
-            which='LM'
-        ),
+
         
         # Randomized methods
         RandomizedSolver(),
