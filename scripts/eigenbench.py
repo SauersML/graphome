@@ -348,21 +348,21 @@ def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray,
     """Run a single benchmark for one solver on one matrix"""
     pid = os.getpid()
     logger = logging.getLogger(f"benchmark.{solver.name}.{pid}")
-    
+
     try:
         logger.debug(f"Starting benchmark for {solver.name} on {size}x{size} matrix")
-        
+    
         # Check available memory
         mem = psutil.virtual_memory()
         logger.debug(f"Available memory: {mem.available / 1024**3:.1f}GB")
-        
+    
         # Warmup run with timeout
         logger.debug("Starting warmup run")
         warmup_start = time.perf_counter()
         solver.solve(matrix.copy())
         warmup_time = time.perf_counter() - warmup_start
         logger.debug(f"Warmup completed in {warmup_time:.2f}s")
-        
+    
         # Actual benchmark runs
         times = []
         for run_idx in range(3):
@@ -372,25 +372,30 @@ def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray,
             elapsed = time.perf_counter() - start
             times.append(elapsed)
             logger.debug(f"Run {run_idx + 1} completed in {elapsed:.2f}s")
-        
+    
+        # Convert numpy arrays to lists for JSON serialization
+        eigenvalues = None
+        if vals is not None:
+            eigenvalues = vals[:6].tolist()  # Convert first 6 eigenvalues to list
+    
         result = {
             "solver": solver.name,
             "size": size,
-            "time": np.mean(times),
-            "std": np.std(times),
-            "eigenvalues": vals[:6] if vals is not None else None,
+            "time": float(np.mean(times)),
+            "std": float(np.std(times)),
+            "eigenvalues": eigenvalues,
             "timestamp": datetime.now().isoformat(),
             "process_id": pid
         }
-        
+    
         # Save individual result
         result_path = os.path.join(temp_dir, f"{solver.name}_{size}_{time.time()}.json")
         with open(result_path, 'w') as f:
             json.dump(result, f)
-        
+    
         logger.debug(f"Benchmark complete, result saved to {result_path}")
         return result
-        
+
     except Exception as e:
         logger.error(f"Error in benchmark: {str(e)}", exc_info=True)
         return None
