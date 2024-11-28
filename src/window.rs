@@ -94,7 +94,7 @@ impl EdgeList {
         let mut seen_edges = HashSet::new();
 
         // Process chunks in parallel for faster loading
-        mmap[start_pos..end_pos].par_chunks_exact(8)
+        edges = mmap[start_pos..end_pos].par_chunks_exact(8)
             .filter_map(|chunk| {
                 let from = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
                 let to = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;
@@ -107,7 +107,7 @@ impl EdgeList {
                     None
                 }
             })
-            .collect_into_vec(&mut edges);
+            .collect();
 
         // Remove duplicates while preserving order
         edges.retain(|&edge| seen_edges.insert(edge));
