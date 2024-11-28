@@ -196,10 +196,10 @@ pub fn extract_and_save_matrices<P: AsRef<Path>>(
     let lap_path = output_dir.join("laplacian.npy");
     
     println!("Saving adjacency matrix to {:?}", adj_path);
-    write_npy(&adj_path, &adj_matrix)?;
+    write_npy(&adj_path, &adj_matrix).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     
     println!("Saving Laplacian matrix to {:?}", lap_path);
-    write_npy(&lap_path, &laplacian)?;
+    write_npy(&lap_path, &laplacian).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
     let duration = start_time.elapsed();
     println!("⏰ Completed in {:.2?} seconds.", duration);
