@@ -149,7 +149,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
     edge_list_path: P,
     output_dir: P,
     config: WindowConfig,
-) -> io::Result<()> {
+) -> io::Result<()> { 
     let start_time = Instant::now();
     println!("🚀 Starting parallel window extraction");
 
@@ -200,7 +200,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
             progress.lock().inc(1);
-            Ok::<(), E>(())
+            Ok::<(), io::Error>(())
         })
     })?;
 
@@ -209,5 +209,5 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
     let duration = start_time.elapsed();
     println!("✨ Processed {} windows in {:.2?}", windows.len(), duration);
     
-    Ok::<(), E>(())
+    Ok::<(), io::Error>(())
 }
