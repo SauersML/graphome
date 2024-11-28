@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
- use std::io::Seek;
+use std::io::Seek;
 
 /// Configuration for windowed extraction
 pub struct WindowConfig {
