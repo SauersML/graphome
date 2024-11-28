@@ -302,6 +302,47 @@ class BandedEigenSolver(EigenSolver):
             self.logger.error(f"[PID:{pid}] Error in banded solve: {str(e)}")
             raise
 
+
+def run_rust_extractor(
+    config: BenchmarkConfig,
+    start_node: int,
+    size: int
+) -> str:
+    """Run the Rust binary to extract a window"""
+    output_subdir = f"window_{start_node}_{size}"
+    output_path = os.path.join(config.output_dir, output_subdir)
+    os.makedirs(output_path, exist_ok=True)
+    
+    overlap = int(size * config.overlap_ratio)
+    logger = logging.getLogger("extractor")
+    logger.debug(f"Extracting window: start={start_node}, size={size}, overlap={overlap}")
+    
+    cmd = [
+        config.rust_binary,
+        "extract-windows",
+        "--input", config.matrix_path,
+        "--start-node", str(start_node),
+        "--end-node", str(start_node + size),
+        "--window-size", str(size),
+        "--overlap", str(overlap),
+        "--output", output_path
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return output_path
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error running Rust extractor: {e.stderr}")
+        raise
+
+def load_laplacian(npy_path: str) -> np.ndarray:
+    """Load a Laplacian matrix from NPY file"""
+    logger = logging.getLogger("loader")
+    logger.debug(f"Loading matrix from {npy_path}")
+    return np.load(npy_path)
+
+
+
 def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray, 
                         temp_dir: str, size: int) -> Optional[Dict]:
     """Run a single benchmark for one solver on one matrix"""
