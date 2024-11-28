@@ -152,3 +152,57 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
 
     Ok(edges)
 }
+
+/// Extracts submatrices and saves them as .npy files without eigenanalysis
+pub fn extract_and_save_matrices<P: AsRef<Path>>(
+    edge_list_path: P,
+    start_node: usize,
+    end_node: usize,
+    output_dir: P,
+) -> io::Result<()> {
+    let start_time = Instant::now();
+
+    // Load the adjacency matrix from the .gam file
+    println!(
+        "📂 Loading adjacency matrix from {:?}",
+        edge_list_path.as_ref()
+    );
+
+    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(
+        &edge_list_path,
+        start_node,
+        end_node,
+    )?));
+
+    println!("✅ Loaded adjacency matrix.");
+
+    // Convert to ndarray format
+    let adj_matrix = 
+        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
+
+    // Compute degree matrix and Laplacian
+    let degrees = adj_matrix.sum_axis(Axis(1));
+    let degree_matrix = Array2::<f64>::from_diag(&degrees);
+    let laplacian = &degree_matrix - &adj_matrix;
+
+    // Create output directory if it doesn't exist
+    let output_dir = output_dir.as_ref();
+    std::fs::create_dir_all(output_dir)?;
+
+    // Save matrices as .npy files
+    println!("💾 Saving matrices to .npy files...");
+    
+    let adj_path = output_dir.join("adjacency.npy");
+    let lap_path = output_dir.join("laplacian.npy");
+    
+    println!("Saving adjacency matrix to {:?}", adj_path);
+    write_npy(&adj_path, &adj_matrix)?;
+    
+    println!("Saving Laplacian matrix to {:?}", lap_path);
+    write_npy(&lap_path, &laplacian)?;
+
+    let duration = start_time.elapsed();
+    println!("⏰ Completed in {:.2?} seconds.", duration);
+
+    Ok(())
+}
