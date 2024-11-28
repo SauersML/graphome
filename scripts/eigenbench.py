@@ -67,7 +67,7 @@ class ProcessMonitor:
         self.interval = interval
         self._stop_event = threading.Event()
         self._thread = None
-        self.start_time = time.time()
+        self.run_start_times = {} 
     
     def start(self):
         def monitor():
@@ -343,8 +343,8 @@ def load_laplacian(npy_path: str) -> np.ndarray:
 
 
 
-def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray, 
-                        temp_dir: str, size: int) -> Optional[Dict]:
+def run_single_benchmark(solver: EigenSolver, matrix: np.ndarray,
+                        temp_dir: str, size: int, run_id: str) -> Optional[Dict]:
     """Run a single benchmark for one solver on one matrix"""
     pid = os.getpid()
     logger = logging.getLogger(f"benchmark.{solver.name}.{pid}")
