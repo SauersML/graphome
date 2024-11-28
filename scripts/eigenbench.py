@@ -188,7 +188,7 @@ class ResultSaver(threading.Thread):
     
     def save_results(self):
         try:
-            temp_files = list(Path(self.temp_dir).glob("*.parquet"))
+            temp_files = list(Path(self.temp_dir).glob("*.csv"))
             if not temp_files:
                 return
                 
