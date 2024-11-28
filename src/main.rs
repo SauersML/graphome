@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use std::io;
-use graphome::{convert, extract, eigen, dsbevd};
+use graphome::{convert, extract, eigen, dsbevd, window};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -24,7 +24,6 @@ enum Commands {
         #[arg(short, long, default_value = "adjacency_matrix.bin")]
         output: String,
     },
-
     /// Extract adjacency submatrix for a node range and perform eigenanalysis
     Extract {
         /// Path to the adjacency matrix file
@@ -40,7 +39,6 @@ enum Commands {
         #[arg(short, long)]
         output: String,
     },
-
     /// Extract adjacency and Laplacian matrices and save as .npy files
     ExtractMatrices {
         /// Path to the adjacency matrix file
@@ -56,10 +54,32 @@ enum Commands {
         #[arg(short, long)]
         output: String,
     },
+    /// Extract overlapping windows of Laplacian matrices in parallel
+    ExtractWindows {
+        /// Path to the adjacency matrix file
+        #[arg(short, long)]
+        input: String,
+        /// Start node index (inclusive)
+        #[arg(long)]
+        start_node: usize,
+        /// End node index (inclusive)
+        #[arg(long)]
+        end_node: usize,
+        /// Size of each window
+        #[arg(long)]
+        window_size: usize,
+        /// Size of overlap between windows
+        #[arg(long)]
+        overlap: usize,
+        /// Output directory for .npy files
+        #[arg(short, long)]
+        output: String,
+    },
 }
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
+
     match &cli.command {
         Commands::Convert { input, output } => {
             convert::convert_gfa_to_edge_list(input, output)?;
@@ -79,6 +99,22 @@ fn main() -> io::Result<()> {
             output,
         } => {
             extract::extract_and_save_matrices(input, *start_node, *end_node, output)?;
+        }
+        Commands::ExtractWindows {
+            input,
+            start_node,
+            end_node,
+            window_size,
+            overlap,
+            output,
+        } => {
+            let config = window::WindowConfig::new(
+                *start_node,
+                *end_node,
+                *window_size,
+                *overlap,
+            );
+            window::parallel_extract_windows(input, output, config)?;
         }
     }
     Ok(())
