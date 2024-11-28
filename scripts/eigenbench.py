@@ -195,7 +195,7 @@ class ResultSaver(threading.Thread):
             dfs = []
             for f in temp_files:
                 try:
-                    df = pd.read_parquet(f)
+                    df = pd.read_csv(f)
                     dfs.append(df)
                     os.unlink(f)
                 except Exception as e:
