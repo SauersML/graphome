@@ -22,7 +22,7 @@ Graphome can calculate various statistics of a graph.
 - Clustering of paths in a graph (in progress)
 - Mangitude of differences between paths (in progress)
 
-Eigendecomposition can be done in windows. Manifold alignment can be used to align features between windows. Instead of fixing a predetermined number of eigenvectors, we can find a cutoff in the eigenvalue distribution.
+Eigendecomposition can be done in windows. Manifold alignment can be used to align features between windows.
 
 
 
