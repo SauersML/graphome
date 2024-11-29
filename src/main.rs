@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::io;
-use graphome::{convert, extract, eigen, dsbevd, window};
+use std::path::PathBuf;
+use graphome::{convert, extract, eigen, dsbevd, window, entropy};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -75,11 +76,16 @@ enum Commands {
         #[arg(short, long)]
         output: String,
     },
+    /// Analyze eigenvalues from extracted windows and compute NGEC
+    AnalyzeWindows {
+        /// Directory containing window_* subdirectories with eigenvalues.npy files
+        #[arg(short, long)]
+        input: PathBuf,
+    },
 }
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
-
     match &cli.command {
         Commands::Convert { input, output } => {
             convert::convert_gfa_to_edge_list(input, output)?;
@@ -115,6 +121,9 @@ fn main() -> io::Result<()> {
                 *overlap,
             );
             window::parallel_extract_windows(input, output, config)?;
+        }
+        Commands::AnalyzeWindows { input } => {
+            entropy::analyze_windows(input)?;
         }
     }
     Ok(())
