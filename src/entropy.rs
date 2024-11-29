@@ -1,13 +1,12 @@
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
-use std::io::{self, Write};
+use std::io::{self, Write, BufReader};
 use std::sync::Arc;
 use rayon::prelude::*;
 use ndarray::{Array1, ArrayView1};
 use ndarray_npy::ReadNpyExt;
 use csv::WriterBuilder;
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor, Color};
-use anyhow::{Context, Result};
 
 #[derive(Debug)]
 struct WindowResult {
@@ -27,7 +26,7 @@ fn parse_window_name(name: &str) -> Option<(u32, u32)> {
     }
 }
 
-fn compute_ngec(eigenvalues: &Array1<f64>) -> Result<f64> {
+fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
     let epsilon = 1e-9;
     let m = eigenvalues.len();
     
@@ -85,24 +84,31 @@ fn print_eigenvalue_distribution(eigenvalues: ArrayView1<f64>) {
     let _ = writeln!(stdout);
 }
 
-fn process_window(window_path: PathBuf) -> Result<WindowResult> {
+fn process_window(window_path: PathBuf) -> io::Result<WindowResult> {
     // Extract window range from directory name
     let dirname = window_path
         .file_name()
         .and_then(|n| n.to_str())
-        .context("Invalid directory name")?;
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid directory name"
+        ))?;
     
     let (start_node, end_node) = parse_window_name(dirname)
-        .context("Failed to parse window range")?;
+        .ok_or_else(|| io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Failed to parse window range"
+        ))?;
     
     // Load eigenvalues
     let eigenvalues_path = window_path.join("eigenvalues.npy");
-    let eigenvalues = Array1::<f64>::read_npy(eigenvalues_path)
-        .context("Failed to read eigenvalues.npy")?;
+    let file = File::open(&eigenvalues_path)?;
+    let reader = BufReader::new(file);
+    let eigenvalues = Array1::<f64>::read_npy(reader)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     
     // Compute NGEC
-    let ngec = compute_ngec(&eigenvalues)
-        .context("Failed to compute NGEC")?;
+    let ngec = compute_ngec(&eigenvalues)?;
     
     // Visualize distribution
     println!("\nWindow {}-{}", start_node, end_node);
@@ -115,16 +121,7 @@ fn process_window(window_path: PathBuf) -> Result<WindowResult> {
     })
 }
 
-fn main() -> Result<()> {
-    // Get command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <output_directory>", args[0]);
-        std::process::exit(1);
-    }
-    
-    let output_dir = Path::new(&args[1]);
-    
+pub fn analyze_windows(output_dir: &Path) -> io::Result<()> {
     // Find all window directories
     let window_dirs: Vec<PathBuf> = fs::read_dir(output_dir)?
         .filter_map(|entry| entry.ok())
