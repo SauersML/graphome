@@ -512,12 +512,12 @@ def run_benchmarks(config: BenchmarkConfig):
                             save_results(interim_df, config.output_dir)
                             logger.info(f"Saved interim results, {len(all_results)} benchmarks completed")
             
-                return pd.DataFrame(all_results)
+            # Return results after processing all sizes
+            return pd.DataFrame(all_results)
     
     finally:
         monitor.stop()
         logger.info("Benchmark run complete")
-
 
 def verify_results(results: List[Dict]) -> bool:
     """
