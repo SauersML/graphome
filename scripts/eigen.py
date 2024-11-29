@@ -1,3 +1,64 @@
+"""
+PARALLEL EIGENDECOMPOSITION PROCESSOR
+=====================================
+
+BEHAVIOR:
+---------
+- Reads ranges of nodes to process (either from command line or CSV file)
+- For each range (e.g., 0-1000, 1000-2000):
+   - Calls Rust binary to extract matrix window
+   - Computes eigendecomposition using banded solver (LAPACK)
+   - Saves results to disk
+
+INPUTS:
+-------
+Command Line Arguments:
+   --matrix-path : Path to input matrix file (required)
+                  Example: ../edges.gam
+   
+   --output-dir : Directory where results will be stored (required)
+                 Example: ../output_dir
+   
+   --ranges     : Space-separated ranges (optional)
+                 Example: "0-1000 1000-2000 2000-3000"
+   
+   --ranges-file: CSV file containing ranges (optional)
+                 Format: Two columns with start,end on each line
+                 Example: ranges.csv containing:
+                         0,1000
+                         1000,2000
+                         2000,3000
+   
+   --processes  : Number of parallel processes (optional)
+                 Default: Number of CPU cores minus 1
+
+Required Files:
+   - Input matrix file (specified by --matrix-path)
+   - Rust binary 'graphome' in ../target/release/
+   - If using --ranges-file, the CSV file with ranges
+
+OUTPUTS:
+--------
+1. Directory Structure (e.g.):
+   output_dir/
+   ├── window_0_1000/
+   │   ├── laplacian.npy      (extracted matrix)
+   │   ├── eigenvalues.npy    (computed eigenvalues)
+   │   └── eigenvectors.npy   (computed eigenvectors)
+   ├── window_1000_2000/
+   │   ├── laplacian.npy
+   │   ├── eigenvalues.npy
+   │   └── eigenvectors.npy
+   └── window_2000_3000/
+       ├── laplacian.npy
+       ├── eigenvalues.npy
+       └── eigenvectors.npy
+
+EXAMPLE USAGE:
+-------------
+python3 eigen.py --matrix-path ../edges.gam --output-dir ../output_dir --ranges-file ranges.csv
+"""
+
 import subprocess
 import numpy as np
 import os
