@@ -419,9 +419,9 @@ def run_benchmarks(config: BenchmarkConfig):
     try:
         # Create solvers
         solvers = [
-            DenseEigenSolver(eigh),  # Dense solver - best for small matrices (<1000)
+            #DenseEigenSolver(eigh),  # Dense solver - best for small matrices (<1000)
             SparseEigenSolver("eigsh", k=None),  # Sparse solver - best for large sparse matrices
-            IterativeEigenSolver("lobpcg", maxiter=1000),
+            #IterativeEigenSolver("lobpcg", maxiter=1000),
             BandedEigenSolver(eig_banded, lower=True, select='a')
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
