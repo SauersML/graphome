@@ -15,7 +15,7 @@ from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.sparse.linalg import eigsh, lobpcg
-from scipy.linalg import eigh, eigh_banded, eig_banded
+from scipy.linalg import eigh, eig_banded
 import seaborn as sns
 from tqdm import tqdm
 import multiprocessing as mp
@@ -419,11 +419,10 @@ def run_benchmarks(config: BenchmarkConfig):
     try:
         # Create solvers
         solvers = [
-            DenseEigenSolver(scipy.linalg.eigh),  # Dense direct solver for small matrices
-            SparseEigenSolver("eigsh", k=None),   # Full spectrum sparse solver
-            IterativeEigenSolver("lobpcg", maxiter=1000),  # Iterative for large matrices
-            BandedEigenSolver(scipy.linalg.eigh_banded),  # For banded structure
-            BandedEigenSolver(eigh_banded, lower=True, select='a')
+            DenseEigenSolver(eigh),  # Dense solver - best for small matrices (<1000)
+            SparseEigenSolver("eigsh", k=None),  # Sparse solver - best for large sparse matrices
+            IterativeEigenSolver("lobpcg", maxiter=1000),
+            BandedEigenSolver(eig_banded, lower=True, select='a')
         ]
         logger.info(f"Initialized {len(solvers)} solvers")
         
