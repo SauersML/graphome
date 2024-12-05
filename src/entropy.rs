@@ -7,6 +7,7 @@ use ndarray::{Array1, ArrayView1};
 use ndarray_npy::ReadNpyExt;
 use csv::WriterBuilder;
 use termcolor::{ColorChoice, ColorSpec, StandardStream, WriteColor, Color};
+use std::collections::VecDeque;
 
 #[derive(Debug)]
 struct WindowResult {
