@@ -720,6 +720,8 @@ fn test_no_duplicate_or_extra_edges() -> io::Result<()> {
 }
 
 
+
+
 /// We write a known set of edges to a .gam file, and then load them back.
 /// The loaded edges must match exactly the input set - no additional edges,
 /// no duplicates (beyond what was in the file), and no edges that we did not specify.
@@ -728,8 +730,9 @@ fn test_no_artificial_extras_or_duplicates() -> std::io::Result<()> {
     let dir = tempfile::tempdir()?;
     let gam_path = dir.path().join("no_extras.gam");
 
-    // Define a set of edges with no duplicates
-    let original_edges = vec![(0,1), (1,2), (2,2), (3,4)];
+    // Define a set of edges with no duplicates, explicitly typed as u32
+    let original_edges: Vec<(u32, u32)> = vec![(0u32, 1u32), (1u32, 2u32), (2u32, 2u32), (3u32, 4u32)];
+
     // Write these edges to the .gam file
     {
         let file = std::fs::File::create(&gam_path)?;
@@ -758,10 +761,6 @@ fn test_no_artificial_extras_or_duplicates() -> std::io::Result<()> {
         "Loaded edges do not match the original edges. \
          No extra edges or duplicates should appear."
     );
-
-    // If the code attempted to create edges not listed in the file,
-    // or somehow generated duplicates not in the original set, 
-    // this assertion would fail.
 
     Ok(())
 }
