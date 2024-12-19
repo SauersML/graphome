@@ -1,7 +1,7 @@
 //! Unit tests for the eigen module.
 
 use ndarray::{array, Array1, Array2, ArrayView2};
-use graphome::eigen::{
+use graphome::eigen_print::{
     call_eigendecomp,
     compute_eigenvalues_and_vectors_sym,
     compute_ngec,
