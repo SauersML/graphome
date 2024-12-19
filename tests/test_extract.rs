@@ -1,7 +1,7 @@
 // tests/test_extract.rs
 
 use graphome::extract::*;
-use graphome::eigen::{
+use graphome::eigen_print::{
     adjacency_matrix_to_ndarray,
     save_nalgebra_matrix_to_csv,
     save_nalgebra_vector_to_csv,
