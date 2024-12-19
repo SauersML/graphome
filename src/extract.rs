@@ -59,7 +59,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     println!("🔬 Computing Laplacian matrix and eigendecomposition...");
 
     let adj_matrix =
-        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node);
+        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node); // This function enforces symmetry
 
     // Compute degree matrix
     let degrees = adj_matrix.sum_axis(Axis(1));
