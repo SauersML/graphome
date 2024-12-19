@@ -56,8 +56,19 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 }
 
 
+
+
+
+
 /// Parses the GFA file to extract segments and assign unique indices deterministically.
 ///
+/// Approach:
+/// 1. Memory-map the file for fast random access.
+/// 2. Identify line boundaries by scanning for newline characters.
+/// 3. Estimate the number of segments for progress display by sampling lines.
+/// 4. Use `fold` and `reduce` in parallel to accumulate segment names into a single `HashSet<String>`.
+///
+/// This ensures no partial lines, leverages parallelism, and avoids previous issues with map_init returning `()`.
 ///
 /// # Arguments
 ///
@@ -66,49 +77,65 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 /// # Returns
 ///
 /// A tuple containing:
-/// - A `HashMap<String, u32>` mapping segment names to deterministic indices
-/// - A `u32` count of total segments identified
+/// - A `HashMap<String, u32>` mapping segment names to indices
+/// - A `u32` count of total segments
 ///
 /// # Errors
 ///
-/// Returns an `io::Result` if any file or I/O errors are encountered.
+/// Returns an `io::Result` on file or I/O errors.
 ///
 /// # Panics
 ///
-/// This function does not explicitly panic.
+/// Does not explicitly panic.
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
-    // Open the GFA file and prepare for line-by-line reading
+    use rand::Rng;
+
+    // Step 1: Memory-map the file
     let file = File::open(&gfa_path)?;
-    let metadata = file.metadata()?;
-    let file_size = metadata.len();
-    let reader = BufReader::new(file);
+    let file_size = file.metadata()?.len();
+    let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
 
-    // We will read all lines first to ensure no partial lines are processed.
-    let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+    // Step 2: Identify lines
+    let mut line_ends = Vec::new();
+    for (i, &byte) in mmap.iter().enumerate() {
+        if byte == b'\n' {
+            line_ends.push(i);
+        }
+    }
+    let has_final_newline = line_ends.last().map_or(false, |&pos| pos as u64 == file_size - 1);
+    let total_lines = if has_final_newline {
+        line_ends.len()
+    } else {
+        line_ends.len() + 1
+    };
 
-    // Perform a quick sampling to estimate the number of segments.
-    // Instead of sampling arbitrary byte positions as before, we can sample lines randomly.
-    // This approach avoids partial reads and is simpler. If the file is small, this is trivial;
-    // if large, it's still reliable because we never consider partial lines.
-    let samples = 1000.min(lines.len()); // Take up to 1000 samples or fewer if fewer lines
+    let get_line_slice = |i: usize| {
+        let start = if i == 0 { 0 } else { line_ends[i - 1] + 1 };
+        let end = if i < line_ends.len() {
+            line_ends[i]
+        } else {
+            (file_size - 1) as usize
+        };
+        &mmap[start..=end]
+    };
+
+    // Step 3: Estimate segment count by sampling
+    let samples = 1000.min(total_lines);
     let seed: u64 = rand::thread_rng().gen();
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
     let mut sample_count = 0u32;
     for _ in 0..samples {
-        let idx = rng.gen_range(0..lines.len());
-        if lines[idx].starts_with("S\t") {
+        let idx = rng.gen_range(0..total_lines);
+        let line_slice = get_line_slice(idx);
+        if line_slice.starts_with(b"S\t") {
             sample_count += 1;
         }
     }
-
-    // Compute a rough estimate of segments based on sample density.
     let density = if samples > 0 {
         sample_count as f64 / samples as f64
     } else {
         0.0
     };
-    // Assume average line length ~100 bytes or another heuristic. Using the original logic:
-    // The original logic used file size and a density estimate. We'll maintain the spirit:
     let estimated_segments = (file_size as f64 / 100.0 * density) as u64;
 
     println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
@@ -120,33 +147,43 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             .progress_chars("▰▰░"),
     );
 
-    // Extract segment names from each `S` line.
-    // Requirements:
-    // - Line must start with "S\t"
-    // - Must have at least two fields: "S" and the segment name
-    // We'll split on tabs and take the second field as the name.
-    let mut segment_names = HashSet::new();
-    for line in &lines {
-        if line.starts_with("S\t") {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 2 {
-                // parts[0] == "S", parts[1] is the segment name
-                let segment_name = parts[1].to_string();
-                // Add the segment name if not empty or invalid
-                if !segment_name.is_empty() {
-                    segment_names.insert(segment_name);
-                    pb.inc(1);
+    // Step 4: Parallel processing of lines using fold & reduce
+    // fold: Each thread gets an initial empty HashSet, processes some lines, and returns the HashSet.
+    // reduce: Combine all thread-local HashSets into one.
+    let segment_names = (0..total_lines)
+        .into_par_iter()
+        .fold(
+            || HashSet::new(),
+            |mut local_set, i| {
+                let line_slice = get_line_slice(i);
+                if let Ok(line_str) = std::str::from_utf8(line_slice) {
+                    if line_str.starts_with("S\t") {
+                        let parts: Vec<&str> = line_str.split('\t').collect();
+                        if parts.len() >= 2 {
+                            let segment_name = parts[1].trim();
+                            if !segment_name.is_empty() {
+                                local_set.insert(segment_name.to_string());
+                                pb.inc(1);
+                            }
+                        }
+                    }
                 }
-            }
-        }
-    }
+                local_set
+            },
+        )
+        .reduce(
+            || HashSet::new(),
+            |mut a, b| {
+                a.extend(b);
+                a
+            },
+        );
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Sort and assign deterministic indices
+    // Sort and assign indices
     let mut sorted_segments: Vec<String> = segment_names.into_iter().collect();
     sorted_segments.sort_unstable();
-
     let segment_indices: HashMap<String, u32> = sorted_segments
         .iter()
         .enumerate()
@@ -158,6 +195,8 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     Ok((segment_indices, segment_counter))
 }
+
+
 
 
 /// Parses the GFA file to extract links and write edges to the output file.
