@@ -506,3 +506,119 @@ fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
 
     Ok(())
 }
+
+
+/// Counts the number of edges in a `.gam` file by checking its size in bytes.
+/// Each edge is represented by two `u32` values = 8 bytes.
+fn count_edges_in_gam<P: AsRef<Path>>(gam_path: P) -> std::io::Result<usize> {
+    let metadata = std::fs::metadata(gam_path)?;
+    let file_size = metadata.len();
+    // Each edge is 8 bytes
+    Ok((file_size / 8) as usize)
+}
+
+/// Test that a GFA with no links results in zero edges
+#[test]
+fn test_no_links_expected_zero_edges() -> std::io::Result<()> {
+    let test_dir = tempdir()?;
+    let gfa_path = test_dir.path().join("no_links.gfa");
+
+    {
+        let mut gfa_file = File::create(&gfa_path)?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        // No L lines
+    }
+
+    let output_gam = test_dir.path().join("no_links.gam");
+    convert_gfa_to_edge_list(&gfa_path, &output_gam)?;
+
+    let num_edges = count_edges_in_gam(&output_gam)?;
+    assert_eq!(num_edges, 0, "Expected 0 edges for a GFA with no links.");
+
+    Ok(())
+}
+
+/// Test that a GFA with exactly one link line produces exactly one edge
+#[test]
+fn test_one_link_expected_one_edge() -> std::io::Result<()> {
+    let test_dir = tempdir()?;
+    let gfa_path = test_dir.path().join("one_link.gfa");
+
+    {
+        let mut gfa_file = File::create(&gfa_path)?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+    }
+
+    let output_gam = test_dir.path().join("one_link.gam");
+    convert_gfa_to_edge_list(&gfa_path, &output_gam)?;
+
+    let num_edges = count_edges_in_gam(&output_gam)?;
+    // Expect exactly 1 edge since we have 1 link line and no reverse edges are written
+    assert_eq!(num_edges, 1, "Expected 1 edge for a GFA with one link line.");
+
+    Ok(())
+}
+
+/// Test that a GFA with multiple links produces the exact number of edges
+#[test]
+fn test_three_links_expected_three_edges() -> std::io::Result<()> {
+    let test_dir = tempdir()?;
+    let gfa_path = test_dir.path().join("three_links.gfa");
+
+    {
+        let mut gfa_file = File::create(&gfa_path)?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\t1\t*")?;
+        writeln!(gfa_file, "S\t2\t*")?;
+        writeln!(gfa_file, "S\t3\t*")?;
+        writeln!(gfa_file, "L\t1\t+\t2\t+\t50M")?;
+        writeln!(gfa_file, "L\t2\t+\t3\t+\t60M")?;
+        writeln!(gfa_file, "L\t1\t+\t3\t+\t70M")?;
+    }
+
+    let output_gam = test_dir.path().join("three_links.gam");
+    convert_gfa_to_edge_list(&gfa_path, &output_gam)?;
+
+    let num_edges = count_edges_in_gam(&output_gam)?;
+    // We have 3 link lines, each producing 1 edge as currently coded
+    let expected_edges = 3;
+    assert_eq!(
+        num_edges, expected_edges,
+        "Expected {} edges for a GFA with three link lines.",
+        expected_edges
+    );
+
+    Ok(())
+}
+
+/// Test with segments but no links, reconfirming zero edges
+#[test]
+fn test_segments_no_links_reconfirm_zero() -> std::io::Result<()> {
+    let test_dir = tempdir()?;
+    let gfa_path = test_dir.path().join("segments_no_links.gfa");
+
+    {
+        let mut gfa_file = File::create(&gfa_path)?;
+        writeln!(gfa_file, "H\tVN:Z:1.0")?;
+        writeln!(gfa_file, "S\tA\t*")?;
+        writeln!(gfa_file, "S\tB\t*")?;
+        writeln!(gfa_file, "S\tC\t*")?;
+        // Still no links
+    }
+
+    let output_gam = test_dir.path().join("segments_no_links.gam");
+    convert_gfa_to_edge_list(&gfa_path, &output_gam)?;
+
+    let num_edges = count_edges_in_gam(&output_gam)?;
+    assert_eq!(
+        num_edges, 0,
+        "Expected 0 edges for a GFA with segments but no links."
+    );
+
+    Ok(())
+}
