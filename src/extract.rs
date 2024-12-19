@@ -171,14 +171,18 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
     while let Ok(_) = reader.read_exact(&mut buffer) {
         let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
         let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
-
+    
         if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to) {
             let i = from - start_node;
             let j = to - start_node;
-            
-            // Update Laplacian and degrees in one pass
+    
+            // For an undirected graph, we must set both [i, j] and [j, i].
             laplacian[[i, j]] = -1.0;
+            laplacian[[j, i]] = -1.0;
+    
+            // Increase the degree of both nodes, since undirected edges connect them equally.
             degrees[i] += 1.0;
+            degrees[j] += 1.0;
         }
     }
 
