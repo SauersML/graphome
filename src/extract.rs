@@ -162,7 +162,7 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
     let dim = end_node - start_node + 1;
     let mut laplacian = Array2::<f64>::zeros((dim, dim));
     let mut degrees = Array1::<f64>::zeros(dim);
-    
+
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let mut buffer = [0u8; 8];
@@ -171,22 +171,22 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
     while let Ok(_) = reader.read_exact(&mut buffer) {
         let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
         let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
-    
+
         if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to) {
             let i = from - start_node;
             let j = to - start_node;
-    
-            // For an undirected graph, we must set both [i, j] and [j, i].
-            laplacian[[i, j]] = -1.0;
-            laplacian[[j, i]] = -1.0;
-    
-            // Increase the degree of both nodes, since undirected edges connect them equally.
+
+            // For an undirected graph with multiple edges possibly between the same nodes,
+            // decrement by 1.0 to accumulate the effect of each edge rather than overwriting.
+            laplacian[[i, j]] -= 1.0;
+            laplacian[[j, i]] -= 1.0;
+
             degrees[i] += 1.0;
             degrees[j] += 1.0;
         }
     }
 
-    // Fill in diagonal with degrees
+    // Now fill in the diagonal using the accumulated degrees
     for i in 0..dim {
         laplacian[[i, i]] = degrees[i];
     }
