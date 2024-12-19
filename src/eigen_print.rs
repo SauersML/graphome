@@ -100,19 +100,6 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
 /// # Returns
 /// 
 /// An `Array2<f64>` that is a square adjacency matrix of size `(end_node - start_node + 1) x (end_node - start_node + 1)`.
-/// 
-/// # Example
-/// 
-/// ```
-/// // Suppose we have edges (1,2), (2,3), and we want the adjacency matrix for nodes [1,3].
-/// use graphome::eigen_print::adjacency_matrix_to_ndarray;
-/// let edges = vec![(1,2),(2,3)];
-/// let adj = adjacency_matrix_to_ndarray(&edges, 1, 3);
-/// // The resulting matrix would be:
-/// // [[0, 1, 0],
-/// //  [1, 0, 1],
-/// //  [0, 1, 0]]
-/// ```
 pub fn adjacency_matrix_to_ndarray(
     edges: &[(u32, u32)],
     start_node: usize,
