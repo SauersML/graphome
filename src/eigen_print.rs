@@ -1,4 +1,4 @@
-// src/eigen.rs
+// src/eigen_print.rs
 
 //! Module for eigendecomposition and analyses that depend on eigenvectors or eigenvalues.
 
