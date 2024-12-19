@@ -15,11 +15,7 @@ use std::path::Path;
 use std::fs::File;
 
 use graphome::convert::convert_gfa_to_edge_list;
-
-
 use graphome::extract;
-use std::fs::File;
-use std::io::Read;
 
 /// Helper function to create a mock .gam file with given edges
 fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
