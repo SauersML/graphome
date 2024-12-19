@@ -83,7 +83,35 @@ pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
     Ok(())
 }
 
-/// Converts the adjacency matrix edge list to ndarray::Array2<f64>
+/// Converts the adjacency matrix edge list to an `ndarray::Array2<f64>`.
+/// 
+/// This function takes a list of edges and creates an adjacency matrix for the nodes
+/// in the specified range from `start_node` to `end_node`, inclusive. Each entry in
+/// the returned matrix indicates whether an edge is present between the corresponding nodes.
+/// 
+/// Any edges that refer to nodes outside the given range are ignored.
+/// 
+/// # Arguments
+/// 
+/// * `edges` - A slice of `(u32, u32)` tuples, each representing an edge between two nodes.
+/// * `start_node` - The first node index of the subgraph of interest.
+/// * `end_node` - The last node index of the subgraph of interest (inclusive).
+/// 
+/// # Returns
+/// 
+/// An `Array2<f64>` that is a square adjacency matrix of size `(end_node - start_node + 1) x (end_node - start_node + 1)`.
+/// 
+/// # Example
+/// 
+/// ```
+/// // Suppose we have edges (1,2), (2,3), and we want the adjacency matrix for nodes [1,3].
+/// let edges = vec![(1,2),(2,3)];
+/// let adj = adjacency_matrix_to_ndarray(&edges, 1, 3);
+/// // The resulting matrix would be:
+/// // [[0, 1, 0],
+/// //  [1, 0, 1],
+/// //  [0, 1, 0]]
+/// ```
 pub fn adjacency_matrix_to_ndarray(
     edges: &[(u32, u32)],
     start_node: usize,
@@ -91,16 +119,24 @@ pub fn adjacency_matrix_to_ndarray(
 ) -> Array2<f64> {
     let size = end_node - start_node + 1;
     let mut adj_array = Array2::<f64>::zeros((size, size));
+
     for &(a, b) in edges {
-        let local_a = a as usize - start_node;
-        let local_b = b as usize - start_node;
-        if local_a < size && local_b < size {
-            adj_array[(local_a, local_b)] = 1.0;
-            adj_array[(local_b, local_a)] = 1.0;
+        // Check if both nodes are within the specified range
+        if (a as usize) >= start_node && (b as usize) >= start_node {
+            let local_a = (a as usize) - start_node;
+            let local_b = (b as usize) - start_node;
+
+            // Only set entries if indices are within the bounds of the array
+            if local_a < size && local_b < size {
+                adj_array[(local_a, local_b)] = 1.0;
+                adj_array[(local_b, local_a)] = 1.0;
+            }
         }
     }
+
     adj_array
 }
+
 
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
 /// Ignores eigenvalues that are negative within a small epsilon due to floating-point precision.
