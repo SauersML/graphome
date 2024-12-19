@@ -545,20 +545,6 @@ fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
 
 
 
-
-
-/// Helper function to create a mock .gam file with given edges (u32, u32)
-fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
-    let file = File::create(path)?;
-    let mut writer = BufWriter::new(file);
-    for &(from, to) in edges {
-        writer.write_all(&from.to_le_bytes())?;
-        writer.write_all(&to.to_le_bytes())?;
-    }
-    writer.flush()?;
-    Ok(())
-}
-
 /// Helper function to read edges from a .gam file into a HashSet
 fn read_edges_from_gam<P: AsRef<Path>>(path: P) -> io::Result<HashSet<(u32, u32)>> {
     let mut edges = HashSet::new();
