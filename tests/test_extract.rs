@@ -10,15 +10,17 @@ use graphome::eigen_print::{
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, Write, Read, BufWriter};
 use std::path::Path;
 use std::collections::HashSet;
+use std::fs::File;
 
 use graphome::convert::convert_gfa_to_edge_list;
-
 use graphome::extract;
-use std::fs::File;
-use std::io::Read;
+
+
+
+
 
 /// Helper function to read edges from the binary edge list file
 fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
@@ -525,6 +527,255 @@ fn test_save_nalgebra_vector_to_csv() -> io::Result<()> {
         contents, expected,
         "Saved vector does not match expected float values."
     );
+
+    Ok(())
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/// Helper function to create a mock .gam file with given edges (u32, u32)
+fn create_mock_gam_file<P: AsRef<Path>>(path: P, edges: &[(u32, u32)]) -> io::Result<()> {
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    for &(from, to) in edges {
+        writer.write_all(&from.to_le_bytes())?;
+        writer.write_all(&to.to_le_bytes())?;
+    }
+    writer.flush()?;
+    Ok(())
+}
+
+/// Helper function to read edges from a .gam file into a HashSet
+fn read_edges_from_gam<P: AsRef<Path>>(path: P) -> io::Result<HashSet<(u32, u32)>> {
+    let mut edges = HashSet::new();
+    let mut file = File::open(path)?;
+    let mut buffer = [0u8; 8];
+
+    while let Ok(_) = file.read_exact(&mut buffer) {
+        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
+        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+        edges.insert((from, to));
+    }
+
+    Ok(edges)
+}
+
+/// Helper function to compare two floating point matrices with exact equality.
+/// This is suitable here because the Laplacian should have exact integer-like values.
+fn assert_matrix_eq(a: &Array2<f64>, b: &Array2<f64>) {
+    assert_eq!(a.shape(), b.shape(), "Matrices have different shapes.");
+    for ((i, j), &val_a) in a.indexed_iter() {
+        let val_b = b[[i, j]];
+        assert!(
+            (val_a - val_b).abs() < 1e-12,
+            "Matrix values differ at ({}, {}): {} vs {}",
+            i,
+            j,
+            val_a,
+            val_b
+        );
+    }
+}
+
+/// Empty Graph (No edges) - makes sure no edges appear unexpectedly
+#[test]
+fn test_no_edges_expect_none() -> io::Result<()> {
+    let dir = tempdir()?;
+    let gam_path = dir.path().join("no_edges.gam");
+
+    // No edges written
+    create_mock_gam_file(&gam_path, &[])?;
+
+    // Load adjacency matrix in some range (e.g., 0..2)
+    let edges = load_adjacency_matrix(&gam_path, 0, 2)?;
+    assert!(edges.is_empty(), "Expected no edges, got some edges");
+
+    // Construct Laplacian and verify it's all zeros
+    let laplacian = fast_laplacian_from_gam(&gam_path, 0, 2)?;
+    let expected = Array2::<f64>::zeros((3, 3));
+    assert_matrix_eq(&laplacian, &expected);
+
+    Ok(())
+}
+
+/// Single Edge In-Range
+#[test]
+fn test_single_edge_in_range() -> io::Result<()> {
+    let dir = tempdir()?;
+    let gam_path = dir.path().join("single_edge.gam");
+
+    // Write a single edge from node 1 to node 2
+    create_mock_gam_file(&gam_path, &[(1, 2)])?;
+
+    // Load adjacency matrix with range covering both 1 and 2
+    let edges = load_adjacency_matrix(&gam_path, 1, 2)?;
+    assert_eq!(edges.len(), 1, "Expected exactly one edge");
+    assert!(edges.contains(&(1, 2)), "Expected edge (1,2) not found");
+
+    // Laplacian for nodes [1,2]: one edge means:
+    // Node 1 degree = 1, Node 2 degree = 1
+    // Laplacian = [[1, -1],
+    //              [-1, 1]]
+    let laplacian = fast_laplacian_from_gam(&gam_path, 1, 2)?;
+    let expected = array![
+        [1.0, -1.0],
+        [-1.0, 1.0],
+    ];
+    assert_matrix_eq(&laplacian, &expected);
+
+    Ok(())
+}
+
+/// Multiple Edges with Partial Range Exclusion
+#[test]
+fn test_partial_range_exclusion() -> io::Result<()> {
+    // Nodes: 1,2,3,4
+    // Edges: (1,2), (2,3), (3,4), (1,4)
+    // Subrange: [1,2]
+    // Only (1,2) should remain, since (2,3), (3,4), (1,4) are out-of-range.
+    
+    let dir = tempdir()?;
+    let gam_path = dir.path().join("partial_exclusion.gam");
+    let all_edges = vec![(1,2), (2,3), (3,4), (1,4)];
+    create_mock_gam_file(&gam_path, &all_edges)?;
+
+    // Load adjacency with subrange 1..2
+    let edges = load_adjacency_matrix(&gam_path, 1, 2)?;
+    assert_eq!(edges.len(), 1, "Only (1,2) should remain");
+    assert!(edges.contains(&(1,2)), "Edge (1,2) expected");
+
+    // Laplacian should reflect only edge (1,2):
+    // Laplacian = [[1, -1],
+    //              [-1, 1]]
+    let laplacian = fast_laplacian_from_gam(&gam_path, 1, 2)?;
+    let expected = array![
+        [1.0, -1.0],
+        [-1.0, 1.0],
+    ];
+    assert_matrix_eq(&laplacian, &expected);
+
+    Ok(())
+}
+
+/// Edges on Subrange Boundaries
+#[test]
+fn test_edges_on_subrange_boundaries() -> io::Result<()> {
+    // Graph: nodes 0,1,2,3
+    // Edges: (0,1), (1,2), (2,3)
+    // Subrange: [1,2]
+    // Within [1,2], only (1,2) is fully in range.
+    // (0,1) and (2,3) cross boundaries and must be excluded.
+
+    let dir = tempdir()?;
+    let gam_path = dir.path().join("boundary_edges.gam");
+    let all_edges = vec![(0,1), (1,2), (2,3)];
+    create_mock_gam_file(&gam_path, &all_edges)?;
+
+    // Load adjacency with [1,2]
+    let edges = load_adjacency_matrix(&gam_path, 1, 2)?;
+    assert_eq!(edges.len(), 1, "Only (1,2) should be included");
+    assert!(edges.contains(&(1,2)), "Expected edge (1,2) not found");
+
+    // Laplacian for nodes [1,2]:
+    // With one edge: same pattern as before
+    let laplacian = fast_laplacian_from_gam(&gam_path, 1, 2)?;
+    let expected = array![
+        [1.0, -1.0],
+        [-1.0, 1.0],
+    ];
+    assert_matrix_eq(&laplacian, &expected);
+
+    Ok(())
+}
+
+/// Test E: No Duplicate or Extra Edges
+#[test]
+fn test_no_duplicate_or_extra_edges() -> io::Result<()> {    
+    let dir = tempdir()?;
+    let gam_path = dir.path().join("duplicates.gam");
+    // Insert the same edge (1,2) three times.
+    let duplicated_edges = vec![(1,2), (1,2), (1,2)];
+    create_mock_gam_file(&gam_path, &duplicated_edges)?;
+
+    // Even though duplicates exist, no new out-of-range edges should appear.
+    // Subrange [1,2] includes (1,2), so we get all duplicates.
+    let edges = load_adjacency_matrix(&gam_path, 1, 2)?;
+    // We should see all three edges (1,2) as loaded. The code doesn't remove duplicates.
+    // This makes sure no "extra different edges" appear.
+    assert_eq!(edges.len(), 3, "Expected 3 occurrences of (1,2)");
+    assert!(edges.iter().all(|&(f,t)| f==1 && t==2), "Only (1,2) edges should be present");
+    
+    // The Laplacian is computed from these edges. Each edge (1,2) counts.
+    // If we treat each edge equally, the degree of node 1 = 3, node 2 = 3, and off-diagonal = -3.
+    // Laplacian = [[3, -3],
+    //              [-3, 3]]
+    let laplacian = fast_laplacian_from_gam(&gam_path, 1, 2)?;
+    let expected = array![
+        [3.0, -3.0],
+        [-3.0, 3.0],
+    ];
+    assert_matrix_eq(&laplacian, &expected);
+
+    Ok(())
+}
+
+
+/// We write a known set of edges to a .gam file, and then load them back.
+/// The loaded edges must match exactly the input set - no additional edges,
+/// no duplicates (beyond what was in the file), and no edges that we did not specify.
+#[test]
+fn test_no_artificial_extras_or_duplicates() -> std::io::Result<()> {
+    let dir = tempfile::tempdir()?;
+    let gam_path = dir.path().join("no_extras.gam");
+
+    // Define a set of edges with no duplicates
+    let original_edges = vec![(0,1), (1,2), (2,2), (3,4)];
+    // Write these edges to the .gam file
+    {
+        let file = std::fs::File::create(&gam_path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        for &(from, to) in &original_edges {
+            writer.write_all(&from.to_le_bytes())?;
+            writer.write_all(&to.to_le_bytes())?;
+        }
+        writer.flush()?;
+    }
+
+    // Now load them back with a range that covers all these nodes:
+    // The largest node index here is 4, so let's cover 0..4
+    let loaded_edges = graphome::extract::load_adjacency_matrix(&gam_path, 0, 4)?;
+
+    // Convert loaded edges into a sorted vector to compare easily
+    let mut loaded_sorted = loaded_edges.clone();
+    loaded_sorted.sort_unstable();
+
+    let mut original_sorted = original_edges.clone();
+    original_sorted.sort_unstable();
+
+    // Check that the loaded edges exactly match the original edges
+    assert_eq!(
+        loaded_sorted, original_sorted,
+        "Loaded edges do not match the original edges. \
+         No extra edges or duplicates should appear."
+    );
+
+    // If the code attempted to create edges not listed in the file,
+    // or somehow generated duplicates not in the original set, 
+    // this assertion would fail.
 
     Ok(())
 }
