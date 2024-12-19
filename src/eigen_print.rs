@@ -109,16 +109,16 @@ pub fn adjacency_matrix_to_ndarray(
     let mut adj_array = Array2::<f64>::zeros((size, size));
 
     for &(a, b) in edges {
-        // Check if both nodes are within the specified range
-        if (a as usize) >= start_node && (b as usize) >= start_node {
+        // Check if both nodes are strictly within our range bounds
+        if (a as usize) >= start_node && (a as usize) <= end_node &&
+           (b as usize) >= start_node && (b as usize) <= end_node {
+            // Convert to local indices
             let local_a = (a as usize) - start_node;
             let local_b = (b as usize) - start_node;
-
-            // Only set entries if indices are within the bounds of the array
-            if local_a < size && local_b < size {
-                adj_array[(local_a, local_b)] = 1.0;
-                adj_array[(local_b, local_a)] = 1.0;
-            }
+            
+            // Since we checked bounds above, these indices are guaranteed to be valid
+            adj_array[(local_a, local_b)] = 1.0;
+            adj_array[(local_b, local_a)] = 1.0; // Make it symmetric
         }
     }
 
