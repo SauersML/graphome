@@ -10,8 +10,9 @@ use graphome::eigen_print::{
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use tempfile::{NamedTempFile, tempdir};
 use ndarray::prelude::*;
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Write, Read};
 use std::path::Path;
+use std::fs::File;
 
 use graphome::convert::convert_gfa_to_edge_list;
 
