@@ -257,8 +257,8 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
         .for_each(|line| {
             let parts: Vec<&str> = line.split('\t').collect();
             if parts.len() >= 6 {
-                let from_name = parts[1];
-                let to_name = parts[3];
+                let from_name = parts[1].trim();
+                let to_name = parts[3].trim();
 
                 if let (Some(&from_index), Some(&to_index)) =
                     (segment_indices.get(from_name), segment_indices.get(to_name))
