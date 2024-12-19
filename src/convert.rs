@@ -57,177 +57,113 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 
 /// Parses the GFA file to extract segments and assign unique indices deterministically.
 ///
-/// Returns a mapping from segment names to indices and the total number of segments.
+/// This implementation fixes the original issue by avoiding manual chunk-based parsing that could
+/// lead to partial lines being interpreted as full ones. Instead, it reads the file line-by-line
+/// using a standard `BufReader`, ensuring that no partial lines are ever considered. This makes it
+/// impossible for malformed or partial lines at chunk boundaries to appear as valid segments.
+///
+/// Additionally, this rewrite enforces stricter validation of `S` lines. Only fully-formed lines
+/// starting with "S\t" and containing at least two fields (the record type "S" and a segment name)
+/// are considered valid segments. If a line doesn't meet these criteria, it is simply ignored.
+/// This ensures that invalid states (e.g., phantom segments from truncated lines) cannot occur.
 ///
 /// # Arguments
 ///
 /// * `gfa_path` - Path to the input GFA file.
 ///
+/// # Returns
+///
+/// A tuple containing:
+/// - A `HashMap<String, u32>` mapping segment names to deterministic indices
+/// - A `u32` count of total segments identified
+///
 /// # Errors
 ///
-/// Returns an `io::Result` with any file or I/O errors encountered.
+/// Returns an `io::Result` if any file or I/O errors are encountered.
 ///
 /// # Panics
 ///
 /// This function does not explicitly panic.
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
+    // Open the GFA file and prepare for line-by-line reading
     let file = File::open(&gfa_path)?;
-    let file_size = file.metadata()?.len();
-    let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
-    
-    println!("📊 Quick sampling for accurate estimation...");
-    let samples = 1000;
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
+    let reader = BufReader::new(file);
+
+    // We will read all lines first to ensure no partial lines are processed.
+    let lines: Vec<String> = reader.lines().collect::<io::Result<_>>()?;
+
+    // Perform a quick sampling to estimate the number of segments.
+    // Instead of sampling arbitrary byte positions as before, we can sample lines randomly.
+    // This approach avoids partial reads and is simpler. If the file is small, this is trivial;
+    // if large, it's still reliable because we never consider partial lines.
+    let samples = 1000.min(lines.len()); // Take up to 1000 samples or fewer if fewer lines
     let seed: u64 = rand::thread_rng().gen();
-    
-    let counters = (0..samples).into_par_iter().map(|i| {
-        let mut rng = ChaCha8Rng::seed_from_u64(seed.wrapping_add(i as u64));
-
-        let pos = if file_size > 1000 {
-            rng.gen_range(0..file_size - 1000)
-        } else {
-            0
-        };
-
-        let mut end = pos;
-        
-        while end < file_size && mmap[end as usize] != b'\n' {
-            end += 1;
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut sample_count = 0u32;
+    for _ in 0..samples {
+        let idx = rng.gen_range(0..lines.len());
+        if lines[idx].starts_with("S\t") {
+            sample_count += 1;
         }
-        end += 1;
-        
-        let mut start = end;
-        while start < file_size && mmap[start as usize] != b'\n' {
-            start += 1;
-        }
-        
-        if let Ok(line) = std::str::from_utf8(&mmap[end as usize..start as usize]) {
-            (line.starts_with("S\t") as u32, 1u32)
-        } else {
-            (0, 1)
-        }
-    }).reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+    }
 
-    let segment_density = counters.0 as f64 / counters.1 as f64;
-    let estimated_segments = (file_size as f64 / 100.0 * segment_density) as u64;
+    // Compute a rough estimate of segments based on sample density.
+    let density = if samples > 0 {
+        sample_count as f64 / samples as f64
+    } else {
+        0.0
+    };
+    // Assume average line length ~100 bytes or another heuristic. Using the original logic:
+    // The original logic used file size and a density estimate. We'll maintain the spirit:
+    let estimated_segments = (file_size as f64 / 100.0 * density) as u64;
 
     println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
     let pb = Arc::new(ProgressBar::new(estimated_segments));
-    pb.set_style(ProgressStyle::default_bar()
-        .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({pos}/{len} segments)")
-        .unwrap()
-        .progress_chars("▰▰░"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {percent}% ({pos}/{len} segments)")
+            .unwrap()
+            .progress_chars("▰▰░"),
+    );
 
-    const CHUNK_SIZE: usize = 10_000_000; // 10MB chunks
-    let num_chunks = (file_size as usize + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    
-    let segment_names: HashSet<String> = (0..num_chunks).into_par_iter().flat_map(|chunk| {
-        let chunk_start = chunk * CHUNK_SIZE;
-        let chunk_end = (chunk_start + CHUNK_SIZE).min(file_size as usize);
-        
-        // Find beginning of first complete line
-        let real_start = if chunk == 0 {
-            0
-        } else {
-            // Backtrack to find previous newline
-            let mut start = chunk_start;
-            while start > 0 && mmap[start - 1] != b'\n' {
-                start -= 1;
-            }
-            // Now backtrack to valid UTF-8 boundary if needed
-            while start > 0 && (mmap[start] & 0xC0) == 0x80 {
-                start -= 1;
-            }
-            start
-        };
-        
-        // Find end of last complete line
-        let real_end = if chunk == num_chunks - 1 {
-            chunk_end
-        } else {
-            // Look ahead to find next newline
-            let mut end = chunk_end;
-            while end < file_size as usize && mmap[end] != b'\n' {
-                end += 1;
-            }
-            // Include the newline if we found one
-            if end < file_size as usize {
-                end + 1
-            } else {
-                end
-            }
-        };
-        
-        let mut segments = HashSet::new();
-        let chunk_data = &mmap[real_start..real_end];
-        let mut pos = 0;
-        
-        while pos < chunk_data.len() {
-            // Handle empty lines explicitly
-            if pos < chunk_data.len() && chunk_data[pos] == b'\n' {
-                pos += 1;
-                continue;
-            }
-
-            // Check for complete "S\t" prefix
-            if pos + 2 <= chunk_data.len() && chunk_data[pos] == b'S' && chunk_data[pos + 1] == b'\t' {
-                // Find complete line
-                let remaining_data = &chunk_data[pos..];
-                if let Some(line_length) = remaining_data.iter().position(|&b| b == b'\n') {
-                    // Check if this line belongs to this chunk
-                    let absolute_pos = pos + real_start;
-                    if absolute_pos >= chunk_start && absolute_pos < chunk_end {
-                        // Only process if we have a complete line
-                        if let Ok(line) = std::str::from_utf8(&remaining_data[..line_length]) {
-                            if let Some(name) = line.split('\t').nth(1) {
-                                // Use Arc to track progress separately from segment collection
-                                segments.insert(name.to_string());
-                                pb.inc(1);
-                            }
-                        }
-                    }
-                    pos += line_length + 1;
-                } else if chunk == num_chunks - 1 {
-                    // Special handling for last line of file if it has no newline
-                    let absolute_pos = pos + real_start;
-                    if absolute_pos >= chunk_start {
-                        if let Ok(line) = std::str::from_utf8(remaining_data) {
-                            if let Some(name) = line.split('\t').nth(1) {
-                                segments.insert(name.to_string());
-                                pb.inc(1);
-                            }
-                        }
-                    }
-                    break;
-                } else {
-                    // Incomplete line and not last chunk - skip to next chunk
-                    break;
-                }
-            } else {
-                // Find next line start
-                match chunk_data[pos..].iter().position(|&b| b == b'\n') {
-                    Some(next_line) => pos += next_line + 1,
-                    None => break, // No more newlines in this chunk
+    // Extract segment names from each `S` line.
+    // Requirements:
+    // - Line must start with "S\t"
+    // - Must have at least two fields: "S" and the segment name
+    // We'll split on tabs and take the second field as the name.
+    let mut segment_names = HashSet::new();
+    for line in &lines {
+        if line.starts_with("S\t") {
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() >= 2 {
+                // parts[0] == "S", parts[1] is the segment name
+                let segment_name = parts[1].to_string();
+                // Add the segment name if not empty or invalid
+                if !segment_name.is_empty() {
+                    segment_names.insert(segment_name);
+                    pb.inc(1);
                 }
             }
         }
-        
-        segments
-    }).collect();
+    }
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Create deterministic index mapping
+    // Sort and assign deterministic indices
     let mut sorted_segments: Vec<String> = segment_names.into_iter().collect();
-    sorted_segments.sort();
-    
-    let segment_indices: HashMap<String, u32> = sorted_segments.iter()
+    sorted_segments.sort_unstable();
+
+    let segment_indices: HashMap<String, u32> = sorted_segments
+        .iter()
         .enumerate()
         .map(|(idx, name)| (name.clone(), idx as u32))
         .collect();
 
-    let segment_counter = sorted_segments.len() as u32;
+    let segment_counter = segment_indices.len() as u32;
     println!("🎯 Total segments (nodes) identified: {}", segment_counter);
-    
+
     Ok((segment_indices, segment_counter))
 }
 
