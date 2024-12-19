@@ -181,13 +181,12 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Sort and assign indices
-    let mut sorted_segments: Vec<String> = segment_names.into_iter().collect();
-    sorted_segments.sort_unstable();
-    let segment_indices: HashMap<String, u32> = sorted_segments
-        .iter()
-        .enumerate()
-        .map(|(idx, name)| (name.clone(), idx as u32))
+    // Directly create indices using numerical IDs from GFA
+    let segment_indices: HashMap<String, u32> = segment_names
+        .into_iter()
+        .filter_map(|name| {
+            name.parse::<u32>().ok().map(|id| (name, id - 1))  // -1 because GFA is 1-based
+        })
         .collect();
 
     let segment_counter = segment_indices.len() as u32;
