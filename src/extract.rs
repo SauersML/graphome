@@ -12,7 +12,7 @@ use std::cmp::min;
 use nalgebra::{DMatrix, DVector};
 use ndarray_npy::write_npy;
 
-use crate::eigen::{
+use crate::eigen_print::{
     call_eigendecomp, 
     adjacency_matrix_to_ndarray, 
     compute_ngec, 
