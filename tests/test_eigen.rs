@@ -84,7 +84,7 @@ fn test_adjacency_matrix_to_ndarray() {
         [1.0, 1.0, 0.0],
     ];
 
-    let adj_matrix = graphome::eigen_print::adjacency_matrix_to_ndarray(&edges, start_node, end_node);
+    let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
 
     assert_eq!(adj_matrix, expected);
 
