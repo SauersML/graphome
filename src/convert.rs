@@ -55,17 +55,9 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     Ok(())
 }
 
+
 /// Parses the GFA file to extract segments and assign unique indices deterministically.
 ///
-/// This implementation fixes the original issue by avoiding manual chunk-based parsing that could
-/// lead to partial lines being interpreted as full ones. Instead, it reads the file line-by-line
-/// using a standard `BufReader`, ensuring that no partial lines are ever considered. This makes it
-/// impossible for malformed or partial lines at chunk boundaries to appear as valid segments.
-///
-/// Additionally, this rewrite enforces stricter validation of `S` lines. Only fully-formed lines
-/// starting with "S\t" and containing at least two fields (the record type "S" and a segment name)
-/// are considered valid segments. If a line doesn't meet these criteria, it is simply ignored.
-/// This ensures that invalid states (e.g., phantom segments from truncated lines) cannot occur.
 ///
 /// # Arguments
 ///
@@ -166,6 +158,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     Ok((segment_indices, segment_counter))
 }
+
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
