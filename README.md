@@ -16,9 +16,9 @@ Graphome is a high-performance Rust tool that converts Graphical Fragment Assemb
 
 Graphome can calculate various statistics of a graph.
 
-- Node connectivities (in progress)
+- Node connectivities
 - Eigenvalues and eigenvectors of a graph as a whole, or a region of the graph
-- Entropy of a graph, or a specific region of the graph (in progress)
+- Entropy of a graph, or a specific region of the graph
 - Clustering of paths in a graph (in progress)
 - Mangitude of differences between paths (in progress)
 
