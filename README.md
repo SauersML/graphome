@@ -59,7 +59,7 @@ graphome convert input.gfa output.gam
 graphome stats matrix.gam
 ```
 
-### Extract Subgraph (tbd)
+### Extract Subgraph
 
 ```bash
 graphome extract --region chr20:1000000-2000000 input.gam output.gam
