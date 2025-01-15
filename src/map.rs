@@ -46,6 +46,7 @@ struct NodeInfo {
 ///   - the ordered list of (nodeID, orientation)
 ///   - prefix_sums so we can do offset lookups
 #[derive(Debug)]
+#[derive(Clone)]
 struct PathData {
     nodes: Vec<(String, bool)>,   // bool => orientation, true=+ / false=-
     prefix_sums: Vec<usize>,
@@ -105,7 +106,6 @@ impl IntervalTree {
         // pick a center pivot. A common approach is pick median of starts
         intervals.sort_by_key(|iv| iv.start);
         let mid = intervals.len()/2;
-        let center = intervals[mid].start;
         // Partition intervals into left, right, and overlaps
         let mut left_vec = Vec::new();
         let mut right_vec = Vec::new();
@@ -136,7 +136,7 @@ impl IntervalTree {
     }
 
     // Query all intervals that overlap [qstart..qend]
-    fn query(&self, qstart: usize, qend: usize, results: &mut Vec<&Interval>) {
+    fn query<'a>(&'a self, qstart: usize, qend: usize, results: &mut Vec<&'a Interval>) {
         match self {
             IntervalTree::Empty => {},
             IntervalTree::Node{center, left, right, overlaps} => {
@@ -196,13 +196,13 @@ fn main() {
              .short('g')
              .help("Path to the massive GFA file")
              .required(true)
-             .takes_value(true))
+             .num_args(1))
         .arg(Arg::new("paf")
              .long("paf")
              .short('p')
              .help("Path to the untangle PAF file")
              .required(true)
-             .takes_value(true))
+             .num_args(1))
         .subcommand(Command::new("node2coord")
             .about("Given a GFA node ID, show the corresponding hg38 coords.")
             .arg(Arg::new("NODE_ID").required(true)))
@@ -211,8 +211,8 @@ fn main() {
             .arg(Arg::new("REGION").required(true)))
         .get_matches();
 
-    let gfa_path = matches.value_of("gfa").unwrap();
-    let paf_path = matches.value_of("paf").unwrap();
+    let gfa_path = matches.get_one::<String>("gfa").unwrap();
+    let paf_path = matches.get_one::<String>("paf").unwrap();
 
     eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
 
@@ -249,7 +249,7 @@ fn main() {
 
     // handle subcommands
     if let Some(("node2coord", subm)) = matches.subcommand() {
-        let node_id = subm.value_of("NODE_ID").unwrap();
+        let node_id = subm.get_one::<String>("NODE_ID").unwrap();
         let results = node_to_coords(&global, node_id);
         if results.is_empty() {
             println!("No reference coords found for node {}", node_id);
@@ -259,7 +259,7 @@ fn main() {
             }
         }
     } else if let Some(("coord2node", subm)) = matches.subcommand() {
-        let region = subm.value_of("REGION").unwrap();
+        let region = subm.get_one::<String>("REGION").unwrap();
         if let Some((chr, start, end)) = parse_region(region) {
             let results = coord_to_nodes(&global, &chr, start, end);
             if results.is_empty() {
@@ -318,6 +318,7 @@ fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     let pb = ProgressBar::new(total_lines as u64);
     pb.set_style(ProgressStyle::default_bar()
        .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}")
+       .expect("Invalid template for progress style")
        .progress_chars("##-"));
 
     // We'll parse lines in parallel with rayon. We'll store partial results in local thread containers, then merge.
@@ -367,7 +368,7 @@ fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                         for p in parts.iter().skip(3) {
                             if p.starts_with(b"LN:i:") {
                                 let ln_s = &p[5..];
-                                if let Ok(v) = std::str::from_utf8(ln_s).ok().and_then(|z| z.parse::<usize>().ok()) {
+                                if let Some(v) = std::str::from_utf8(ln_s).ok().and_then(|z| z.parse::<usize>().ok()) {
                                     length = v;
                                     break;
                                 }
@@ -497,7 +498,7 @@ fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
     // We'll do a mem approach if we want, but let's do standard concurrency:
     let lines:Vec<_> = reader.lines().collect::<Result<_,_>>().expect("read error");
     let pb = ProgressBar::new(lines.len() as u64);
-    pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF").progress_chars("##-"));
+    pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF").expect("Invalid template for progress style").progress_chars("##-"));
 
     lines.into_par_iter().for_each(|l| {
         pb.inc(1);
@@ -547,7 +548,7 @@ fn build_ref_trees(global: &mut GlobalData) {
     let mut by_ref = HashMap::<String, Vec<Interval>>::new();
 
     let pb = ProgressBar::new(global.alignment_by_path.len() as u64);
-    pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.yellow/black} {pos:>7}/{len:7} ({eta}) Building intervals").progress_chars("##-"));
+    pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.yellow/black} {pos:>7}/{len:7} ({eta}) Building intervals").expect("Invalid template for progress style").progress_chars("##-"));
 
     for (pname, blocks) in &global.alignment_by_path {
         pb.inc(1);
