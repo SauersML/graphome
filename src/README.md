@@ -35,3 +35,9 @@ This module extracts adjacency submatrices from an edge list and performs subseq
 ### `main.rs`
 
 The entry point for the source code. It sets up a command-line interface (CLI) using `clap` for interacting with the conversion and extraction functionalities. This file defines the CLI commands and arguments for running the `convert` and `extract` processes.
+
+### `map.rs`
+Parse a GFA and untangle PAF for node↔hg38 lookups.
+Usage:
+  cargo run --release --bin graphome -- --gfa <GFA> --paf <PAF> node2coord <node>
+  cargo run --release --bin graphome -- --gfa <GFA> --paf <PAF> coord2node <chr>:<start>-<end>
