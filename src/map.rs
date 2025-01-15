@@ -22,13 +22,12 @@
 //   cargo run --release -- --gfa hprc-v1.0-pggb.gfa --paf untangle.paf coord2node grch38#chr1:100000-110000
 
 
-use std::collections::{HashMap, HashSet};
-use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufRead, Write, Seek};
-use std::path::Path;
+use std::collections::{HashMap};
+use std::fs::{File};
+use std::io::{BufReader, BufRead};
 use std::sync::{Arc, Mutex};
 
-use clap::{Arg, Command, ArgMatches, value_parser};
+use clap::{Arg, Command};
 use memmap2::{MmapOptions};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -516,7 +515,7 @@ fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
         let t_name = parts[5].to_string();
         let t_start= parts[7].parse::<usize>().unwrap_or(0);
         let t_end  = parts[8].parse::<usize>().unwrap_or(0);
-        let strand = (strand_char=='+');
+        let strand = strand_char=='+';
 
         let ab = AlignmentBlock {
             path_name: q_name.clone(),
