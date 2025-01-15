@@ -4,3 +4,4 @@ pub mod eigen_print;
 pub mod dsbevd;
 pub mod window;
 pub mod entropy;
+pub mod map;
