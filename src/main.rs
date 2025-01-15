@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, eigen_print, dsbevd, window, entropy};
+use graphome::{convert, extract, eigen_print, dsbevd, window, entropy, map};
+
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
