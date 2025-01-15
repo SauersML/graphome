@@ -82,7 +82,34 @@ enum Commands {
         #[arg(short, long)]
         input: PathBuf,
     },
+
+    /// Map (with two sub-subcommands: node2coord, coord2node)
+    Map {
+        /// The path to the GFA file
+        #[arg(long)]
+        gfa: String,
+        /// The path to the PAF file
+        #[arg(long)]
+        paf: String,
+        #[command(subcommand)]
+        map_command: MapCommand,
+    },
 }
+
+#[derive(Subcommand)]
+enum MapCommand {
+    /// Node->Coordinate
+    Node2coord {
+        /// The node ID in the GFA
+        node_id: String,
+    },
+    /// Coordinate->Node
+    Coord2node {
+        /// The region in hg38, e.g. grch38#chr1:100000-200000
+        region: String,
+    },
+}
+
 
 fn main() -> io::Result<()> {
     let cli = Cli::parse();
@@ -124,6 +151,19 @@ fn main() -> io::Result<()> {
         }
         Commands::AnalyzeWindows { input } => {
             entropy::analyze_windows(input)?;
+        }
+
+        Commands::Map { gfa, paf, map_command } => {
+            match map_command {
+                MapCommand::Node2coord { node_id } => {
+                    // This calls the node->coord function from map.rs
+                    map::node2coord(gfa, paf, node_id)?;
+                },
+                MapCommand::Coord2node { region } => {
+                    // This calls the coord->node function from map.rs
+                    map::coord2node(gfa, paf, region)?;
+                },
+            }
         }
     }
     Ok(())
