@@ -583,7 +583,7 @@ fn build_ref_trees(global: &mut GlobalData) {
 
 // node_to_coords
 // using global data structures to do node->coords mapping
-fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,usize)> {
+pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,usize)> {
     let mut results = Vec::new();
 
     let nodeinfo = match global.node_map.get(node_id) {
@@ -639,7 +639,7 @@ fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,usize
 
 // coord_to_nodes
 //  given e.g. "grch38#chr1", 100000, 110000
-fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
     let mut results = Vec::new();
 
     let tree = match global.ref_trees.get(chr) {
