@@ -725,6 +725,9 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
     // for each interval, we compute overlap in ref space, then convert to path offsets, then find node(s)
     for iv in ivs {
         let ab = &iv.data;
+        // Even if a node only partially overlaps [start..end], we include it. We
+        // compute the intersecting segment in reference coordinates, then map
+        // that segment back onto the node's path offset range.
         let ov_s = start.max(iv.start);
         let ov_e = end.min(iv.end);
         if ov_s>ov_e {
