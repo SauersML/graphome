@@ -64,6 +64,7 @@ pub struct PathData {
 #[derive(Debug, Clone)]
 pub struct AlignmentBlock {
     pub path_name: String,
+    pub q_len:     usize,
     pub q_start:   usize,
     pub q_end:     usize,
     pub ref_chrom: String,
@@ -516,17 +517,30 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
         if parts.len()<12 {
             return;
         }
-        let q_name = parts[0].to_string();
-        let q_start = parts[2].parse::<usize>().unwrap_or(0);
-        let q_end   = parts[3].parse::<usize>().unwrap_or(0);
+        // parse PAF columns
+        let q_name  = parts[0].to_string();
+        let q_len   = parts[1].parse::<usize>().unwrap_or(0);
+        let raw_qs  = parts[2].parse::<usize>().unwrap_or(0);
+        let raw_qe  = parts[3].parse::<usize>().unwrap_or(0);
         let strand_char = parts[4].chars().next().unwrap_or('+');
-        let t_name = parts[5].to_string();
-        let t_start= parts[7].parse::<usize>().unwrap_or(0);
-        let t_end  = parts[8].parse::<usize>().unwrap_or(0);
-        let strand = strand_char=='+';
-
+        let t_name  = parts[5].to_string();
+        let t_start = parts[7].parse::<usize>().unwrap_or(0);
+        let t_end   = parts[8].parse::<usize>().unwrap_or(0);
+        let strand  = (strand_char == '+');
+        
+        // invert q_start..q_end if negative strand
+        let (q_start, q_end) = if !strand {
+            let new_start = q_len.saturating_sub(raw_qe);
+            let new_end   = q_len.saturating_sub(raw_qs);
+            (new_start, new_end)
+        } else {
+            (raw_qs, raw_qe)
+        };
+        
+        // build the alignment block
         let ab = AlignmentBlock {
             path_name: q_name.clone(),
+            q_len,      // <--- store the length
             q_start,
             q_end,
             ref_chrom: t_name,
