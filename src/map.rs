@@ -654,8 +654,23 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                 let diff_end   = ov_end   - qs;
                 let ref_start = b.r_start + diff_start;
                 let ref_end   = b.r_start + diff_end;
-                // ignoring orientation for now
-                results.push((b.ref_chrom.clone(), ref_start, ref_end));
+    
+                if node_or {
+                    // The node is forward relative to the path
+                    let final_ref_start = b.r_start + diff_start;
+                    let final_ref_end   = b.r_start + diff_end;
+                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+                } else {
+                    // The node is reversed in the path
+                    // Invert the offset relative to this alignment block's ref space
+                    // b.r_start..b.r_end is the range on the reference
+                    // diff_start..diff_end is how far along the node we are
+                    let rev_start = b.r_end.saturating_sub(diff_end);
+                    let rev_end   = b.r_end.saturating_sub(diff_start);
+                    let final_ref_start = if rev_start <= rev_end { rev_start } else { rev_end };
+                    let final_ref_end   = if rev_start <= rev_end { rev_end } else { rev_start };
+                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+                }
             }
         }
     }
