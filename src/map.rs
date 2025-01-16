@@ -288,7 +288,7 @@ fn main() {
 // - parse S lines to fill node_map
 // - parse P lines to fill path_map, prefix sums, node_to_paths
 
-fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
+pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     let file = File::open(gfa_path).expect("Cannot open GFA file for memmap");
     let meta = file.metadata().expect("Cannot stat GFA file");
     let filesize = meta.len();
@@ -490,7 +490,7 @@ fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
 
 // parse_paf_parallel
 
-fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
+pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
     // We'll read line-by-line in parallel. Then store results in alignment_by_path + we need a container to store for ref usage
     use std::io::BufRead;
 
@@ -547,7 +547,7 @@ fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
 // build_ref_trees
 // We'll gather all alignment blocks from alignment_by_path, group by refChrom
 // then build an Interval. Then build an IntervalTree for each refChrom.
-fn build_ref_trees(global: &mut GlobalData) {
+pub fn build_ref_trees(global: &mut GlobalData) {
     // gather all intervals
     use rayon::prelude::*;
     let mut by_ref = HashMap::<String, Vec<Interval>>::new();
@@ -723,7 +723,7 @@ pub struct Coord2NodeResult {
 }
 
 // parse_region e.g. "grch38#chr1:12345-67890"
-fn parse_region(r: &str) -> Option<(String,usize,usize)> {
+pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
     // e.g. "grch38#chr1:120616922-120626943"
     let (chr_part, rng_part) = r.split_once(':')?;
     let (s,e) = rng_part.split_once('-')?;
