@@ -167,20 +167,20 @@ impl IntervalTree {
 
 struct GlobalData {
     // node information
-    node_map: HashMap<String, NodeInfo>,
+    pub node_map: HashMap<String, NodeInfo>,
 
     // path information
-    path_map: HashMap<String, PathData>,
+    pub path_map: HashMap<String, PathData>,
 
     // node->(pathName,indexInPath)
-    node_to_paths: HashMap<String, Vec<(String,usize)>>,
+    pub node_to_paths: HashMap<String, Vec<(String,usize)>>,
 
     // alignment blocks per path
-    alignment_by_path: HashMap<String, Vec<AlignmentBlock>>,
+    pub alignment_by_path: HashMap<String, Vec<AlignmentBlock>>,
 
     // for reference coords
     // e.g. "grch38#chr1" -> IntervalTree
-    ref_trees: HashMap<String, IntervalTree>,
+    pub ref_trees: HashMap<String, IntervalTree>,
 }
 
 
