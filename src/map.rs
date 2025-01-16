@@ -165,7 +165,7 @@ impl IntervalTree {
 // We'll keep these big data structures in memory for queries.
 
 
-struct GlobalData {
+pub struct GlobalData {
     // node information
     pub node_map: HashMap<String, NodeInfo>,
 
