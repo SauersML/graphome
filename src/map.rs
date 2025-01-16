@@ -489,8 +489,10 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
         pb.inc((local_res.lines_processed % 10000) as u64);
         local_res
     }).collect_into_vec(&mut all_results);
+    
+    // End the progress bar right after we finish the parallel parse
     pb.finish_and_clear();
-
+    
     // Now do a SINGLE MERGE (no repeated locking in the loop).
     let mut merged_node_map = HashMap::new();
     let mut merged_path_map = HashMap::new();
