@@ -679,7 +679,7 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
             None => continue,
         };
         // do a binary search approach
-        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { # Or remove start_node from here?
+        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { // Or remove start_node from here?
             Ok(i) => (i,i),
             Err(i) => if i>0 { (i-1,i-1) } else { (0,0) },
         };
