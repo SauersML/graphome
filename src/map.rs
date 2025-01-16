@@ -16,10 +16,6 @@
 //   - indicatif (for progress bars)
 //   - IntervalTree (we show a custom robust approach to store alignment blocks)
 //   - Efficient data structures and concurrency considerations
-//
-// Example usage:
-//   cargo run --release -- --gfa hprc-v1.0-pggb.gfa --paf untangle.paf node2coord 10127854
-//   cargo run --release -- --gfa hprc-v1.0-pggb.gfa --paf untangle.paf coord2node grch38#chr1:100000-110000
 
 
 // The code always treats query offsets as if they run from `q_start` to `q_end` in a forward orientation, even when the PAF record indicates a reverse‐strand alignment. This causes incorrect offset calculations for negative‐strand alignments. To fix it, must handle the case where `strand_char == '-'` (i.e., `b.strand == false`) by inverting the offset calculations to account for the query’s reversed orientation.
