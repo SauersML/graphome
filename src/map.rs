@@ -38,8 +38,8 @@ use indicatif::{ProgressBar, ProgressStyle};
 
 /// Stores basic info about a GFA node: specifically its length.
 #[derive(Debug, Clone)]
-struct NodeInfo {
-    length: usize,
+pub struct NodeInfo {
+    pub length: usize,
 }
 
 /// For each path in the GFA, we store:
@@ -47,10 +47,10 @@ struct NodeInfo {
 ///   - prefix_sums so we can do offset lookups
 #[derive(Debug)]
 #[derive(Clone)]
-struct PathData {
-    nodes: Vec<(String, bool)>,   // bool => orientation, true=+ / false=-
-    prefix_sums: Vec<usize>,
-    total_length: usize,
+pub struct PathData {
+    pub nodes: Vec<(String, bool)>,   // bool => orientation, true=+ / false=-
+    pub prefix_sums: Vec<usize>,
+    pub total_length: usize,
 }
 
 /// For alignments from the PAF (untangle). Each record:
@@ -60,14 +60,14 @@ struct PathData {
 ///   - rStart,rEnd
 ///   - strand
 #[derive(Debug, Clone)]
-struct AlignmentBlock {
-    path_name: String,
-    q_start:   usize,
-    q_end:     usize,
-    ref_chrom: String,
-    r_start:   usize,
-    r_end:     usize,
-    strand:    bool, // + => true, - => false
+pub struct AlignmentBlock {
+    pub path_name: String,
+    pub q_start:   usize,
+    pub q_end:     usize,
+    pub ref_chrom: String,
+    pub r_start:   usize,
+    pub r_end:     usize,
+    pub strand:    bool, // + => true, - => false
 }
 
 /// We'll store reference intervals in a stable interval tree, so we can do
