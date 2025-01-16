@@ -40,6 +40,10 @@ The entry point for the source code. It sets up a command-line interface (CLI) u
 Parse a GFA and untangle PAF for node↔hg38 lookups.
 Usage examples:
 
-  ```./target/release/graphome map --gfa hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf node2coord 10127854```
+  ```
+  ./target/release/graphome map --gfa hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf node2coord 10127854
+```
   
-  ```./target/release/graphome map --gfa hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf coord2node "grch38#chr1:228557148-228557149"```
+  ```
+  ./target/release/graphome map --gfa hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf coord2node "grch38#chr1:228557148-228557149"
+```
