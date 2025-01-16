@@ -18,7 +18,7 @@
 //   - Efficient data structures and concurrency considerations
 
 
-// The code always treats query offsets as if they run from `q_start` to `q_end` in a forward orientation, even when the PAF record indicates a reverse‐strand alignment. This causes incorrect offset calculations for negative‐strand alignments. To fix it, must handle the case where `strand_char == '-'` (i.e., `b.strand == false`) by inverting the offset calculations to account for the query’s reversed orientation.
+// The code always treats query offsets as if they run from `q_start` to `q_end` in a forward orientation, even when the PAF record indicates a reverse‐strand alignment. This causes incorrect offset calculations for negative‐strand alignments. To fix it, must handle the case where `strand_char == '-'` (i.e., `b.ref_strand == false`) by inverting the offset calculations to account for the query’s reversed orientation.
 
 use std::collections::{HashMap};
 use std::fs::{File};
@@ -66,7 +66,8 @@ pub struct AlignmentBlock {
     pub ref_chrom: String,
     pub r_start:   usize,
     pub r_end:     usize,
-    pub strand:    bool, // + => true, - => false
+    // Indicate reference orientation: true = '+', false = '-'
+    pub ref_strand: bool,
 }
 
 /// We'll store reference intervals in a stable interval tree, so we can do
@@ -619,14 +620,15 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 let t_end = parts[8].parse::<usize>().unwrap_or(0);
                 let strand = (strand_char == '+');
 
-                // Invert query offsets for negative strand:
-                let (q_start, q_end) = if !strand {
-                    let new_start = q_len.saturating_sub(raw_qe);
-                    let new_end = q_len.saturating_sub(raw_qs);
-                    (new_start, new_end)
-                } else {
-                    (raw_qs, raw_qe)
-                };
+                // Store raw_qs, raw_qe exactly as in the PAF, along with a new field ref_strand
+                // to record whether the path is reversed with respect to the reference.
+                let ref_strand = (strand_char == '+');
+                
+                // Keep q_start and q_end exactly as they appear in columns [3..4]:
+                let q_start = raw_qs;
+                let q_end   = raw_qe;
+                
+                // Build the alignment block without inverting query offsets:
                 let ab = AlignmentBlock {
                     path_name: q_name.clone(),
                     q_len,
@@ -635,8 +637,10 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                     ref_chrom: t_name,
                     r_start: t_start,
                     r_end: t_end,
-                    strand,
+                    ref_strand: ref_strand, // This indicates the path->reference orientation
                 };
+                
+                // Then store it
                 local_res.data.entry(q_name).or_insert_with(Vec::new).push(ab);
             }
             pb.inc(local_res.count as u64);
@@ -758,19 +762,30 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                 let diff_start = ov_start - qs;
                 let diff_end   = ov_end   - qs;
         
-                if node_or {
-                    // The node is forward relative to the path
-                    let final_ref_start = b.r_start + diff_start;
-                    let final_ref_end   = b.r_start + diff_end;
-                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
-                } else {
-                    // The node is reversed in the path
-                    let rev_start = b.r_end.saturating_sub(diff_end);
-                    let rev_end   = b.r_end.saturating_sub(diff_start);
-                    let final_ref_start = if rev_start <= rev_end { rev_start } else { rev_end };
-                    let final_ref_end   = if rev_start <= rev_end { rev_end } else { rev_start };
-                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
-                }
+            // If the alignment itself is reversed vs. the reference, invert diff_start..diff_end
+            let (rs, re) = if !b.ref_strand {
+                let total_len = b.r_end.saturating_sub(b.r_start);
+                let flipped_start = total_len.saturating_sub(diff_end);
+                let flipped_end   = total_len.saturating_sub(diff_start);
+                (flipped_start, flipped_end)
+            } else {
+                (diff_start, diff_end)
+            };
+            
+            // Now apply the node's orientation in the path
+            if node_or {
+                // Node is forward in path
+                let final_ref_start = b.r_start + rs;
+                let final_ref_end   = b.r_start + re;
+                results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+            } else {
+                // Node is reversed in path
+                let rev_start = b.r_end.saturating_sub(re);
+                let rev_end   = b.r_end.saturating_sub(rs);
+                let final_ref_start = if rev_start <= rev_end { rev_start } else { rev_end };
+                let final_ref_end   = if rev_start <= rev_end { rev_end } else { rev_start };
+                results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+            }
             }
         }
     }
@@ -802,10 +817,23 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
         if ov_s>ov_e {
             continue;
         }
+        // Compute overlap in reference space
         let diff_start = ov_s - ab.r_start;
         let diff_end   = ov_e - ab.r_start;
-        let path_ov_start = ab.q_start + diff_start;
-        let path_ov_end   = ab.q_start + diff_end;
+        
+        // If ab.ref_strand == false, we flip diff_start..diff_end
+        let (flip_start, flip_end) = if !ab.ref_strand {
+            let total_len = ab.r_end.saturating_sub(ab.r_start);
+            let fs = total_len.saturating_sub(diff_end);
+            let fe = total_len.saturating_sub(diff_start);
+            (fs, fe)
+        } else {
+            (diff_start, diff_end)
+        };
+        
+        // Now map to path offsets
+        let path_ov_start = ab.q_start + flip_start;
+        let path_ov_end   = ab.q_start + flip_end;
 
         // now find which nodes in ab.path_name covers path_ov_start..path_ov_end
         let pd = match global.path_map.get(&ab.path_name) {
