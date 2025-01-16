@@ -485,7 +485,7 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                 _ => {}
             }
         }
-        pb.inc(local_res.lines_processed % 10000);
+        pb.inc((local_res.lines_processed % 10000) as u64);
         local_res
     }).collect_into_vec(&mut all_results);
     pb.finish_and_clear();
