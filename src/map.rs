@@ -434,7 +434,7 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                         .collect();
     
                     // Check if there's a 4th field with overlaps
-                    let mut overlap_cigars: Vec<&str> = Vec::new();
+                    let mut overlap_cigars: Vec<String> = Vec::new();
                     if parts.len() > 3 {
                         // The 4th field might be a single "*" or comma-separated CIGAR strings
                         let overlap_field = String::from_utf8_lossy(parts[3]).to_string();
@@ -458,7 +458,7 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                     // For each segment after the 0th, add node length minus any overlap
                     for i in 1..oriented.len() {
                         let (prev_nid, _) = &oriented[i-1];
-                        let prev_len = match local_node_map.get(&prev_nid) {
+                        let prev_len = match local_node_map.get(prev_nid) {
                             Some(info) => info.length,
                             None => {
                                 // fallback if missing
