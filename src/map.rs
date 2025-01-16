@@ -541,50 +541,45 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
     let pb = ProgressBar::new(lines.len() as u64);
     pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF").expect("Invalid template for progress style").progress_chars("##-"));
 
-    lines.into_par_iter().for_each(|l| {
-        pb.inc(1);
-        if l.is_empty() || l.starts_with('#') {
-            return;
-        }
-        let parts:Vec<&str> = l.split('\t').collect();
-        if parts.len()<12 {
-            return;
-        }
-        // parse PAF columns
-        let q_name  = parts[0].to_string();
-        let q_len   = parts[1].parse::<usize>().unwrap_or(0);
-        let raw_qs  = parts[2].parse::<usize>().unwrap_or(0);
-        let raw_qe  = parts[3].parse::<usize>().unwrap_or(0);
-        let strand_char = parts[4].chars().next().unwrap_or('+');
-        let t_name  = parts[5].to_string();
-        let t_start = parts[7].parse::<usize>().unwrap_or(0);
-        let t_end   = parts[8].parse::<usize>().unwrap_or(0);
-        let strand  = (strand_char == '+');
-        
-        // invert q_start..q_end if negative strand
-        let (q_start, q_end) = if !strand {
-            let new_start = q_len.saturating_sub(raw_qe);
-            let new_end   = q_len.saturating_sub(raw_qs);
-            (new_start, new_end)
-        } else {
-            (raw_qs, raw_qe)
-        };
-        
-        // build the alignment block
-        let ab = AlignmentBlock {
-            path_name: q_name.clone(),
-            q_len,      // <--- store the length
-            q_start,
-            q_end,
-            ref_chrom: t_name,
-            r_start: t_start,
-            r_end: t_end,
-            strand
-        };
-        {
+    lines.par_chunks(10000).for_each(|chunk| {
+        pb.inc(chunk.len() as u64);
+        chunk.iter().for_each(|l| {
+            if l.is_empty() || l.starts_with('#') {
+                return;
+            }
+            let parts:Vec<&str> = l.split('\t').collect();
+            if parts.len()<12 {
+                return;
+            }
+            let q_name  = parts[0].to_string();
+            let q_len   = parts[1].parse::<usize>().unwrap_or(0);
+            let raw_qs  = parts[2].parse::<usize>().unwrap_or(0);
+            let raw_qe  = parts[3].parse::<usize>().unwrap_or(0);
+            let strand_char = parts[4].chars().next().unwrap_or('+');
+            let t_name  = parts[5].to_string();
+            let t_start = parts[7].parse::<usize>().unwrap_or(0);
+            let t_end   = parts[8].parse::<usize>().unwrap_or(0);
+            let strand  = (strand_char == '+');
+            let (q_start, q_end) = if !strand {
+                let new_start = q_len.saturating_sub(raw_qe);
+                let new_end   = q_len.saturating_sub(raw_qs);
+                (new_start, new_end)
+            } else {
+                (raw_qs, raw_qe)
+            };
+            let ab = AlignmentBlock {
+                path_name: q_name.clone(),
+                q_len,
+                q_start,
+                q_end,
+                ref_chrom: t_name,
+                r_start: t_start,
+                r_end: t_end,
+                strand
+            };
             let mut map = path_map_arc.lock().unwrap();
             map.entry(q_name).or_insert_with(Vec::new).push(ab);
-        }
+        });
     });
     pb.finish_and_clear();
 
@@ -604,10 +599,13 @@ pub fn build_ref_trees(global: &mut GlobalData) {
     let pb = ProgressBar::new(global.alignment_by_path.len() as u64);
     pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.yellow/black} {pos:>7}/{len:7} ({eta}) Building intervals").expect("Invalid template for progress style").progress_chars("##-"));
 
+    let mut local_count = 0;
     for (_, blocks) in &global.alignment_by_path {
-        pb.inc(1);
+        local_count += 1;
+        if local_count % 10000 == 0 {
+            pb.inc(10000);
+        }
         for b in blocks {
-            // create Interval for [b.r_start..b.r_end]
             let interval = Interval {
                 start: b.r_start,
                 end:   b.r_end,
@@ -616,6 +614,7 @@ pub fn build_ref_trees(global: &mut GlobalData) {
             by_ref.entry(b.ref_chrom.clone()).or_insert_with(Vec::new).push(interval);
         }
     }
+    pb.inc(local_count % 10000);
     pb.finish_and_clear();
 
     // now build trees in parallel
@@ -628,11 +627,13 @@ pub fn build_ref_trees(global: &mut GlobalData) {
             .progress_chars("##-")
     );
     
-    let built: HashMap<String, IntervalTree> = keys.into_par_iter().map(|k| {
-        let intervals = by_ref.get(&k).unwrap().clone();
-        let tree = IntervalTree::build(intervals);
-        pb2.inc(1);
-        (k, tree)
+    let built: HashMap<String, IntervalTree> = keys.par_chunks(10000).flat_map(|chunk| {
+        pb2.inc(chunk.len() as u64);
+        chunk.iter().map(|k| {
+            let intervals = by_ref.get(k).unwrap().clone();
+            let tree = IntervalTree::build(intervals);
+            (k.clone(), tree)
+        }).collect::<Vec<(String, IntervalTree)>>()
     }).collect();
     pb2.finish_and_clear();
 
