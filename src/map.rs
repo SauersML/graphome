@@ -316,7 +316,6 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     let file = File::open(gfa_path).expect("Cannot open GFA file for memmap");
     let meta = file.metadata().expect("Cannot stat GFA file");
     let filesize = meta.len();
-
     eprintln!("[INFO] GFA memory-mapping file of size {} bytes...", filesize);
 
     let mmap = unsafe {
@@ -324,98 +323,117 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     };
 
     eprintln!("[INFO] Finding line boundaries in GFA...");
-
-    // We'll collect line start indices.
     let mut line_indices = Vec::new();
-    line_indices.push(0usize);
+    line_indices.push(0);
     for i in 0..mmap.len() {
         if mmap[i] == b'\n' {
-            if i+1 < mmap.len() {
-                line_indices.push(i+1);
+            if i + 1 < mmap.len() {
+                line_indices.push(i + 1);
             }
         }
     }
     let total_lines = line_indices.len();
     eprintln!("[INFO] GFA total lines found = {}", total_lines);
 
-    // progress bar
     let pb = ProgressBar::new(total_lines as u64);
-    pb.set_style(ProgressStyle::default_bar()
-       .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}")
-       .expect("Invalid template for progress style")
-       .progress_chars("##-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} ({eta}) {msg}")
+            .expect("Invalid progress style template")
+            .progress_chars("##-")
+    );
 
-    // We'll parse lines in parallel with rayon. We'll store partial results in local thread containers, then merge.
-    let chunk_size = 50_000; // lines per chunk
-    let num_chunks = (total_lines + chunk_size - 1)/chunk_size;
+    // Each thread will collect results here:
+    #[derive(Debug, Clone)]
+    struct TempPathData {
+        nodes: Vec<(String, bool)>,
+        overlaps: Vec<String>,
+    }
 
-    // for concurrency:
-    let node_map_mutex = Arc::new(Mutex::new(HashMap::new()));
-    let path_map_mutex = Arc::new(Mutex::new(HashMap::new()));
-    let node_to_paths_mutex = Arc::new(Mutex::new(HashMap::new()));
+    // We store all chunk results in these thread-local vectors. No locks on each insertion.
 
-    (0..num_chunks).into_par_iter().for_each(|chunk_idx| {
-        let start_line = chunk_idx*chunk_size;
-        let end_line = ((chunk_idx+1)*chunk_size).min(total_lines);
+    // We will accumulate chunk results in a local vector, then push into a global vector after the loop.
+    // This data structure:
+    //   local_node_map:    HashMap<String, NodeInfo>
+    //   local_path_map:    HashMap<String, Vec<TempPathData>>  (multiple P-lines can share a path_name)
+    //   local_node_to_paths: HashMap<String, Vec<(String, usize)>>
 
-        // local temporary data
-        let mut local_node_map = HashMap::new();
-        let mut local_path_map = HashMap::new();
-        let mut local_node_to_paths = HashMap::new();
+    // We'll define a single container to hold them for each chunk:
+    #[derive(Debug)]
+    struct GfaChunkResult {
+        node_map: HashMap<String, NodeInfo>,
+        path_map: HashMap<String, Vec<TempPathData>>,
+        node_to_paths: HashMap<String, Vec<(String, usize)>>,
+        lines_processed: usize,
+    }
 
-        
-        let mut local_count = 0;
+    // We'll gather GfaChunkResult in a thread-local fashion, then do one global merge.
+    let chunk_size = 50_000;
+    let num_chunks = (total_lines + chunk_size - 1) / chunk_size;
+    let mut all_results = Vec::new();
+
+    (0..num_chunks).into_par_iter().map(|chunk_idx| {
+        let start_line = chunk_idx * chunk_size;
+        let end_line = ((chunk_idx + 1) * chunk_size).min(total_lines);
+
+        let mut local_res = GfaChunkResult {
+            node_map: HashMap::new(),
+            path_map: HashMap::new(),
+            node_to_paths: HashMap::new(),
+            lines_processed: 0,
+        };
+
         for li in start_line..end_line {
-            local_count += 1;
-            if local_count % 10000 == 0 {
+            local_res.lines_processed += 1;
+            if local_res.lines_processed % 10000 == 0 {
                 pb.inc(10000);
             }
             let offset = line_indices[li];
-            let end_off = if li+1<total_lines {
-                line_indices[li+1]-1
+            let end_off = if li + 1 < total_lines {
+                line_indices[li + 1] - 1
             } else {
                 mmap.len()
             };
-            if end_off<=offset {
+            if end_off <= offset {
                 continue;
             }
             let line_slice = &mmap[offset..end_off];
             if line_slice.is_empty() {
                 continue;
             }
-            let first_char = line_slice[0];
-            match first_char {
+            match line_slice[0] {
                 b'S' => {
-                    let parts:Vec<&[u8]> = line_slice.split(|&c| c == b'\t').collect();
-                    if parts.len()<3 {
+                    let parts: Vec<&[u8]> = line_slice.split(|&c| c == b'\t').collect();
+                    if parts.len() < 3 {
                         continue;
                     }
                     let seg_name = String::from_utf8_lossy(parts[1]).to_string();
                     let seq_or_star = parts[2];
-                    let mut length = 0usize;
+                    let mut length = 0;
                     if seq_or_star == b"*" {
                         for p in parts.iter().skip(3) {
                             if p.starts_with(b"LN:i:") {
                                 let ln_s = &p[5..];
-                                if let Some(v) = std::str::from_utf8(ln_s).ok().and_then(|z| z.parse::<usize>().ok()) {
-                                    length = v;
-                                    break;
+                                if let Ok(txt) = std::str::from_utf8(ln_s) {
+                                    if let Ok(val) = txt.parse::<usize>() {
+                                        length = val;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     } else {
                         length = seq_or_star.len();
                     }
-                    local_node_map.insert(seg_name, NodeInfo{ length });
+                    local_res.node_map.insert(seg_name, NodeInfo { length });
                 },
                 b'P' => {
-                    let parts:Vec<&[u8]> = line_slice.split(|&c| c == b'\t').collect();
-                    if parts.len()<3 {
+                    let parts: Vec<&[u8]> = line_slice.split(|&c| c == b'\t').collect();
+                    if parts.len() < 3 {
                         continue;
                     }
                     let path_name = String::from_utf8_lossy(parts[1]).to_string();
-                    let seg_names = parts[2];
-                    let seg_string = String::from_utf8_lossy(seg_names).to_string();
+                    let seg_string = String::from_utf8_lossy(parts[2]).to_string();
                     let oriented: Vec<(String, bool)> = seg_string
                         .split(',')
                         .filter_map(|x| {
@@ -428,101 +446,126 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                                 '-' => false,
                                 _ => return None,
                             };
-                            let nid = &x[..x.len()-1];
+                            let nid = &x[..x.len() - 1];
                             Some((nid.to_string(), orient))
                         })
                         .collect();
-                    let mut overlap_cigars: Vec<String> = Vec::new();
+
+                    let mut overlaps = Vec::new();
                     if parts.len() > 3 {
                         let overlap_field = String::from_utf8_lossy(parts[3]).to_string();
-                        overlap_cigars = if overlap_field != "*" {
-                            overlap_field.split(',').map(|s| s.to_string()).collect()
-                        } else {
-                            Vec::new()
-                        };
+                        if overlap_field != "*" {
+                            overlaps = overlap_field.split(',').map(|s| s.to_string()).collect();
+                        }
                     }
-                    if !overlap_cigars.is_empty() && overlap_cigars.len() + 1 != oriented.len() {
+                    if !overlaps.is_empty() && overlaps.len() + 1 != oriented.len() {
                         eprintln!("Warning: Overlap field count does not match segments for path {}", path_name);
                     }
-                    let mut prefix = Vec::with_capacity(oriented.len());
-                    let mut cum = 0usize;
-                    prefix.push(cum);
-                    for i in 1..oriented.len() {
-                        let (prev_nid, _) = &oriented[i-1];
-                        let prev_len = match local_node_map.get(prev_nid) {
-                            Some(info) => info.length,
-                            None => 0
-                        };
-                        cum += prev_len;
-                        let cigar_index = i - 1;
-                        if cigar_index < overlap_cigars.len() {
-                            let overlap_len = parse_cigar_overlap(&overlap_cigars[cigar_index]);
-                            cum = cum.saturating_sub(overlap_len);
-                        }
-                        prefix.push(cum);
-                    }
-                    if let Some((last_nid, _)) = oriented.last() {
-                        if let Some(last_info) = local_node_map.get(last_nid) {
-                            cum += last_info.length;
-                        }
-                    }
-                    for (i,(nid,_orient)) in oriented.iter().enumerate() {
-                        local_node_to_paths
+
+                    // We record node->(path_name, indexInPath) now, but do NOT compute prefix sums yet
+                    for (i, (nid, _orient)) in oriented.iter().enumerate() {
+                        local_res
+                            .node_to_paths
                             .entry(nid.clone())
                             .or_insert_with(Vec::new)
                             .push((path_name.clone(), i));
                     }
-                    let pd = PathData {
+
+                    // Collect the nodes + overlap info for this path line
+                    let temp_pd = TempPathData {
                         nodes: oriented,
-                        prefix_sums: prefix,
-                        total_length: cum,
+                        overlaps,
                     };
-                    local_path_map.insert(path_name, pd);
+                    local_res
+                        .path_map
+                        .entry(path_name)
+                        .or_insert_with(Vec::new)
+                        .push(temp_pd);
                 },
                 _ => {}
             }
         }
-        pb.inc(local_count % 10000);
-
-
-
-
-
-
-        
-
-        // merge local data
-        {
-            let mut g = node_map_mutex.lock().unwrap();
-            for (k,v) in local_node_map {
-                g.insert(k,v);
-            }
-        }
-        {
-            let mut g = path_map_mutex.lock().unwrap();
-            for (k,v) in local_path_map {
-                g.insert(k,v);
-            }
-        }
-        {
-            let mut g = node_to_paths_mutex.lock().unwrap();
-            for (k,v) in local_node_to_paths {
-                g.entry(k).or_insert_with(Vec::new).extend(v.into_iter());
-            }
-        }
-    });
+        pb.inc(local_res.lines_processed % 10000);
+        local_res
+    }).collect_into_vec(&mut all_results);
     pb.finish_and_clear();
 
-    // finalize
-    let nm = Arc::try_unwrap(node_map_mutex).unwrap().into_inner().unwrap();
-    let pm = Arc::try_unwrap(path_map_mutex).unwrap().into_inner().unwrap();
-    let np = Arc::try_unwrap(node_to_paths_mutex).unwrap().into_inner().unwrap();
+    // Now do a SINGLE MERGE (no repeated locking in the loop).
+    let mut merged_node_map = HashMap::new();
+    let mut merged_path_map = HashMap::new();
+    let mut merged_node_to_paths = HashMap::new();
 
-    global.node_map = nm;
-    global.path_map = pm;
-    global.node_to_paths = np;
+    for mut chunk_res in all_results {
+        // Merge node_map
+        for (k, v) in chunk_res.node_map.drain() {
+            merged_node_map.insert(k, v);
+        }
+        // Merge path_map
+        for (path_name, mut vec_temp) in chunk_res.path_map.drain() {
+            merged_path_map.entry(path_name).or_insert_with(Vec::new).append(&mut vec_temp);
+        }
+        // Merge node_to_paths
+        for (node_id, mut pairs) in chunk_res.node_to_paths.drain() {
+            merged_node_to_paths.entry(node_id).or_insert_with(Vec::new).append(&mut pairs);
+        }
+    }
+
+    // Now we have all nodes, plus path definitions in "merged_path_map" but still missing prefix sums.
+    // We'll build final PathData in a parallel step:
+    let final_path_map: HashMap<String, PathData> = merged_path_map
+        .into_par_iter()
+        .map(|(pname, temp_vec)| {
+            // A path_name can appear multiple times, so we merge them into a single PathData.
+            // We'll concatenate all segments from these P lines.
+            // Typically GFA doesn't define the same path multiple times, but let's handle it just in case.
+            let mut all_nodes = Vec::new();
+            let mut all_overlaps = Vec::new();
+
+            for tpd in temp_vec {
+                all_nodes.extend(tpd.nodes);
+                all_overlaps.extend(tpd.overlaps);
+            }
+
+            // Now compute prefix sums.
+            let mut prefix_sums = Vec::with_capacity(all_nodes.len());
+            let mut cum = 0;
+            for i in 0..all_nodes.len() {
+                prefix_sums.push(cum);
+                if i < all_nodes.len() - 1 {
+                    // add length of current node
+                    let (ref_nid, _ref_or) = &all_nodes[i];
+                    let node_len = merged_node_map
+                        .get(ref_nid)
+                        .map(|info| info.length)
+                        .unwrap_or(0);
+                    cum += node_len;
+                    // subtract overlap if it exists
+                    if i < all_overlaps.len() {
+                        let overlap_len = parse_cigar_overlap(&all_overlaps[i]);
+                        cum = cum.saturating_sub(overlap_len);
+                    }
+                }
+            }
+            // Add last node length
+            if let Some((last_nid, _)) = all_nodes.last() {
+                if let Some(n_info) = merged_node_map.get(last_nid) {
+                    cum += n_info.length;
+                }
+            }
+
+            let pd = PathData {
+                nodes: all_nodes,
+                prefix_sums,
+                total_length: cum,
+            };
+            (pname, pd)
+        })
+        .collect();
+
+    global.node_map = merged_node_map;
+    global.path_map = final_path_map;
+    global.node_to_paths = merged_node_to_paths;
 }
-
 
 // parse_paf_parallel
 
