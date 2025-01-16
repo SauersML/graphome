@@ -620,15 +620,19 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 let t_end = parts[8].parse::<usize>().unwrap_or(0);
                 let strand = (strand_char == '+');
 
-                // Store raw_qs, raw_qe exactly as in the PAF, along with a new field ref_strand
-                // to record whether the path is reversed with respect to the reference.
+                // Determine if the path is reversed with respect to the reference
                 let ref_strand = (strand_char == '+');
                 
-                // Keep q_start and q_end exactly as they appear in columns [3..4]:
-                let q_start = raw_qs;
-                let q_end   = raw_qe;
+                // Flip q_start..q_end if it's a negative strand
+                let (q_start, q_end) = if !ref_strand {
+                    let flipped_start = q_len.saturating_sub(raw_qe);
+                    let flipped_end   = q_len.saturating_sub(raw_qs);
+                    (flipped_start, flipped_end)
+                } else {
+                    (raw_qs, raw_qe)
+                };
                 
-                // Build the alignment block without inverting query offsets:
+                // Build the alignment block with the query offsets
                 let ab = AlignmentBlock {
                     path_name: q_name.clone(),
                     q_len,
@@ -637,10 +641,9 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                     ref_chrom: t_name,
                     r_start: t_start,
                     r_end: t_end,
-                    ref_strand: ref_strand, // This indicates the path->reference orientation
+                    ref_strand: ref_strand,
                 };
                 
-                // Then store it
                 local_res.data.entry(q_name).or_insert_with(Vec::new).push(ab);
             }
             pb.inc(local_res.count as u64);
