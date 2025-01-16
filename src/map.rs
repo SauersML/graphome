@@ -284,6 +284,31 @@ fn main() {
 }
 
 
+fn parse_cigar_overlap(cigar: &str) -> usize {
+    // Example: "5M3D10M" => we count only M => 5 + 10 = 15
+    // Treat '=' and 'X' as base-consuming on both sides?
+    // We do not count 'I' or 'D' as overlap for the path?
+    let mut total = 0usize;
+    let mut num_buf = String::new();
+    for ch in cigar.chars() {
+        if ch.is_ascii_digit() {
+            num_buf.push(ch);
+        } else {
+            let n = num_buf.parse::<usize>().unwrap_or(0);
+            num_buf.clear();
+            match ch {
+                'M' | '=' | 'X' => {
+                    total += n;
+                }
+                // 'I','D','N','S','H','P','B' => don't add to overlap
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+
 // parse_gfa_memmap
 //
 // - memory-map the GFA
