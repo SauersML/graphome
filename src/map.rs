@@ -694,8 +694,6 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                 // map to reference
                 let diff_start = ov_start - qs;
                 let diff_end   = ov_end   - qs;
-                let ref_start = b.r_start + diff_start;
-                let ref_end   = b.r_start + diff_end;
     
                 if node_or {
                     // The node is forward relative to the path
