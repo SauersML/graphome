@@ -568,66 +568,92 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
 }
 
 // parse_paf_parallel
-
 pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
-    // We'll read line-by-line in parallel. Then store results in alignment_by_path + we need a container to store for ref usage
     use std::io::BufRead;
 
-    let f = File::open(paf_path).expect("Cannot open PAF");
-    let reader = BufReader::new(f);
+    let file = File::open(paf_path).expect("Cannot open PAF");
+    let reader = BufReader::new(file);
 
-    // We'll store partial results in thread-loc data, then merge
-    let path_map_arc = Arc::new(Mutex::new(HashMap::<String, Vec<AlignmentBlock>>::new()));
-
-    // We'll do a mem approach if we want, but let's do standard concurrency:
-    let lines:Vec<_> = reader.lines().collect::<Result<_,_>>().expect("read error");
+    // Collect lines first (you can also stream in chunks, but this is simple):
+    let lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
     let pb = ProgressBar::new(lines.len() as u64);
-    pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF").expect("Invalid template for progress style").progress_chars("##-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF")
+            .expect("Invalid template for progress style")
+            .progress_chars("##-")
+    );
 
-    lines.par_chunks(10000).for_each(|chunk| {
-        pb.inc(chunk.len() as u64);
-        chunk.iter().for_each(|l| {
-            if l.is_empty() || l.starts_with('#') {
-                return;
-            }
-            let parts:Vec<&str> = l.split('\t').collect();
-            if parts.len()<12 {
-                return;
-            }
-            let q_name  = parts[0].to_string();
-            let q_len   = parts[1].parse::<usize>().unwrap_or(0);
-            let raw_qs  = parts[2].parse::<usize>().unwrap_or(0);
-            let raw_qe  = parts[3].parse::<usize>().unwrap_or(0);
-            let strand_char = parts[4].chars().next().unwrap_or('+');
-            let t_name  = parts[5].to_string();
-            let t_start = parts[7].parse::<usize>().unwrap_or(0);
-            let t_end   = parts[8].parse::<usize>().unwrap_or(0);
-            let strand  = (strand_char == '+');
-            let (q_start, q_end) = if !strand {
-                let new_start = q_len.saturating_sub(raw_qe);
-                let new_end   = q_len.saturating_sub(raw_qs);
-                (new_start, new_end)
-            } else {
-                (raw_qs, raw_qe)
+    // Each thread accumulates local results, no lock until final merge.
+    #[derive(Debug)]
+    struct PafChunkResult {
+        data: HashMap<String, Vec<AlignmentBlock>>,
+        count: usize,
+    }
+
+    let chunk_size = 10_000;
+    let mut all_results = Vec::new();
+    lines
+        .par_chunks(chunk_size)
+        .map(|chunk| {
+            let mut local_res = PafChunkResult {
+                data: HashMap::new(),
+                count: 0,
             };
-            let ab = AlignmentBlock {
-                path_name: q_name.clone(),
-                q_len,
-                q_start,
-                q_end,
-                ref_chrom: t_name,
-                r_start: t_start,
-                r_end: t_end,
-                strand
-            };
-            let mut map = path_map_arc.lock().unwrap();
-            map.entry(q_name).or_insert_with(Vec::new).push(ab);
-        });
-    });
+            for l in chunk {
+                local_res.count += 1;
+                if l.is_empty() || l.starts_with('#') {
+                    continue;
+                }
+                let parts: Vec<&str> = l.split('\t').collect();
+                if parts.len() < 12 {
+                    continue;
+                }
+                let q_name = parts[0].to_string();
+                let q_len = parts[1].parse::<usize>().unwrap_or(0);
+                let raw_qs = parts[2].parse::<usize>().unwrap_or(0);
+                let raw_qe = parts[3].parse::<usize>().unwrap_or(0);
+                let strand_char = parts[4].chars().next().unwrap_or('+');
+                let t_name = parts[5].to_string();
+                let t_start = parts[7].parse::<usize>().unwrap_or(0);
+                let t_end = parts[8].parse::<usize>().unwrap_or(0);
+                let strand = (strand_char == '+');
+
+                // Invert query offsets for negative strand:
+                let (q_start, q_end) = if !strand {
+                    let new_start = q_len.saturating_sub(raw_qe);
+                    let new_end = q_len.saturating_sub(raw_qs);
+                    (new_start, new_end)
+                } else {
+                    (raw_qs, raw_qe)
+                };
+                let ab = AlignmentBlock {
+                    path_name: q_name.clone(),
+                    q_len,
+                    q_start,
+                    q_end,
+                    ref_chrom: t_name,
+                    r_start: t_start,
+                    r_end: t_end,
+                    strand,
+                };
+                local_res.data.entry(q_name).or_insert_with(Vec::new).push(ab);
+            }
+            pb.inc(local_res.count as u64);
+            local_res
+        })
+        .collect_into_vec(&mut all_results);
     pb.finish_and_clear();
 
-    let final_map = Arc::try_unwrap(path_map_arc).unwrap().into_inner().unwrap();
-    global.alignment_by_path = final_map;
+    // Single merge pass:
+    let mut merged_map = HashMap::new();
+    for mut chunk_res in all_results {
+        for (k, mut vec_blocks) in chunk_res.data.drain() {
+            merged_map.entry(k).or_insert_with(Vec::new).append(&mut vec_blocks);
+        }
+    }
+
+    global.alignment_by_path = merged_map;
 }
 
 
