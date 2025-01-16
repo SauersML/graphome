@@ -580,7 +580,7 @@ fn build_ref_trees(global: &mut GlobalData) {
     );
     
     let built: HashMap<String, IntervalTree> = keys.into_par_iter().map(|k| {
-        let intervals = by_ref.remove(&k).unwrap();
+        let intervals = by_ref.get(&k).unwrap().clone();
         let tree = IntervalTree::build(intervals);
         pb2.inc(1);
         (k, tree)
