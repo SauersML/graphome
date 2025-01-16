@@ -714,12 +714,12 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
 }
 
 #[derive(Debug)]
-struct Coord2NodeResult {
-    path_name: String,
-    node_id:   String,
-    node_orient: bool,
-    path_off_start: usize,
-    path_off_end:   usize,
+pub struct Coord2NodeResult {
+    pub path_name: String,
+    pub node_id:   String,
+    pub node_orient: bool,
+    pub path_off_start: usize,
+    pub path_off_end:   usize,
 }
 
 // parse_region e.g. "grch38#chr1:12345-67890"
