@@ -83,7 +83,7 @@ struct Interval {
 
 // A simple interval tree node: we store intervals in a segment, and a center
 #[derive(Debug)]
-enum IntervalTree {
+pub enum IntervalTree {
     Empty,
     Node {
         center: usize,
