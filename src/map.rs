@@ -470,7 +470,7 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                         // Subtract the overlap if a corresponding CIGAR string is present
                         let cigar_index = i - 1;
                         if cigar_index < overlap_cigars.len() {
-                            let overlap_len = parse_cigar_overlap(overlap_cigars[cigar_index]);
+                            let overlap_len = parse_cigar_overlap(&overlap_cigars[cigar_index]);
                             cum = cum.saturating_sub(overlap_len);
                         }
                         prefix.push(cum);
