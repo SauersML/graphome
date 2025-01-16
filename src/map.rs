@@ -682,19 +682,21 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
             Some(b) => b,
             None => continue,
         };
+        // retrieve the node orientation from pd.nodes[*idx]
+        let node_or = pd.nodes[*idx].1;
+        
         for b in blocks {
             let qs = b.q_start;
             let qe = b.q_end;
-            if qe<node_offset_start || qs>node_offset_end {
+            if qe < node_offset_start || qs > node_offset_end {
                 continue;
             }
             let ov_start = node_offset_start.max(qs);
             let ov_end   = node_offset_end.min(qe);
             if ov_start <= ov_end {
-                // map to reference
                 let diff_start = ov_start - qs;
                 let diff_end   = ov_end   - qs;
-    
+        
                 if node_or {
                     // The node is forward relative to the path
                     let final_ref_start = b.r_start + diff_start;
@@ -702,9 +704,6 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                     results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
                 } else {
                     // The node is reversed in the path
-                    // Invert the offset relative to this alignment block's ref space
-                    // b.r_start..b.r_end is the range on the reference
-                    // diff_start..diff_end is how far along the node we are
                     let rev_start = b.r_end.saturating_sub(diff_end);
                     let rev_end   = b.r_end.saturating_sub(diff_start);
                     let final_ref_start = if rev_start <= rev_end { rev_start } else { rev_end };
