@@ -498,7 +498,17 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     let mut merged_path_map = HashMap::new();
     let mut merged_node_to_paths = HashMap::new();
 
+    let pb_merge = ProgressBar::new(all_results.len() as u64);
+    pb_merge.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.green/black} {pos:>7}/{len:7} ({eta}) Merging GFA")
+            .expect("Invalid progress style template")
+            .progress_chars("##-")
+    );
+
     for mut chunk_res in all_results {
+        pb_merge.inc(1);
+
         // Merge node_map
         for (k, v) in chunk_res.node_map.drain() {
             merged_node_map.insert(k, v);
@@ -512,6 +522,8 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
             merged_node_to_paths.entry(node_id).or_insert_with(Vec::new).append(&mut pairs);
         }
     }
+
+    pb_merge.finish_and_clear();
 
     // Now we have all nodes, plus path definitions in "merged_path_map" but still missing prefix sums.
     // We'll build final PathData in a parallel step:
