@@ -460,7 +460,12 @@ fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     // We'll do prefix sums in parallel again
     let keys: Vec<_> = pm.keys().cloned().collect();
     let pb2 = ProgressBar::new(keys.len() as u64);
-    pb2.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.green/black} {pos:>7}/{len:7} ({eta}) Fix path prefix sums").progress_chars("##-"));
+    pb2.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.green/black} {pos:>7}/{len:7} ({eta}) Fix path prefix sums")
+            .expect("Invalid progress style template")
+            .progress_chars("##-")
+    );
 
     let new_pm: HashMap<_,_> = keys.into_par_iter().map(|k| {
         let mut pd = pm[&k].clone();
@@ -567,8 +572,13 @@ fn build_ref_trees(global: &mut GlobalData) {
     // now build trees in parallel
     let keys:Vec<_> = by_ref.keys().cloned().collect();
     let pb2 = ProgressBar::new(keys.len() as u64);
-    pb2.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.cyan/black} {pos:>7}/{len:7} ({eta}) Building IntervalTrees").progress_chars("##-"));
-
+    pb2.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.cyan/black} {pos:>7}/{len:7} ({eta}) Building IntervalTrees")
+            .expect("Invalid progress style template")
+            .progress_chars("##-")
+    );
+    
     let built: HashMap<String, IntervalTree> = keys.into_par_iter().map(|k| {
         let intervals = by_ref.remove(&k).unwrap();
         let tree = IntervalTree::build(intervals);
@@ -669,7 +679,7 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
             None => continue,
         };
         // do a binary search approach
-        let (start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) {
+        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { # Or remove start_node from here?
             Ok(i) => (i,i),
             Err(i) => if i>0 { (i-1,i-1) } else { (0,0) },
         };
