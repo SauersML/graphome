@@ -555,7 +555,7 @@ fn build_ref_trees(global: &mut GlobalData) {
     let pb = ProgressBar::new(global.alignment_by_path.len() as u64);
     pb.set_style(ProgressStyle::default_bar().template("[{elapsed_precise}] {bar:40.yellow/black} {pos:>7}/{len:7} ({eta}) Building intervals").expect("Invalid template for progress style").progress_chars("##-"));
 
-    for (pname, blocks) in &global.alignment_by_path {
+    for (_, blocks) in &global.alignment_by_path {
         pb.inc(1);
         for b in blocks {
             // create Interval for [b.r_start..b.r_end]
