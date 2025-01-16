@@ -768,13 +768,33 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
             }
             let o_s = noff_start.max(path_ov_start);
             let o_e = noff_end.min(path_ov_end);
-            if o_s<=o_e {
+            if o_s <= o_e {
+                let final_start;
+                let final_end;
+                if node_or {
+                    // Node is forward in the path
+                    final_start = o_s;
+                    final_end   = o_e;
+                } else {
+                    // Node is reversed in the path
+                    let node_highest_offset = noff_start + node_len - 1;
+                    let flipped_start = node_highest_offset.saturating_sub(o_e - noff_start);
+                    let flipped_end   = node_highest_offset.saturating_sub(o_s - noff_start);
+                    if flipped_start <= flipped_end {
+                        final_start = flipped_start;
+                        final_end   = flipped_end;
+                    } else {
+                        final_start = flipped_end;
+                        final_end   = flipped_start;
+                    }
+                }
+            
                 results.push(Coord2NodeResult {
                     path_name: ab.path_name.clone(),
                     node_id: node_id.clone(),
                     node_orient: node_or,
-                    path_off_start: o_s,
-                    path_off_end:   o_e,
+                    path_off_start: final_start,
+                    path_off_end:   final_end,
                 });
             }
             i+=1;
