@@ -523,41 +523,12 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
     pb.finish_and_clear();
 
     // finalize
-    // now we do a second pass: fill prefix sums properly
-    eprintln!("[INFO] Fixing path prefix sums with actual node lengths...");
-
-    // unify
     let nm = Arc::try_unwrap(node_map_mutex).unwrap().into_inner().unwrap();
     let pm = Arc::try_unwrap(path_map_mutex).unwrap().into_inner().unwrap();
     let np = Arc::try_unwrap(node_to_paths_mutex).unwrap().into_inner().unwrap();
 
-    // We'll do prefix sums in parallel again
-    let keys: Vec<_> = pm.keys().cloned().collect();
-    let pb2 = ProgressBar::new(keys.len() as u64);
-    pb2.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.green/black} {pos:>7}/{len:7} ({eta}) Fix path prefix sums")
-            .expect("Invalid progress style template")
-            .progress_chars("##-")
-    );
-
-    let new_pm: HashMap<_,_> = keys.into_par_iter().map(|k| {
-        let mut pd = pm[&k].clone();
-        let mut cum = 0usize;
-        for (i,(nid,_orient)) in pd.nodes.iter().enumerate() {
-            pd.prefix_sums[i] = cum;
-            let len = nm.get(nid).map(|xx|xx.length).unwrap_or(0);
-            cum += len;
-        }
-        pd.total_length = cum;
-        (k, pd)
-    }).inspect(|_| {
-        pb2.inc(1);
-    }).collect();
-    pb2.finish_and_clear();
-
     global.node_map = nm;
-    global.path_map = new_pm;
+    global.path_map = pm;
     global.node_to_paths = np;
 }
 
