@@ -413,12 +413,15 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                     if parts.len()<3 { continue; }
                     let path_name = String::from_utf8_lossy(parts[1]).to_string();
                     let seg_names = parts[2];
-                    // we won't parse the overlaps
+
                     let seg_string = String::from_utf8_lossy(seg_names).to_string();
+                    // Collect the oriented node IDs
                     let oriented: Vec<(String, bool)> = seg_string
                         .split(',')
                         .filter_map(|x| {
-                            if x.is_empty() {return None;}
+                            if x.is_empty() {
+                                return None;
+                            }
                             let lastch = x.chars().last().unwrap();
                             let orient = match lastch {
                                 '+' => true,
@@ -429,24 +432,67 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
                             Some((nid.to_string(), orient))
                         })
                         .collect();
-
+    
+                    // Check if there's a 4th field with overlaps
+                    let mut overlap_cigars: Vec<&str> = Vec::new();
+                    if parts.len() > 3 {
+                        // The 4th field might be a single "*" or comma-separated CIGAR strings
+                        let overlap_field = String::from_utf8_lossy(parts[3]).to_string();
+                        if overlap_field != "*" {
+                            overlap_cigars = overlap_field.split(',').collect();
+                        }
+                    }
+    
+                    // We expect overlap_cigars.len() == oriented.len()-1 if provided
+                    // If mismatched, we ignore or handle error
+                    if !overlap_cigars.is_empty() && overlap_cigars.len() + 1 != oriented.len() {
+                        eprintln!("Warning: Overlap field count does not match segments for path {}", path_name);
+                    }
+    
                     let mut prefix = Vec::with_capacity(oriented.len());
                     let mut cum = 0usize;
-                    for (i,(nid,_)) in oriented.iter().enumerate() {
+                    prefix.push(cum);
+    
+                    // For each segment after the 0th, add node length minus any overlap
+                    for i in 1..oriented.len() {
+                        let (prev_nid, _) = oriented[i-1];
+                        let prev_len = match local_node_map.get(&prev_nid) {
+                            Some(info) => info.length,
+                            None => {
+                                // fallback if missing
+                                0
+                            }
+                        };
+                        cum += prev_len;
+    
+                        // Subtract the overlap if a corresponding CIGAR string is present
+                        let cigar_index = i - 1;
+                        if cigar_index < overlap_cigars.len() {
+                            let overlap_len = parse_cigar_overlap(overlap_cigars[cigar_index]);
+                            cum = cum.saturating_sub(overlap_len);
+                        }
                         prefix.push(cum);
-                        // For now, store 0. We'll fix after we merge
-                        // We'll do that in a second pass
-                        cum += 0; // Fix?
-
-                        // node->(pathName,i)
-                        local_node_to_paths.entry(nid.clone())
-                           .or_insert_with(Vec::new)
-                           .push((path_name.clone(), i));
                     }
+    
+                    // Now we also add the last segment's length to get total path length
+                    if let Some((last_nid, _)) = oriented.last() {
+                        if let Some(last_info) = local_node_map.get(last_nid) {
+                            cum += last_info.length;
+                        }
+                    }
+    
+                    // Register each node in node_to_paths
+                    for (i,(nid,_orient)) in oriented.iter().enumerate() {
+                        local_node_to_paths
+                            .entry(nid.clone())
+                            .or_insert_with(Vec::new)
+                            .push((path_name.clone(), i));
+                    }
+    
                     let pd = PathData {
                         nodes: oriented,
                         prefix_sums: prefix,
-                        total_length: 0,
+                        total_length: cum,
                     };
                     local_path_map.insert(path_name, pd);
                 },
