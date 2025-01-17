@@ -239,8 +239,11 @@ pub fn run_viz(
     use termimage::ops;  // re-use from display.rs crate
     use std::io::Write;
     let path_info = (String::new(), std::path::PathBuf::from(output_tga));
-    let guessed_fmt = ops::guess_format(&path_info)?;
-    let img = ops::load_image(&path_info, guessed_fmt)?;
+    let guessed_fmt = ops::guess_format(&path_info)
+        .map_err(|e| format!("Termimage guess_format error: {:?}", e))?;
+    let img = ops::load_image(&path_info, guessed_fmt)
+        .map_err(|e| format!("Termimage load_image error: {:?}", e))?;
+
     
     // Get the original size from the TGA itself
     let original_size = ops::image_dimensions(&img)?;
@@ -251,7 +254,7 @@ pub fn run_viz(
     
     // Resize & print
     let resized = ops::resize_image(&img, resized_size);
-    ops::write_ansi_truecolor(&mut std::io::stdout(), &resized)?;
+    ops::write_ansi_truecolor(&mut std::io::stdout(), &resized);
     std::io::stdout().flush()?;
     // -----------------------------------
     
