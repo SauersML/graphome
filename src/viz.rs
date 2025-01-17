@@ -1,30 +1,38 @@
 // src/viz.rs
 
-use std::fs::File;
-use std::io::{Write, BufWriter};
-use std::error::Error;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fs::File;
+use std::hash::{Hash, Hasher};
+use std::io::{BufWriter, Write};
 
-// Import needed items from map.rs
-use crate::map::{
-    GlobalData,
-    parse_gfa_memmap,
-};
+use crate::map::{GlobalData, parse_gfa_memmap, NodeInfo};
 
-/// Main entry point for visualization:
-/// - `gfa_path`: path to the GFA file
-/// - `node_start`: the lowest node ID (assuming numeric) to include
-/// - `node_end`: the highest node ID (assuming numeric) to include
-/// - `output_tga`: where to write the uncompressed TGA image
+/// Renders a visualization (uncompressed TGA in BGR24) of nodes in the GFA whose
+/// IDs fall in the inclusive lexicographical range [start_node .. end_node].
+///
+/// - `gfa_path`: path to the GFA file.
+/// - `start_node`: the lowest node ID (string comparison) to include.
+/// - `end_node`: the highest node ID (string comparison) to include.
+/// - `output_tga`: path to the TGA file to write.
+///
+/// The image:
+///   - Is `width = 600` pixels wide (arbitrary; can be adjusted).
+///   - Has one horizontal row per selected node.  (Hence, image height = #nodes.)
+///   - Each row is colored deterministically by a hash of node ID.
+///   - The color brightness is modulated by the node’s length (if known).
+///
+/// The TGA is written uncompressed, 24 bits/pixel, BGR order. 
+/// If no nodes match, an error is returned instead of writing an empty image.
 pub fn run_viz(
     gfa_path: &str,
-    node_start: u64,
-    node_end: u64,
+    start_node: &str,
+    end_node: &str,
     output_tga: &str
-) -> Result<(), Box<dyn Error>> 
-{
-    eprintln!("[viz] Parsing GFA from: {}", gfa_path);
+) -> Result<(), Box<dyn Error>> {
+    eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
+    // Prepare a fresh data container from map.rs
     let mut global = GlobalData {
         node_map: HashMap::new(),
         path_map: HashMap::new(),
@@ -33,134 +41,172 @@ pub fn run_viz(
         ref_trees: HashMap::new(),
     };
 
-    // Use the memory-mapped parser from map.rs
+    // Call parse from map.rs
     parse_gfa_memmap(gfa_path, &mut global);
-    eprintln!(
-        "[viz] GFA parse done. Total nodes read = {}",
-        global.node_map.len()
-    );
+    let total_nodes = global.node_map.len();
+    eprintln!("[viz] Parsed {} nodes from GFA.", total_nodes);
 
-    // Collect node IDs in the requested range
-    let mut selected_nodes = Vec::new();
-    for (node_id, info) in &global.node_map {
-        // Attempt to parse node_id as u64
-        if let Ok(num_id) = node_id.parse::<u64>() {
-            if num_id >= node_start && num_id <= node_end {
-                selected_nodes.push((num_id, info.length));
-            }
+    // If the GFA is empty or no node lines found, bail out
+    if total_nodes == 0 {
+        return Err(format!(
+            "GFA contains no nodes; cannot produce visualization."
+        ).into());
+    }
+
+    // Collect all node IDs in a vector, along with their lengths
+    // We'll rely on NodeInfo.length if present, or 0 if unknown.
+    // We do not assume numeric IDs. We do a standard string range check.
+    let mut nodes: Vec<(String, usize)> = global
+        .node_map
+        .iter()
+        .map(|(nid, info)| (nid.clone(), info.length))
+        .collect();
+
+    // Filter to only those in [start_node..end_node] (string comparison).
+    nodes.retain(|(nid, _len)| {
+        nid >= start_node && nid <= end_node
+    });
+
+    // Sort lexicographically by node ID
+    nodes.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // If no nodes remain after filtering, return an error
+    if nodes.is_empty() {
+        return Err(format!(
+            "No nodes found in range [{} .. {}]. Nothing to visualize.",
+            start_node, end_node
+        ).into());
+    }
+
+    // Decide on image dimensions:
+    //   width: fixed value (arbitrary)
+    //   height: number of selected nodes
+    let width = 600u16;
+    let height = nodes.len() as u16;
+
+    // Each row = one node => row i in [0..height-1].
+    // We'll store pixels in row-major order, BGR, bottom->top as TGA requires.
+    // So row 0 in memory is the bottom row of the final image.
+    // We can either invert the iteration or write a top-down approach but
+    // reorder the buffer at the end. Here, we’ll fill from the bottom up directly.
+    let mut buffer = vec![0u8; width as usize * height as usize * 3];
+
+    // Fill the buffer with a color for each node
+    for (i, (node_id, length)) in nodes.iter().enumerate() {
+        // row i means the bottom row is i in the TGA sense
+        let row_index = i as u16;
+
+        // Generate a stable color from the node ID (hash).
+        // We also incorporate 'length' to vary brightness.
+        let (b, g, r) = color_from_node(node_id, *length);
+
+        // Fill all pixels in this row with that color
+        let row_offset = (row_index as usize) * (width as usize) * 3;
+        for px_i in 0..width {
+            let px_offset = row_offset + (px_i as usize) * 3;
+            buffer[px_offset + 0] = b;
+            buffer[px_offset + 1] = g;
+            buffer[px_offset + 2] = r;
         }
     }
 
-    // Sort the selected nodes by numeric ID
-    selected_nodes.sort_by_key(|&(id, _)| id);
-
-    if selected_nodes.is_empty() {
-        eprintln!(
-            "[viz] No nodes found in range {}..{}; nothing to visualize.",
-            node_start, node_end
-        );
-        return Ok(());
-    }
-
-    // For this simple example, define an image width
-    // and let the height = number of nodes in range.
-    let width = 400u16; 
-    let height = selected_nodes.len() as u16;
-
-    // We'll build a small pixel buffer for the final TGA.
-    // TGA uncompressed 24-bit = BGR for each pixel
-    let mut buffer = vec![0u8; (width as usize) * (height as usize) * 3];
-
-    // Fill each row with some color that depends on the node's length
-    // We'll do bottom-to-top in TGA format. The bottom row is index 0.
-    // The top row is index (height-1).
-    // We'll iterate from 0 to height-1, but assign buffer lines
-    // so that row 0 is the lowest row in the final TGA.
-    for (row_idx, &(node_id, node_len)) in selected_nodes.iter().enumerate() {
-        // The row in the final TGA that we fill is row_idx from the bottom
-        let row_bottom = row_idx as u16;
-        let color = make_color_from_length(node_len);
-
-        // Each row has width pixels, each pixel is 3 bytes (B,G,R).
-        let row_offset = (row_bottom as usize) * (width as usize) * 3;
-
-        for x in 0..width {
-            let px_offset = row_offset + (x as usize) * 3;
-
-            // color is (b, g, r)
-            buffer[px_offset + 0] = color.0; // B
-            buffer[px_offset + 1] = color.1; // G
-            buffer[px_offset + 2] = color.2; // R
-        }
-    }
-
-    // Write out TGA (uncompressed, 24-bits, BGR) to output_tga
+    // Write the TGA
     write_uncompressed_tga(width, height, &buffer, output_tga)?;
 
     eprintln!(
-        "[viz] Done! Wrote {}x{} TGA image to {}",
-        width, height, output_tga
+        "[viz] Wrote visualization of {} nodes to {} ({}x{} TGA)",
+        nodes.len(),
+        output_tga,
+        width,
+        height
     );
+
     Ok(())
 }
 
-/// A simple function to convert a node length to some color (in B,G,R).
-fn make_color_from_length(length: usize) -> (u8, u8, u8) {
-    // Let's just do a gradient based on length
-    // We'll clamp length to some range for demonstration
-    let val = (length % 255) as u8;
-    // We'll produce a color in BGR order
-    let b = val;        // blue component
-    let g = 255 - val;  // green component
-    let r = val / 2;    // red component
+/// Produce a stable BGR color for the given node ID, modulated by the node length.
+/// This is one possible strategy; you can adapt it.
+fn color_from_node(node_id: &str, length: usize) -> (u8, u8, u8) {
+    use std::collections::hash_map::DefaultHasher;
+    // Compute a 64-bit hash of the node_id
+    let mut hasher = DefaultHasher::new();
+    node_id.hash(&mut hasher);
+    let h = hasher.finish(); // 64-bit
+
+    // We'll break the hash into 3 bytes for B, G, R
+    // Then incorporate length to shift brightness
+    let hb = (h & 0xFF) as u8;
+    let hg = ((h >> 8) & 0xFF) as u8;
+    let hr = ((h >> 16) & 0xFF) as u8;
+
+    // Some factor from length to modulate brightness. 
+    // We'll do a simple clamp to [0..255].
+    let length_factor = (length % 256) as u8;
+
+    // Combine them: 
+    //   b = (hb + length_factor) mod 256
+    //   g = (hg + length_factor/2) mod 256
+    //   r = hr
+    let b = hb.wrapping_add(length_factor);
+    let g = hg.wrapping_add(length_factor / 2);
+    let r = hr;
+
     (b, g, r)
 }
 
-/// Write a 24-bit uncompressed TGA in BGR format.
+/// Writes an uncompressed TGA file in 24‐bit BGR.
+///
+/// # Arguments
+///
 /// - `width`, `height`: image dimensions
-/// - `buffer`: must be `width * height * 3` bytes, in BGR for each pixel
-/// - `path`: output filename
+/// - `buffer`: must be `width * height * 3` bytes, in **BGR** order, bottom row first
+/// - `output_path`: filesystem path to write
+///
+/// # Errors
+/// Returns `Err(...)` if writing fails.
 fn write_uncompressed_tga(
     width: u16,
     height: u16,
     buffer: &[u8],
-    path: &str
-) -> Result<(), Box<dyn Error>> 
-{
-    // TGA header is 18 bytes
-    // For an uncompressed truecolor TGA:
-    //   Offset 0:  ID length = 0
-    //   Offset 1:  Color map type = 0
-    //   Offset 2:  Image type = 2 (uncompressed true color)
-    //   Offset 3-7:  Color map specification (5 bytes) = 0
-    //   Offset 8-9:  X origin (2 bytes) = 0
-    //   Offset 10-11:Y origin (2 bytes) = 0
-    //   Offset 12-13: width (2 bytes, little-endian)
-    //   Offset 14-15: height (2 bytes, little-endian)
-    //   Offset 16:  bits per pixel = 24
-    //   Offset 17:  image descriptor = 0 (no alpha, origin at lower-left)
+    output_path: &str
+) -> Result<(), Box<dyn Error>> {
+    if buffer.len() != (width as usize) * (height as usize) * 3 {
+        return Err(format!(
+            "Buffer size {} does not match TGA size {} x {} x 3",
+            buffer.len(),
+            width,
+            height
+        ).into());
+    }
+
+    // 18-byte TGA header for uncompressed 24-bit:
+    //   - ID length       : 0
+    //   - Color map type  : 0
+    //   - Image type      : 2 (uncompressed true color)
+    //   - Color map spec  : 5 zero bytes
+    //   - X origin        : 0 (2 bytes)
+    //   - Y origin        : 0 (2 bytes)
+    //   - Width           : 2 bytes (LE)
+    //   - Height          : 2 bytes (LE)
+    //   - Bits per pixel  : 24
+    //   - Image descriptor: 0 (no alpha bits, origin at lower left)
 
     let mut header = [0u8; 18];
-    header[2] = 2; // uncompressed truecolor
-    // width
-    header[12] = (width & 0x00FF) as u8;
-    header[13] = ((width & 0xFF00) >> 8) as u8;
-    // height
-    header[14] = (height & 0x00FF) as u8;
-    header[15] = ((height & 0xFF00) >> 8) as u8;
-    // bits per pixel
-    header[16] = 24; 
+    header[2] = 2; // uncompressed RGB
+    header[12] = (width & 0xFF) as u8;
+    header[13] = ((width >> 8) & 0xFF) as u8;
+    header[14] = (height & 0xFF) as u8;
+    header[15] = ((height >> 8) & 0xFF) as u8;
+    header[16] = 24; // bits per pixel
 
-    let f = File::create(path)?;
+    let f = File::create(output_path)?;
     let mut writer = BufWriter::new(f);
-
-    // Write header
     writer.write_all(&header)?;
-    // Write pixel data
-    // TGA expects the bottom row first, top row last, so the data in `buffer`
-    // should already be arranged that way.
+
+    // Write the pixel data
     writer.write_all(buffer)?;
 
+    // TGA footer can be omitted for basic usage.
     writer.flush()?;
     Ok(())
 }
