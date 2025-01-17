@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, eigen_print, dsbevd, window, entropy, map};
+use graphome::{convert, extract, eigen_print, dsbevd, window, entropy, map, viz};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -94,6 +94,24 @@ enum Commands {
         #[command(subcommand)]
         map_command: MapCommand,
     },
+    /// Visualize a range of nodes as a colored TGA
+    Viz {
+        /// Path to the GFA file
+        #[arg(long)]
+        gfa: String,
+
+        /// Lowest node ID (string comparison)
+        #[arg(long)]
+        start_node: String,
+
+        /// Highest node ID (string comparison)
+        #[arg(long)]
+        end_node: String,
+
+        /// Path to output TGA file
+        #[arg(long)]
+        output_tga: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -161,6 +179,12 @@ fn main() -> io::Result<()> {
                 MapCommand::Coord2node { region } => {
                     map::run_coord2node(gfa, paf, region);
                 },
+            }
+        }
+        Commands::Viz { gfa, start_node, end_node, output_tga } => {
+            if let Err(err) = viz::run_viz(gfa, start_node, end_node, output_tga) {
+                eprintln!("[viz error] {}", err);
+                std::process::exit(1);
             }
         }
     }
