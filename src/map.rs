@@ -247,7 +247,7 @@ fn main() {
 
     eprintln!("[INFO] IntervalTrees built. Ready for queries.");
 
-    } else if let Some(("node2coord", subm)) = matches.subcommand() {
+    if let Some(("node2coord", subm)) = matches.subcommand() {
         let node_id = subm.get_one::<String>("NODE_ID").unwrap();
         let results = node_to_coords(&global, node_id);
         if results.is_empty() {
