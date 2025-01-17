@@ -290,11 +290,45 @@ fn main() {
             if results.is_empty() {
                 println!("No nodes found for region {}:{}-{}", chr, start, end);
             } else {
-                for r in results {
-                    println!("path={} node={}({}) offsets=[{}..{}]",
-                             r.path_name, r.node_id,
-                             if r.node_orient {'+'} else {'-'},
-                             r.path_off_start, r.path_off_end);
+                // 1) Print each overlap (existing functionality)
+                let mut global_min = usize::MAX;
+                let mut global_max = 0;
+    
+                // We'll group by path name to handle path offsets
+                let mut intervals_by_path = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+    
+                for r in &results {
+                    println!(
+                        "path={} node={}({}) offsets=[{}..{}]",
+                        r.path_name,
+                        r.node_id,
+                        if r.node_orient { '+' } else { '-' },
+                        r.path_off_start,
+                        r.path_off_end
+                    );
+    
+                    if r.path_off_start < global_min {
+                        global_min = r.path_off_start;
+                    }
+                    if r.path_off_end > global_max {
+                        global_max = r.path_off_end;
+                    }
+                    intervals_by_path
+                        .entry(r.path_name.clone())
+                        .or_default()
+                        .push((r.path_off_start, r.path_off_end));
+                }
+    
+                // 2) Print the TOTAL RANGE in node offsets
+                println!("TOTAL NODE OFFSET RANGE: {}..{}", global_min, global_max);
+    
+                // 3) Merge intervals for each path
+                for (path, intervals) in intervals_by_path {
+                    let merged = merge_intervals(intervals);
+                    println!("CONTIGUOUS GROUPS for path: {}", path);
+                    for (start_val, end_val) in merged {
+                        println!("  Group range: {}..{}", start_val, end_val);
+                    }
                 }
             }
         } else {
