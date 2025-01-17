@@ -183,37 +183,8 @@ pub struct GlobalData {
     pub ref_trees: HashMap<String, IntervalTree>,
 }
 
-
-// Main
-
-
-fn main() {
-    let matches = Command::new("pangenome_lookup")
-        .version("1.0")
-        .about("Production-level single-file Rust code for GFA + PAF lookups with memory mapping & concurrency.")
-        .arg(Arg::new("gfa")
-             .long("gfa")
-             .short('g')
-             .help("Path to the massive GFA file")
-             .required(true)
-             .num_args(1))
-        .arg(Arg::new("paf")
-             .long("paf")
-             .short('p')
-             .help("Path to the untangle PAF file")
-             .required(true)
-             .num_args(1))
-        .subcommand(Command::new("node2coord")
-            .about("Given a GFA node ID, show the corresponding hg38 coords.")
-            .arg(Arg::new("NODE_ID").required(true)))
-        .subcommand(Command::new("coord2node")
-            .about("Given <chr>:<start>-<end> in hg38, show GFA nodes that overlap.")
-            .arg(Arg::new("REGION").required(true)))
-        .get_matches();
-
-    let gfa_path = matches.get_one::<String>("gfa").unwrap();
-    let paf_path = matches.get_one::<String>("paf").unwrap();
-
+/// Run node2coord with printing of intervals, total range, and merging by chromosome
+pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
     eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
 
     let mut global = GlobalData {
@@ -224,121 +195,130 @@ fn main() {
         ref_trees: HashMap::new(),
     };
 
-    
     // Step 1: parse GFA with memory mapping
-    
     parse_gfa_memmap(gfa_path, &mut global);
-
     eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
         global.node_map.len(), global.path_map.len());
 
-    
     // Step 2: parse PAF in parallel
-    
     parse_paf_parallel(paf_path, &mut global);
-
     eprintln!("[INFO] PAF parse done. alignment_by_path={} refTrees building...",
         global.alignment_by_path.len());
 
-    
-    // Step 3: build IntervalTrees for each ref chrom
-    
+    // Step 3: build IntervalTrees
     build_ref_trees(&mut global);
+    eprintln!("[INFO] Interval Trees built. Ready for queries.");
 
+    // Actually do node->coord
+    let results = node_to_coords(&global, node_id);
+    if results.is_empty() {
+        println!("No reference coords found for node {}", node_id);
+    } else {
+        // Print each interval
+        let mut global_min = usize::MAX;
+        let mut global_max = 0;
+        let mut intervals_by_chr = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+
+        for (chr, st, en) in &results {
+            println!("{}:{}-{}", chr, st, en);
+            if *st < global_min {
+                global_min = *st;
+            }
+            if *en > global_max {
+                global_max = *en;
+            }
+            intervals_by_chr.entry(chr.clone()).or_default().push((*st, *en));
+        }
+
+        // Print the TOTAL RANGE
+        println!("TOTAL COORD RANGE: {}..{}", global_min, global_max);
+
+        // Merge overlapping intervals per chromosome
+        for (chr, intervals) in intervals_by_chr {
+            let merged = merge_intervals(intervals);
+            println!("CONTIGUOUS GROUPS for chromosome: {}", chr);
+            for (start_val, end_val) in merged {
+                println!("  Group range: {}..{}", start_val, end_val);
+            }
+        }
+    }
+}
+
+/// Run coord2node with printing of intervals, total range, and merging by path
+pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
+    eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
+
+    let mut global = GlobalData {
+        node_map: HashMap::new(),
+        path_map: HashMap::new(),
+        node_to_paths: HashMap::new(),
+        alignment_by_path: HashMap::new(),
+        ref_trees: HashMap::new(),
+    };
+
+    // Step 1: parse GFA
+    parse_gfa_memmap(gfa_path, &mut global);
+    eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
+        global.node_map.len(), global.path_map.len());
+
+    // Step 2: parse PAF
+    parse_paf_parallel(paf_path, &mut global);
+    eprintln!("[INFO] PAF parse done. alignment_by_path={} refTrees building...",
+        global.alignment_by_path.len());
+
+    // Step 3: build trees
+    build_ref_trees(&mut global);
     eprintln!("[INFO] IntervalTrees built. Ready for queries.");
 
-    if let Some(("node2coord", subm)) = matches.subcommand() {
-        let node_id = subm.get_one::<String>("NODE_ID").unwrap();
-        let results = node_to_coords(&global, node_id);
+    // parse region
+    if let Some((chr, start, end)) = parse_region(region) {
+        let results = coord_to_nodes(&global, &chr, start, end);
         if results.is_empty() {
-            println!("No reference coords found for node {}", node_id);
+            println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {
-            // Print each interval (existing functionality)
+            // Print each overlap
             let mut global_min = usize::MAX;
             let mut global_max = 0;
-    
-            // We'll also collect intervals by chromosome for merging
-            let mut intervals_by_chr = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
-    
-            for (chr, st, en) in &results {
-                println!("{}:{}-{}", chr, st, en);
-                if *st < global_min {
-                    global_min = *st;
+            let mut intervals_by_path = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+
+            for r in &results {
+                println!(
+                    "path={} node={}({}) offsets=[{}..{}]",
+                    r.path_name,
+                    r.node_id,
+                    if r.node_orient { '+' } else { '-' },
+                    r.path_off_start,
+                    r.path_off_end
+                );
+
+                if r.path_off_start < global_min {
+                    global_min = r.path_off_start;
                 }
-                if *en > global_max {
-                    global_max = *en;
+                if r.path_off_end > global_max {
+                    global_max = r.path_off_end;
                 }
-                intervals_by_chr.entry(chr.clone()).or_default().push((*st, *en));
+                intervals_by_path
+                    .entry(r.path_name.clone())
+                    .or_default()
+                    .push((r.path_off_start, r.path_off_end));
             }
-    
-            // Print the TOTAL RANGE
-            println!("TOTAL COORD RANGE: {}..{}", global_min, global_max);
-    
-            // For each chromosome, merge overlapping intervals
-            for (chr, intervals) in intervals_by_chr {
+
+            // Print total node offset range
+            println!("TOTAL NODE OFFSET RANGE: {}..{}", global_min, global_max);
+
+            // Merge intervals per path
+            for (path, intervals) in intervals_by_path {
                 let merged = merge_intervals(intervals);
-                println!("CONTIGUOUS GROUPS for chromosome: {}", chr);
+                println!("CONTIGUOUS GROUPS for path: {}", path);
                 for (start_val, end_val) in merged {
                     println!("  Group range: {}..{}", start_val, end_val);
                 }
             }
         }
-    } else if let Some(("coord2node", subm)) = matches.subcommand() {
-        let region = subm.get_one::<String>("REGION").unwrap();
-        if let Some((chr, start, end)) = parse_region(region) {
-            let results = coord_to_nodes(&global, &chr, start, end);
-            if results.is_empty() {
-                println!("No nodes found for region {}:{}-{}", chr, start, end);
-            } else {
-                // 1) Print each overlap (existing functionality)
-                let mut global_min = usize::MAX;
-                let mut global_max = 0;
-    
-                // We'll group by path name to handle path offsets
-                let mut intervals_by_path = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
-    
-                for r in &results {
-                    println!(
-                        "path={} node={}({}) offsets=[{}..{}]",
-                        r.path_name,
-                        r.node_id,
-                        if r.node_orient { '+' } else { '-' },
-                        r.path_off_start,
-                        r.path_off_end
-                    );
-    
-                    if r.path_off_start < global_min {
-                        global_min = r.path_off_start;
-                    }
-                    if r.path_off_end > global_max {
-                        global_max = r.path_off_end;
-                    }
-                    intervals_by_path
-                        .entry(r.path_name.clone())
-                        .or_default()
-                        .push((r.path_off_start, r.path_off_end));
-                }
-    
-                // 2) Print the TOTAL RANGE in node offsets
-                println!("TOTAL NODE OFFSET RANGE: {}..{}", global_min, global_max);
-    
-                // 3) Merge intervals for each path
-                for (path, intervals) in intervals_by_path {
-                    let merged = merge_intervals(intervals);
-                    println!("CONTIGUOUS GROUPS for path: {}", path);
-                    for (start_val, end_val) in merged {
-                        println!("  Group range: {}..{}", start_val, end_val);
-                    }
-                }
-            }
-        } else {
-            eprintln!("Could not parse region format: {}", region);
-        }
     } else {
-        eprintln!("Please use subcommand node2coord or coord2node.");
+        eprintln!("Could not parse region format: {}", region);
     }
 }
-
 
 fn parse_cigar_overlap(cigar: &str) -> usize {
     // Example: "5M3D10M" => we count only M => 5 + 10 = 15
