@@ -155,64 +155,11 @@ fn main() -> io::Result<()> {
         // The "Map" command has sub-subcommands: node2coord, coord2node
         Commands::Map { gfa, paf, map_command } => {
             match map_command {
-                // Instead of the nonexistent map::node2coord(...),
-                // we directly construct the data, then call node_to_coords
                 MapCommand::Node2coord { node_id } => {
-                    // 1) Build the map::GlobalData
-                    let mut global = map::GlobalData {
-                        node_map: Default::default(),
-                        path_map: Default::default(),
-                        node_to_paths: Default::default(),
-                        alignment_by_path: Default::default(),
-                        ref_trees: Default::default(),
-                    };
-                    // 2) parse GFA + PAF + build interval trees
-                    map::parse_gfa_memmap(gfa, &mut global);
-                    map::parse_paf_parallel(paf, &mut global);
-                    map::build_ref_trees(&mut global);
-
-                    // 3) query
-                    let results = map::node_to_coords(&global, node_id);
-                    if results.is_empty() {
-                        println!("No reference coords found for node {}", node_id);
-                    } else {
-                        for (chr, st, en) in results {
-                            println!("{}:{}-{}", chr, st, en);
-                        }
-                    }
+                    map::run_node2coord(gfa, paf, node_id);
                 },
-                // Instead of the nonexistent map::coord2node(...),
-                // we build data, parse region, then call coord_to_nodes
                 MapCommand::Coord2node { region } => {
-                    // 1) Build the map::GlobalData
-                    let mut global = map::GlobalData {
-                        node_map: Default::default(),
-                        path_map: Default::default(),
-                        node_to_paths: Default::default(),
-                        alignment_by_path: Default::default(),
-                        ref_trees: Default::default(),
-                    };
-                    // 2) parse GFA + PAF + build interval trees
-                    map::parse_gfa_memmap(gfa, &mut global);
-                    map::parse_paf_parallel(paf, &mut global);
-                    map::build_ref_trees(&mut global);
-
-                    // 3) parse region & query
-                    if let Some((chr, st, en)) = map::parse_region(region) {
-                        let results = map::coord_to_nodes(&global, &chr, st, en);
-                        if results.is_empty() {
-                            println!("No nodes found for region {}:{}-{}", chr, st, en);
-                        } else {
-                            for r in results {
-                                println!("path={} node={}({}) offsets=[{}..{}]",
-                                         r.path_name, r.node_id,
-                                         if r.node_orient {'+'} else {'-'},
-                                         r.path_off_start, r.path_off_end);
-                            }
-                        }
-                    } else {
-                        eprintln!("Could not parse region format: {}", region);
-                    }
+                    map::run_coord2node(gfa, paf, region);
                 },
             }
         }
