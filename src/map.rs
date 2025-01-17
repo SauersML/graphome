@@ -921,7 +921,6 @@ pub struct Coord2NodeResult {
     pub path_off_end:   usize,
 }
 
-// parse_region e.g. "grch38#chr1:12345-67890"
 pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
     // e.g. "grch38#chr1:120616922-120626943"
     let (chr_part, rng_part) = r.split_once(':')?;
@@ -929,4 +928,38 @@ pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
     let start = s.parse::<usize>().ok()?;
     let end   = e.parse::<usize>().ok()?;
     Some((chr_part.to_string(), start, end))
+}
+
+/// merge_intervals takes a vector of (start, end) pairs and merges
+/// all overlapping or contiguous intervals into a minimal set of
+/// non‐overlapping intervals. Two intervals a..b and c..d are considered
+/// part of the same “group” if they overlap or if c <= b+1.
+fn merge_intervals(mut intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
+    // Sort by the start coordinate
+    intervals.sort_by_key(|iv| iv.0);
+    let mut result = Vec::new();
+    if intervals.is_empty() {
+        return result;
+    }
+    // Start with the first interval
+    let mut current_start = intervals[0].0;
+    let mut current_end   = intervals[0].1;
+
+    // Sweep through the rest
+    for &(s,e) in intervals.iter().skip(1) {
+        if s <= current_end + 1 {
+            // Overlaps or touches the current group
+            if e > current_end {
+                current_end = e;
+            }
+        } else {
+            // No overlap, finalize the previous group
+            result.push((current_start, current_end));
+            current_start = s;
+            current_end   = e;
+        }
+    }
+    // Push the final group
+    result.push((current_start, current_end));
+    result
 }
