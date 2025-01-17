@@ -247,15 +247,40 @@ fn main() {
 
     eprintln!("[INFO] IntervalTrees built. Ready for queries.");
 
-    // handle subcommands
-    if let Some(("node2coord", subm)) = matches.subcommand() {
+    } else if let Some(("node2coord", subm)) = matches.subcommand() {
         let node_id = subm.get_one::<String>("NODE_ID").unwrap();
         let results = node_to_coords(&global, node_id);
         if results.is_empty() {
             println!("No reference coords found for node {}", node_id);
         } else {
-            for (chr, st, en) in results {
+            // Print each interval (existing functionality)
+            let mut global_min = usize::MAX;
+            let mut global_max = 0;
+    
+            // We'll also collect intervals by chromosome for merging
+            let mut intervals_by_chr = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+    
+            for (chr, st, en) in &results {
                 println!("{}:{}-{}", chr, st, en);
+                if *st < global_min {
+                    global_min = *st;
+                }
+                if *en > global_max {
+                    global_max = *en;
+                }
+                intervals_by_chr.entry(chr.clone()).or_default().push((*st, *en));
+            }
+    
+            // Print the TOTAL RANGE
+            println!("TOTAL COORD RANGE: {}..{}", global_min, global_max);
+    
+            // For each chromosome, merge overlapping intervals
+            for (chr, intervals) in intervals_by_chr {
+                let merged = merge_intervals(intervals);
+                println!("CONTIGUOUS GROUPS for chromosome: {}", chr);
+                for (start_val, end_val) in merged {
+                    println!("  Group range: {}..{}", start_val, end_val);
+                }
             }
         }
     } else if let Some(("coord2node", subm)) = matches.subcommand() {
