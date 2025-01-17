@@ -1,10 +1,3 @@
-// src/display.rs
-//
-// Demonstrates displaying a 4×4 TGA image (stored in-memory) with termimage,
-// including fixing the error "GuessingFormatFailed(\"\")" by giving our temp
-// file a `.tga` extension. That way, termimage's `guess_format()` can detect
-// the format properly.
-
 use std::fmt;
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -22,11 +15,13 @@ impl From<std::io::Error> for DisplayError {
         DisplayError::Io(e)
     }
 }
+
 impl From<termimage::Error> for DisplayError {
     fn from(e: termimage::Error) -> Self {
         DisplayError::Term(e)
     }
 }
+
 impl fmt::Display for DisplayError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -35,57 +30,99 @@ impl fmt::Display for DisplayError {
         }
     }
 }
+
 impl std::error::Error for DisplayError {}
 
-/// A 4×4, 24-bit uncompressed TGA image in memory. Each pixel is BGR.
-/// Header = 18 bytes, plus 4×4×3 = 48 bytes for pixels.
-static TGA_DATA: &[u8] = &[
+fn create_gradient_tga(width: u16, height: u16) -> Vec<u8> {
     // TGA header (18 bytes)
-    0, 0, 2, 0, 0, 0, 0, 0,
-    0, 0, 0, 0,
-    4, 0,  // width = 4
-    4, 0,  // height=4
-    24,    // bitsPerPixel=24
-    0,     // imageDescriptor=0
-    // Pixel data: 4×4 in BGR
-    0,0,0,   0,85,0,   0,170,0,   0,255,0,
-    85,0,0,  85,85,0,  85,170,0,  85,255,0,
-    170,0,0, 170,85,0, 170,170,0, 170,255,0,
-    255,0,0, 255,85,0, 255,170,0, 255,255,0,
-];
+    let mut data = vec![
+        0, 0, 2, 0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+        (width & 0xFF) as u8,
+        (width >> 8) as u8,
+        (height & 0xFF) as u8,
+        (height >> 8) as u8,
+        24,    // bits per pixel
+        0,     // image descriptor
+    ];
+
+    // Generate a circular gradient pattern
+    for y in 0..height {
+        for x in 0..width {
+            let cx = x as f32 / width as f32 - 0.5;
+            let cy = y as f32 / height as f32 - 0.5;
+            let dist = (cx * cx + cy * cy).sqrt() * 2.0;
+            
+            // Create a rainbow effect based on angle
+            let angle = cy.atan2(cx);
+            let hue = (angle / std::f32::consts::PI + 1.0) * 180.0;
+            
+            // Convert HSV to RGB with distance-based saturation and value
+            let saturation = (1.0 - dist).max(0.0);
+            let value = (1.0 - dist * 0.5).max(0.0);
+            let (r, g, b) = hsv_to_rgb(hue, saturation, value);
+
+            // Add BGR values (TGA format)
+            data.push(b);
+            data.push(g);
+            data.push(r);
+        }
+    }
+
+    data
+}
+
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+    let h = h % 360.0;
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+
+    let (r1, g1, b1) = match (h / 60.0) as i32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+
+    (
+        ((r1 + m) * 255.0) as u8,
+        ((g1 + m) * 255.0) as u8,
+        ((b1 + m) * 255.0) as u8,
+    )
+}
 
 fn main() -> Result<(), DisplayError> {
-    // 1) Create a temp file with ".tga" extension so guess_format sees "something.tga"
+    // Create a larger, more interesting image
+    let width = 100;
+    let height = 40;
+    let tga_data = create_gradient_tga(width, height);
+
+    // Create a temp file with ".tga" extension
     let mut tmp_file = Builder::new()
-        .prefix("tiny_image_")
+        .prefix("gradient_")
         .suffix(".tga")
         .tempfile()?;
-
-    // 2) Write the TGA data
-    tmp_file.write_all(TGA_DATA)?;
-
-    // 3) Convert to the format termimage expects: (String, PathBuf)
+    
+    // Write the TGA data
+    tmp_file.write_all(&tga_data)?;
+    
+    // Set up for termimage
     let path_info = (String::new(), tmp_file.path().to_path_buf());
-
-    // 4) Let termimage guess the format
     let guessed_fmt = ops::guess_format(&path_info)?;
-
-    // 5) Load the image
     let img = ops::load_image(&path_info, guessed_fmt)?;
-
-    // 6) We know the TGA is 4×4. Suppose the user wants 80×24 in the terminal.
-    //    Just pass (4,4) directly to avoid private trait issues.
-    let original_size = (4, 4);
-    let term_size = (80, 24);
+    
+    // Get terminal size for better fitting
+    let original_size = (width as u32, height as u32);
+    let term_size = (120, 40); // Adjust these values based on your terminal
     let resized_size = ops::image_resized_size(original_size, term_size, true);
-
-    // 7) Resize
+    
+    // Resize and display
     let resized = ops::resize_image(&img, resized_size);
-
-    // 8) Print in truecolor
     ops::write_ansi_truecolor(&mut io::stdout(), &resized);
-
-    // 9) Flush
     io::stdout().flush()?;
+
     Ok(())
 }
