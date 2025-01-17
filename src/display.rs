@@ -96,8 +96,8 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 
 fn main() -> Result<(), DisplayError> {
     // Create a larger, more interesting image
-    let width = 100;
-    let height = 40;
+    let width = 200;
+    let height = 200;
     let tga_data = create_gradient_tga(width, height);
 
     // Create a temp file with ".tga" extension
