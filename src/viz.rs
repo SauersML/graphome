@@ -246,7 +246,7 @@ pub fn run_viz(
 
     
     // Get the original size from the TGA itself
-    let original_size = ops::image_dimensions(&img)?;
+    let original_size = image_dimensions(&img)?;
     
     // Terminal size
     let term_size = (600, 400);
