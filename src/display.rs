@@ -1,10 +1,12 @@
-// display.rs
+// src/display.rs
 //
 // Demonstrates displaying an in‐memory TGA image in the terminal
-// using termimage (uncompressed 24‐bit TGA = fast to load).
+// using the "image" crate (for loading) and "termimage" (for terminal display).
 
 use std::io::{self, Write};
-use termimage::ops::{self, ImageFormat};
+use image::{DynamicImage, ImageFormat};
+use termimage::ops;
+use termimage::util;
 
 /// A tiny 4×4, 24‐bit uncompressed TGA image.
 /// Each pixel is stored in BGR order (per TGA specs).
@@ -29,25 +31,23 @@ static TGA_DATA: &[u8] = &[
 ];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // We know it's TGA, so we specify ImageFormat::Tga directly.
-    let format = Some(ImageFormat::Tga);
+    // Load from memory as a TGA image using the "image" crate
+    let raw_img: DynamicImage = image::load_from_memory_with_format(TGA_DATA, ImageFormat::Tga)?;
 
-    // Load the image from our in-memory buffer.
-    // If you had a file, you could do ops::guess_format() + ops::load_image(...)
-    let img = ops::load_image_buf(TGA_DATA, format)?;
+    // Detect terminal size (fallback to 80×24 if detection fails)
+    let (term_w, term_h) = util::terminal_size().unwrap_or((80, 24));
 
-    // Determine suitable display size.
-    // Passing None => auto-detect terminal size if possible.
-    // The `true` means "preserve aspect ratio."
-    let size = ops::image_resized_size(img.dimensions(), None, true);
+    // Calculate how big to resize the image so it fits in terminal
+    //    The last 'true' => preserve aspect ratio
+    let resized_size = ops::image_resized_size(raw_img.dimensions(), (term_w, term_h), true);
 
-    // Resize the image (e.g. to fit the terminal).
-    let resized = ops::resize_image(&img, size);
+    // Resize the image
+    let resized_img = ops::resize_image(&raw_img, resized_size);
 
-    // Now print it with Truecolor ANSI codes for best color fidelity.
-    ops::write_ansi_truecolor(&mut io::stdout(), &resized)?;
+    // Display in Truecolor. This function returns (), so no “?”.
+    ops::write_ansi_truecolor(&mut io::stdout(), &resized_img);
 
-    // Optionally flush stdout just to be sure.
+    // Flush just to be sure
     io::stdout().flush()?;
 
     Ok(())
