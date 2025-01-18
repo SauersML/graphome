@@ -1,6 +1,6 @@
 use std::fmt;
 use std::io::{self, Write, BufWriter};
-use terminal_size::{Width, Height, terminal_size};
+use termsize;
 use std::path::PathBuf;
 use tempfile::Builder;
 use termimage::ops;
@@ -98,11 +98,9 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 fn main() -> Result<(), DisplayError> {
     // Create a larger, more interesting image
     use terminal_size::{Width, Height, terminal_size};
-    let (width, height) = terminal_size().map_or((600, 400), |size| {
-        let Width(w) = size.0;
-        let Height(h) = size.1;
-        ((w * 2) as u16, (h * 4) as u16)
-    });
+    let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
+    let width = (size.cols * 2) as u16;  // Double for better resolution
+    let height = (size.rows * 4) as u16;  // Quadruple height for half-block characters
     let tga_data = create_gradient_tga(width, height);
 
     // Create a temp file with ".tga" extension
@@ -121,11 +119,8 @@ fn main() -> Result<(), DisplayError> {
     
     // Get terminal size for better fitting
     let original_size = (width as u32, height as u32);
-    let term_size = terminal_size().map_or((120, 40), |size| {
-        let Width(w) = size.0;
-        let Height(h) = size.1;
-        (w as u32, h as u32)
-    });
+    let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
+    let term_size = (size.cols as u32, size.rows as u32);
     let resized_size = ops::image_resized_size(original_size, term_size, true);
     
     // Resize and display
