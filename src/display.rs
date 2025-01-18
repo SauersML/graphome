@@ -98,8 +98,8 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 fn main() -> Result<(), DisplayError> {
     // Create a larger, more interesting image
     let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-    let width = (size.cols * 2) as u16;  // Double for better resolution
-    let height = (size.rows * 4) as u16;  // Quadruple height for half-block characters
+    let width = size.cols as u16;  // One pixel per character width
+    let height = (size.rows * 2) as u16;  // Two pixels per character height (for half-blocks)
     let tga_data = create_gradient_tga(width, height);
 
     // Create a temp file with ".tga" extension
