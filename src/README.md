@@ -47,3 +47,9 @@ Usage examples:
   ```
   ./target/release/graphome map --gfa hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf coord2node "grch38#chr1:228557148-228557149"
 ```
+
+### `viz.rs`
+Visualize a pangenome node range.
+```
+./target/release/graphome viz --gfa hprc-v1.0-pggb.gfa --start-node "1000" --end-node "1010" --output-tga visualization_1000_1010.tga
+```
