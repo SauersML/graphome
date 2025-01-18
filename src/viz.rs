@@ -193,9 +193,8 @@ pub fn run_viz(
     eprintln!("[viz] Force layout done for {} nodes, {} edges.", node_count, edges.len());
 
     // 4) Draw the result in a 2D image. We'll define a max width/height.
-    //    Because we might have up to a few thousand nodes, let's do e.g. 2000x2000.
-    let width = 2000u16;
-    let height = 2000u16;
+    let width = 1500u16;
+    let height = 800u16;
     let mut buffer = vec![255u8; (width as usize)*(height as usize)*3]; // white background
 
     // Helper to draw lines and circles
