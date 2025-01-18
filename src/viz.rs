@@ -195,7 +195,7 @@ pub fn run_viz(
     // 4) Draw the result in a 2D image. We'll define a max width/height.
     let width = 1500u16;
     let height = 800u16;
-    let mut buffer = vec![255u8; (width as usize)*(height as usize)*3]; // white background
+    let mut buffer = vec![0u8; (width as usize)*(height as usize)*3]; // black background
 
     // Helper to draw lines and circles
     // We'll scale (0..1) => (0..width-1)
