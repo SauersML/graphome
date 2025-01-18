@@ -1,5 +1,7 @@
 // src/dsbevd.rs
 
+#![cfg(never)]
+
 // We ONLY care about large matrices, and we ALWAYS want both eigenvectors and eigenvalues
 
 use rayon::prelude::*;
