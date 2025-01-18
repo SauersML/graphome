@@ -51,5 +51,5 @@ Usage examples:
 ### `viz.rs`
 Visualize a pangenome node range.
 ```
-./target/release/graphome viz --gfa hprc-v1.0-pggb.gfa --start-node "1000" --end-node "1010" --output-tga visualization_1000_1010.tga
+./target/release/graphome viz --gfa hprc-v1.0-pggb.gfa --start-node "211000" --end-node "211005" --output-tga visualization_211000_211005.tga
 ```
