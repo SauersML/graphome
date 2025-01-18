@@ -49,7 +49,7 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 
     /// Some GFA files have no `L` (Link) lines at all.
     parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
-    println!("Finished parsing links and writing edges.");
+    println!("Finished parsing links between nodes and writing edges.");
 
     let duration = start_time.elapsed();
     println!("Completed in {:.2?} seconds.", duration);
@@ -232,7 +232,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     let output_file = File::create(&output_path)?;
     let writer = Arc::new(Mutex::new(BufWriter::new(output_file)));
 
-    println!("Parsing links and writing edges...");
+    println!("Parsing links between nodes and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
     let total_links_estimate = 309_511_744; // Adjust based on actual data if known
@@ -356,7 +356,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
             }
         });
 
-    pb.finish_with_message("Finished parsing links.");
+    pb.finish_with_message("Finished parsing all links between nodes.");
 
     let total_edges = *edge_counter.lock().unwrap();
 
@@ -367,7 +367,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
             total_edges, total_links_estimate
         );
     } else {
-        println!("Total number of links parsed: {}", total_edges);
+        println!("Total number of links between nodes parsed: {}", total_edges);
     }
 
     // Flush the writer
