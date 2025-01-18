@@ -276,7 +276,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     let from_name = parts[1].trim();
                     let to_name   = parts[3].trim();
                     if let (Some(&f_idx), Some(&t_idx)) =
-                            (segment_indices.get(from_name), segment_indices.get(to_name))
+                        (segment_indices.get(&from_name), segment_indices.get(&to_name))
                     {
                         local_edges.push((f_idx, t_idx));
                     }
@@ -296,9 +296,8 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     let container_name = parts[1].trim();
                     let contained_name = parts[3].trim();
                     if let (Some(&contnr_idx), Some(&contnd_idx)) =
-                            (segment_indices.get(container_name), segment_indices.get(contained_name))
+                        (segment_indices.get(&container_name), segment_indices.get(&contained_name))
                     {
-                        // We'll record container -> contained as an edge
                         local_edges.push((contnr_idx, contnd_idx));
                     }
                 }
@@ -334,7 +333,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                         let to_raw   = strip_orientation(window[1].trim());
     
                         if let (Some(&f_idx), Some(&t_idx)) =
-                                (segment_indices.get(from_raw), segment_indices.get(to_raw))
+                            (segment_indices.get(&from_raw), segment_indices.get(&to_raw))
                         {
                             local_edges.push((f_idx, t_idx));
                         }
