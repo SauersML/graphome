@@ -37,54 +37,85 @@ pub fn run_viz(
 {
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
-    // 1) Parse GFA into a local HashMap: node_id -> NodeData
-    let mut node_map = parse_gfa_full(gfa_path)?; // FIX
 
-    let total_nodes = node_map.len();
-    eprintln!("[viz] Parsed {} total nodes from GFA (S-lines).", total_nodes);
-
-    if total_nodes == 0 {
-        return Err("No nodes in GFA; cannot visualize.".into());
+    
+    // Possibly build or reuse .gam adjacency
+    use std::path::PathBuf;
+    use crate::convert::convert_gfa_to_edge_list;
+    use crate::extract::load_adjacency_matrix;
+    
+    let gfa_pathbase = Path::new(gfa_path);
+    let mut gam_path = gfa_pathbase.with_extension("gam");
+    
+    // If no .gam exists for this GFA, run convert_gfa_to_edge_list
+    if !gam_path.exists() {
+        eprintln!("[viz] No .gam found at {:?}. Converting GFA -> .gam...", gam_path);
+        convert_gfa_to_edge_list(gfa_pathbase, &gam_path)?;
+    } else {
+        eprintln!("[viz] Using cached adjacency file {:?}", gam_path);
     }
-
-    // 2) Filter by [start_node..end_node]
-    // We'll gather a set of kept node IDs
-    let mut kept_ids = Vec::new();
-    for nid in node_map.keys() {
-        if nid.as_str() >= start_node && nid.as_str() <= end_node {
-            kept_ids.push(nid.clone());
-        }
+    
+    // Interpret start_node..end_node as indices
+    let start_idx = start_node.parse::<usize>()
+        .map_err(|_| format!("start-node must be an integer, got {}", start_node))?;
+    let end_idx = end_node.parse::<usize>()
+        .map_err(|_| format!("end-node must be an integer, got {}", end_node))?;
+    if end_idx < start_idx {
+        return Err(format!("end-node < start-node: {} < {}", end_idx, start_idx).into());
     }
-    kept_ids.sort();
-
-    if kept_ids.is_empty() {
-        return Err(format!("No nodes found in range [{start_node}..{end_node}].").into());
+    let node_count = end_idx - start_idx + 1;
+    if node_count > 5000 {
+        return Err(format!(
+            "Refusing to force-layout {} nodes. Please narrow your range.",
+            node_count
+        ).into());
     }
-    eprintln!("[viz] Subgraph has {} nodes after filter.", kept_ids.len());
-
-    // Build a new subgraph: keep adjacency only among these node IDs
-    let kept_set: HashSet<_> = kept_ids.iter().cloned().collect();
-    // We'll store each node's adjacency in a simpler structure
-    let mut subgraph = HashMap::new();
-    for k in &kept_ids {
-        let full_nd = node_map.get(k).unwrap();
-        // Filter neighbors to only those also in kept set
-        let mut filtered_neighbors = HashSet::new();
-        for nbr in &full_nd.neighbors {
-            if kept_set.contains(nbr) {
-                filtered_neighbors.insert(nbr.clone());
+    eprintln!("[viz] Building subgraph for node indices [{start_idx}..{end_idx}], total {} nodes", node_count);
+    
+    // Load edges in that index range
+    let edges_vec = load_adjacency_matrix(&gam_path, start_idx, end_idx)?;
+    // edges_vec is Vec<(u32,u32)>
+    
+    // Build a minimal structure to store node “length”, adjacency, etc.
+    // Length=1 for each node (just for a radius in the draw)... for now
+    let mut adjacency = vec![Vec::new(); node_count]; // adjacency[i] = list of neighbors i->?
+    for &(f, t) in &edges_vec {
+        // subtract start_idx so i in [0..(node_count-1)]
+        let i = (f as usize) - start_idx;
+        let j = (t as usize) - start_idx;
+        adjacency[i].push(j);
+        adjacency[j].push(i);
+    }
+    
+    // We'll store node_data in an array
+    let mut node_data = Vec::with_capacity(node_count);
+    for _ in 0..node_count {
+        node_data.push( NodeData {
+            length: 1, // placeholder... for now
+            neighbors: HashSet::new() // we won't use string-based adjacency, so unused... for now
+        });
+    }
+    
+    // Build a numeric edges list for the force layout
+    let mut edges = Vec::new();
+    for (i, nbrs) in adjacency.iter().enumerate() {
+        // push (i,j) only if i<j to avoid duplicates
+        for &j in nbrs {
+            if i < j {
+                edges.push((i,j));
             }
         }
-        subgraph.insert(
-            k.clone(),
-            NodeData {
-                length: full_nd.length,
-                neighbors: filtered_neighbors
-            }
-        );
     }
+    
+    eprintln!("[viz] Subgraph has {} edges after dedup.", edges.len());
 
-    // 3) Force-based layout
+
+
+
+
+    
+
+    // Force-based layout
     // Convert subgraph to a list of node IDs, then node -> index in a vector
     let node_count = subgraph.len();
     if node_count > 5000 {
@@ -212,7 +243,7 @@ pub fn run_viz(
         *y = 0.05 + *y * 0.90;
     }
 
-    // 4) Draw the result in a 2D image. We'll define a max width/height.
+    // Draw the result in a 2D image. We'll define a max width/height.
     let width = 1500u16;
     let height = 800u16;
     let mut buffer = vec![0u8; (width as usize)*(height as usize)*3]; // black background
@@ -251,7 +282,7 @@ pub fn run_viz(
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
 
-    // 5) Write out TGA
+    // Write out TGA
     write_uncompressed_tga(width, height, &buffer, output_tga)?;
 
     eprintln!(
