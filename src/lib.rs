@@ -6,5 +6,5 @@ pub mod entropy;
 pub mod map;
 pub mod viz;
 
-#[cfg(never)]
+#[cfg(false)]
 pub mod dsbevd;
