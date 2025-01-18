@@ -192,6 +192,31 @@ pub fn run_viz(
     }
     eprintln!("[viz] Force layout done for {} nodes, {} edges.", node_count, edges.len());
 
+    // Re-center and re-scale positions to fill [0..1] with a small margin
+    let mut minx = f32::MAX;
+    let mut miny = f32::MAX;
+    let mut maxx = f32::MIN;
+    let mut maxy = f32::MIN;
+    
+    for &(x, y) in &positions {
+        if x < minx { minx = x; }
+        if x > maxx { maxx = x; }
+        if y < miny { miny = y; }
+        if y > maxy { maxy = y; }
+    }
+    
+    let rangex = (maxx - minx).max(0.00001);
+    let rangey = (maxy - miny).max(0.00001);
+    
+    for (x, y) in &mut positions {
+        // Scale into 0..1
+        *x = (*x - minx) / rangex;
+        *y = (*y - miny) / rangey;
+        // Add 5% margin on each side
+        *x = 0.05 + *x * 0.90;
+        *y = 0.05 + *y * 0.90;
+    }
+
     // 4) Draw the result in a 2D image. We'll define a max width/height.
     let width = 1500u16;
     let height = 800u16;
@@ -209,7 +234,7 @@ pub fn run_viz(
         draw_line_bgr(
             &mut buffer, width, height,
             sx(xi), sy(yi), sx(xj), sy(yj),
-            (200, 200, 200) // light gray
+            (80, 80, 80) // darker gray edges for black background
         );
     }
 
@@ -223,6 +248,16 @@ pub fn run_viz(
         let (xf, yf) = positions[idx];
         let cx = sx(xf);
         let cy = sy(yf);
+        // A simple "glow": draw a larger circle in a lighter color
+        let glow_radius = radius + 6;
+        let glow_color  = (
+            (b as f32 * 0.5) as u8 + 50,
+            (g as f32 * 0.5) as u8 + 50,
+            (r as f32 * 0.5) as u8 + 50
+        );
+        draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, glow_radius, glow_color);
+        
+        // Now draw the main circle on top
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
 
@@ -353,20 +388,50 @@ fn parse_gfa_full(gfa_path: &str) -> Result<HashMap<String, NodeData>, Box<dyn E
     Ok(nodes)
 }
 
-/// A simple function to produce a stable BGR color from node ID + length.
+/// Convert HSL to RGB, each in [0..255]. 
+/// h in [0..360], s,l in [0..1].
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
+    let c = (1.0 - (2.0*l - 1.0).abs()) * s;
+    let hh = h / 60.0;
+    let x = c * (1.0 - (hh % 2.0 - 1.0).abs());
+
+    let (mut r, mut g, mut b) = match hh as i32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+
+    let m = l - c/2.0;
+    r += m; 
+    g += m; 
+    b += m;
+
+    ((r*255.0) as u8, (g*255.0) as u8, (b*255.0) as u8)
+}
+
+/// Assign a bright, high‐saturation color based on a hash of the node ID.
+/// Then return it in BGR order for the TGA image.
 fn color_from_node(node_id: &str, length: usize) -> (u8, u8, u8) {
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     let mut hasher = DefaultHasher::new();
     node_id.hash(&mut hasher);
-    let h = hasher.finish();
-    let hb = (h & 0xFF) as u8;
-    let hg = ((h >> 8) & 0xFF) as u8;
-    let hr = ((h >> 16) & 0xFF) as u8;
-    let factor = (length % 256) as u8;
+    let h64 = hasher.finish();
 
-    let b = hb.wrapping_add(factor);
-    let g = hg.wrapping_add(factor / 2);
-    let r = hr;
+    // Hue in [0..360]
+    let hue = (h64 % 360) as f32;
+    // High saturation and moderate lightness
+    let saturation = 0.9;
+    let lightness = 0.55;
+
+    // Convert HSL -> RGB
+    let (r, g, b) = hsl_to_rgb(hue, saturation, lightness);
+
+    // Return in BGR order for TGA
     (b, g, r)
 }
 
