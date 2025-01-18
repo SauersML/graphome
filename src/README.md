@@ -7,7 +7,11 @@
 This module handles converting GFA files into adjacency matrices in edge list format. It processes GFA files in two main steps:
 
 - **Segment Parsing**: Extracts all segments (nodes) from the GFA file and assigns them unique indices.
-- **Link Parsing**: Reads the links (edges) from the GFA file and writes both forward and backward edges to ensure bidirectionality.
+- **Link Parsing**: Reads the links (edges) from the GFA file and write edges.
+
+```
+./target/release/graphome convert --input hprc-v1.0-pggb.gfa --output edges.gam
+```
 
 #### Key Functions:
 - `convert_gfa_to_edge_list`: Orchestrates the GFA conversion into an adjacency matrix.
