@@ -1,5 +1,6 @@
 use std::fmt;
-use std::io::{self, Write};
+use std::io::{self, Write, BufWriter};
+use terminal_size::{Width, Height, terminal_size};
 use std::path::PathBuf;
 use tempfile::Builder;
 use termimage::ops;
@@ -96,8 +97,12 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 
 fn main() -> Result<(), DisplayError> {
     // Create a larger, more interesting image
-    let width = 600;
-    let height = 400;
+    use terminal_size::{Width, Height, terminal_size};
+    let (width, height) = terminal_size().map_or((600, 400), |size| {
+        let Width(w) = size.0;
+        let Height(h) = size.1;
+        ((w * 2) as u16, (h * 4) as u16)
+    });
     let tga_data = create_gradient_tga(width, height);
 
     // Create a temp file with ".tga" extension
@@ -116,13 +121,19 @@ fn main() -> Result<(), DisplayError> {
     
     // Get terminal size for better fitting
     let original_size = (width as u32, height as u32);
-    let term_size = (120, 40); // Adjust these values based on your terminal
+    let term_size = terminal_size().map_or((120, 40), |size| {
+        let Width(w) = size.0;
+        let Height(h) = size.1;
+        (w as u32, h as u32)
+    });
     let resized_size = ops::image_resized_size(original_size, term_size, true);
     
     // Resize and display
     let resized = ops::resize_image(&img, resized_size);
-    ops::write_ansi_truecolor(&mut io::stdout(), &resized);
-    io::stdout().flush()?;
+    let stdout = io::stdout();
+    let mut writer = BufWriter::new(stdout.lock());
+    ops::write_ansi_truecolor(&mut writer, &resized);
+    writer.flush()?;
 
     Ok(())
 }
