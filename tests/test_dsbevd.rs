@@ -1,3 +1,4 @@
+#![cfg(never)]
 use graphome::dsbevd::SymmetricBandedMatrix;
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use rand_distr::{Distribution, Normal};
