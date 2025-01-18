@@ -243,14 +243,9 @@ pub fn run_viz(
         let (xf, yf) = positions[idx];
         let cx = sx(xf);
         let cy = sy(yf);
-        // A simple "glow": draw a larger circle in a lighter color
-        let glow_radius = radius + 6;
-        let glow_color  = (
-            (b as f32 * 0.5) as u8 + 50,
-            (g as f32 * 0.5) as u8 + 50,
-            (r as f32 * 0.5) as u8 + 50
-        );
-        draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, glow_radius, glow_color);
+        
+        // Draw a radial glow with additive blending
+        draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
         
         // Now draw the main circle on top
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
@@ -514,6 +509,61 @@ fn draw_filled_circle_bgr(
         }
     }
 }
+
+/// Draw an additive radial glow extending out to `glow_radius`.
+/// Uses a falloff so that brightness fades as distance increases.
+fn draw_radial_glow(
+    buffer: &mut [u8],
+    width: u16,
+    height: u16,
+    cx: i32,
+    cy: i32,
+    glow_radius: i32,
+    color: (u8, u8, u8)
+) {
+    let (b, g, r) = color;
+    let w = width as i32;
+    let h = height as i32;
+    let rr = glow_radius as f32;
+
+    for dy in -glow_radius..=glow_radius {
+        let yy = cy + dy;
+        if yy < 0 || yy >= h {
+            continue;
+        }
+        for dx in -glow_radius..=glow_radius {
+            let xx = cx + dx;
+            if xx < 0 || xx >= w {
+                continue;
+            }
+            // Distance from center
+            let dist2 = (dx*dx + dy*dy) as f32;
+            if dist2 <= rr*rr {
+                let d = dist2.sqrt();
+                // alpha goes from 1.0 at center to 0.0 at outer edge
+                let mut alpha = 1.0 - (d / rr);
+                // Optionally square it for a smoother fade:
+                alpha *= alpha;
+
+                let idx = (yy as usize * w as usize + xx as usize) * 3;
+                // Read the old pixel (BGR)
+                let old_b = buffer[idx] as f32;
+                let old_g = buffer[idx + 1] as f32;
+                let old_r = buffer[idx + 2] as f32;
+
+                // Additively blend the glow color
+                let new_b = (old_b + b as f32 * alpha).min(255.0);
+                let new_g = (old_g + g as f32 * alpha).min(255.0);
+                let new_r = (old_r + r as f32 * alpha).min(255.0);
+
+                buffer[idx]   = new_b as u8;
+                buffer[idx+1] = new_g as u8;
+                buffer[idx+2] = new_r as u8;
+            }
+        }
+    }
+}
+
 
 /// Write a 24-bit uncompressed TGA in BGR order.
 fn write_uncompressed_tga(
