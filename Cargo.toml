@@ -31,6 +31,7 @@ parking_lot = "0.11.1"
 num_cpus = "1.16.0"
 termimage = "1.2.1"
 image = "0.25.5"
+termsize = "0.1.9"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
