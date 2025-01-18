@@ -318,10 +318,12 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     let strip_orientation = |s: &str| {
                         if let Some(last_char) = s.chars().last() {
                             if last_char == '+' || last_char == '-' {
-                                return &s[..s.len() - 1];
+                                // Return owned String for the substring
+                                return s[..s.len() - 1].to_string();
                             }
                         }
-                        s
+                        // Otherwise return s in full, as a String
+                        s.to_string()
                     };
     
                     // Connect consecutive pairs in the path
