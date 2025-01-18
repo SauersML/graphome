@@ -250,32 +250,106 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
 
     let edge_counter = Arc::new(Mutex::new(0u64));
 
-    // Read lines in parallel
+    
+    // Read lines in parallel, get edges from L, C, and P lines.
+    // We only write a single direction for each adjacency (from->to), but we know that edges are bidirectional
     reader
         .lines()
         .par_bridge()
         .filter_map(Result::ok)
-        .filter(|line| line.starts_with("L\t"))
         .for_each(|line| {
-            let parts: Vec<&str> = line.split('\t').collect();
-            if parts.len() >= 6 {
-                let from_name = parts[1].trim();
-                let to_name = parts[3].trim();
-
-                if let (Some(&from_index), Some(&to_index)) =
-                    (segment_indices.get(from_name), segment_indices.get(to_name))
-                {
-                    let mut writer = writer.lock().unwrap();
-                    // Write (from, to)
-                    writer.write_all(&from_index.to_le_bytes()).unwrap();
-                    writer.write_all(&to_index.to_le_bytes()).unwrap();
-                    // Write (to, from) for bidirectionality -- unnecessary if we understand that all edges are bidirectional
-                    //writer.write_all(&to_index.to_le_bytes()).unwrap();
-                    //writer.write_all(&from_index.to_le_bytes()).unwrap();
-
-                    let mut edge_counter = edge_counter.lock().unwrap();
-                    *edge_counter += 2;
-                    pb.inc(2);
+            // We'll collect edges in a small Vec, then lock & write them all at once.
+            let mut local_edges = Vec::new();
+    
+            if line.starts_with("L\t") {
+                // GFA 'L' line format (simplified):
+                //   0: "L"
+                //   1: from segment
+                //   2: from orientation (+/-)
+                //   3: to segment
+                //   4: to orientation (+/-)
+                //   5: overlap/CIGAR (optional)
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 4 {
+                    let from_name = parts[1].trim();
+                    let to_name   = parts[3].trim();
+                    if let (Some(&f_idx), Some(&t_idx)) =
+                            (segment_indices.get(from_name), segment_indices.get(to_name))
+                    {
+                        local_edges.push((f_idx, t_idx));
+                    }
+                }
+    
+            } else if line.starts_with("C\t") {
+                // GFA 'C' line format (simplified):
+                //   0: "C"
+                //   1: container
+                //   2: container orientation (+/-)
+                //   3: contained
+                //   4: contained orientation (+/-)
+                //   5: pos
+                //   6: overlap/CIGAR
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 4 {
+                    let container_name = parts[1].trim();
+                    let contained_name = parts[3].trim();
+                    if let (Some(&contnr_idx), Some(&contnd_idx)) =
+                            (segment_indices.get(container_name), segment_indices.get(contained_name))
+                    {
+                        // We'll record container -> contained as an edge
+                        local_edges.push((contnr_idx, contnd_idx));
+                    }
+                }
+    
+            } else if line.starts_with("P\t") {
+                // GFA 'P' line format (simplified):
+                //   0: "P"
+                //   1: path name
+                //   2: segment names list (comma-separated, each ends with + or -)
+                //   3: overlaps or '*'
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() >= 3 {
+                    let seg_list = parts[2].trim();
+                    // e.g. "10128348+,10127854+,10127856-"
+                    let segments: Vec<&str> =
+                        seg_list.split(',').filter(|s| !s.is_empty()).collect();
+    
+                    // Helper: remove trailing orientation character
+                    let strip_orientation = |s: &str| {
+                        if let Some(last_char) = s.chars().last() {
+                            if last_char == '+' || last_char == '-' {
+                                return &s[..s.len() - 1];
+                            }
+                        }
+                        s
+                    };
+    
+                    // Connect consecutive pairs in the path
+                    for window in segments.windows(2) {
+                        let from_raw = strip_orientation(window[0].trim());
+                        let to_raw   = strip_orientation(window[1].trim());
+    
+                        if let (Some(&f_idx), Some(&t_idx)) =
+                                (segment_indices.get(from_raw), segment_indices.get(to_raw))
+                        {
+                            local_edges.push((f_idx, t_idx));
+                        }
+                    }
+                }
+            }
+    
+            // Write out each discovered edge once (f -> t).
+            if !local_edges.is_empty() {
+                let mut writer_guard = writer.lock().unwrap();
+                let mut edge_count_guard = edge_counter.lock().unwrap();
+    
+                for (f, t) in local_edges {
+                    writer_guard.write_all(&f.to_le_bytes()).unwrap();
+                    writer_guard.write_all(&t.to_le_bytes()).unwrap();
+    
+                    // We wrote only one edge. Increase our counter & progress by 1.
+                    *edge_count_guard += 1;
+                    pb.inc(1);
                 }
             }
         });
