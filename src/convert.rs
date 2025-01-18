@@ -111,12 +111,14 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     let get_line_slice = |i: usize| {
         let start = if i == 0 { 0 } else { line_ends[i - 1] + 1 };
+        // Make sure we read through the actual end of the file if there is no trailing newline
         let end = if i < line_ends.len() {
             line_ends[i]
         } else {
-            (file_size - 1) as usize
+            file_size as usize
         };
-        &mmap[start..=end]
+        // Use an exclusive end range so we don't risk going out of bounds
+        &mmap[start..end]
     };
 
     // Step 3: Estimate segment count by sampling
@@ -181,14 +183,15 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Directly create indices using numerical IDs from GFA
-    let segment_indices: HashMap<String, u32> = segment_names
+    // Sort all segment names (including non-numeric) and assign zero-based indices deterministically
+    let mut all_names: Vec<String> = segment_names.into_iter().collect();
+    all_names.sort();
+    let segment_indices: HashMap<String, u32> = all_names
         .into_iter()
-        .filter_map(|name| {
-            name.parse::<u32>().ok().map(|id| (name, id - 1))  // -1 because GFA is 1-based
-        })
+        .enumerate()
+        .map(|(i, name)| (name, i as u32)) // GFA is 1-based, will this work?
         .collect();
-
+    
     let segment_counter = segment_indices.len() as u32;
     println!("🎯 Total segments (nodes) identified: {}", segment_counter);
 
@@ -215,7 +218,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 ///
 /// # Panics
 ///
-/// This function does not explicitly panic.
+/// This function may panic if writes fail (due to `.unwrap()`).
 fn parse_links_and_write_edges<P: AsRef<Path>>(
     gfa_path: P,
     segment_indices: &HashMap<String, u32>,
