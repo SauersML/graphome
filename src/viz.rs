@@ -38,7 +38,7 @@ pub fn run_viz(
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
     // 1) Parse GFA into a local HashMap: node_id -> NodeData
-    let mut node_map = parse_gfa_full(gfa_path)?;
+    let mut node_map = parse_gfa_full(gfa_path)?; // FIX
 
     let total_nodes = node_map.len();
     eprintln!("[viz] Parsed {} total nodes from GFA (S-lines).", total_nodes);
@@ -284,98 +284,6 @@ pub fn run_viz(
     // -----------------------------------
     
     Ok(())
-}
-
-/// Parse the GFA from disk, collecting node lengths and adjacency (via L lines).
-/// This is a custom parser that:
-///   - Reads lines in streaming mode (no fancy memmap).
-///   - For `S` lines: store node length from the sequence or LN:i: tag.
-///   - For `L` lines: store adjacency in both directions (if the line has valid node names).
-fn parse_gfa_full(gfa_path: &str) -> Result<HashMap<String, NodeData>, Box<dyn Error>> {
-    use std::io::BufReader;
-    let f = File::open(gfa_path)?;
-    let reader = BufReader::new(f);
-
-    let mut nodes = HashMap::<String, NodeData>::new();
-
-    for line_res in reader.lines() {
-        let line = line_res?;
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut parts = line.split('\t');
-        let rec_type = match parts.next() {
-            Some(x) => x,
-            None => continue,
-        };
-        match rec_type {
-            "S" => {
-                // S <Name> <Sequence> ...
-                let name = match parts.next() {
-                    Some(n) => n.to_string(),
-                    None => continue,
-                };
-                let seq_or_star = match parts.next() {
-                    Some(s) => s,
-                    None => continue,
-                };
-                let mut length = 0usize;
-                if seq_or_star == "*" {
-                    // parse LN:i: if present
-                    // or length=0 if missing
-                    for field in parts {
-                        if let Some(stripped) = field.strip_prefix("LN:i:") {
-                            if let Ok(val) = stripped.parse::<usize>() {
-                                length = val;
-                                break;
-                            }
-                        }
-                    }
-                } else {
-                    length = seq_or_star.len();
-                }
-                // Insert new NodeData if not present
-                nodes.entry(name).or_insert_with(|| NodeData {
-                    length,
-                    neighbors: HashSet::new()
-                }).length = length;
-            },
-            "L" => {
-                // L <From> <FOrient> <To> <TOrient> <CIGAR> ...
-                // We only care about adjacency from 'From' to 'To'
-                let from_name = match parts.next() {
-                    Some(x) => x.to_string(),
-                    None => continue,
-                };
-                let _from_ori = parts.next().unwrap_or("+");
-                let to_name = match parts.next() {
-                    Some(x) => x.to_string(),
-                    None => continue,
-                };
-                let _to_ori = parts.next().unwrap_or("+");
-                let _cigar = parts.next().unwrap_or("*");
-                
-                // Make sure both exist in the map, or create placeholders
-                nodes.entry(from_name.clone()).or_insert_with(|| NodeData {
-                    length: 0,
-                    neighbors: HashSet::new()
-                });
-                nodes.entry(to_name.clone()).or_insert_with(|| NodeData {
-                    length: 0,
-                    neighbors: HashSet::new()
-                });
-                
-                // Insert adjacency
-                nodes.get_mut(&from_name).unwrap().neighbors.insert(to_name.clone());
-                nodes.get_mut(&to_name).unwrap().neighbors.insert(from_name.clone());
-            },
-            _ => {
-                // skip other lines (P, H, C, etc.)
-            }
-        }
-    }
-
-    Ok(nodes)
 }
 
 /// Convert HSL to RGB, each in [0..255]. 
