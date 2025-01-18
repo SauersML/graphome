@@ -129,3 +129,8 @@ num_P=$(
 )
 echo $((num_L + num_C + num_P))
 ```
+
+This should be the same number as the amount of edges in the edge list:
+```
+size_in_bytes=$(wc -c < edge_list.gam) && echo $((size_in_bytes / 8))
+```
