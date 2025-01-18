@@ -46,6 +46,8 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     println!("Total segments (nodes) identified: {}", num_segments);
 
     // Step 2: Parse links and write edges in parallel
+
+    /// Some GFA files have no `L` (Link) lines at all.
     parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
     println!("Finished parsing links and writing edges.");
 
