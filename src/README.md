@@ -32,6 +32,10 @@ This module performs eigendecomposition on the Laplacian matrix derived from adj
 
 This module extracts adjacency submatrices from an edge list and performs subsequent analysis, including the computation of the Laplacian matrix and eigendecomposition.
 
+```
+./target/release/graphome extract --input edges.gam --start-node 5 --end-node 100 --output output_dir
+```
+
 #### Key Functions:
 - `extract_and_analyze_submatrix`: Extracts a submatrix, computes the Laplacian, and performs eigendecomposition.
 - `load_adjacency_matrix`: Loads an adjacency matrix from a binary edge list file.
