@@ -113,3 +113,19 @@ awk '{
 }'; \
 echo
 ```
+
+Count the number of edges like this (example output: 43080809):
+```
+num_L=$(grep -c '^L[[:space:]]' hprc-v1.0-pggb.gfa)
+num_C=$(grep -c '^C[[:space:]]' hprc-v1.0-pggb.gfa)
+num_P=$(
+  grep '^P[[:space:]]' hprc-v1.0-pggb.gfa \
+    | awk '{
+        n=split($3, segs, ",");
+        total += (n-1);
+      }
+      END { print total }
+    '
+)
+echo $((num_L + num_C + num_P))
+```
