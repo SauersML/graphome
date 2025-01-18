@@ -6,6 +6,7 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write, BufRead};
 use std::path::Path;
+use image::GenericImageView;
 
 use std::f32::consts::PI;
 
@@ -246,7 +247,7 @@ pub fn run_viz(
 
     
     // Get the original size from the TGA itself
-    let original_size = image_dimensions(&img)?;
+    let original_size = (img.width(), img.height());
     
     // Terminal size
     let term_size = (600, 400);
