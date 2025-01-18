@@ -273,15 +273,14 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                 //   5: overlap/CIGAR (optional)
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() >= 4 {
-                    let from_name = parts[1].trim();
-                    let to_name   = parts[3].trim();
+                    let from_name = parts[1].trim().to_string();
+                    let to_name   = parts[3].trim().to_string();
                     if let (Some(&f_idx), Some(&t_idx)) =
-                        (segment_indices.get(&from_name), segment_indices.get(&to_name))
+                        (segment_indices.get(from_name.as_str()), segment_indices.get(to_name.as_str()))
                     {
                         local_edges.push((f_idx, t_idx));
                     }
                 }
-    
             } else if line.starts_with("C\t") {
                 // GFA 'C' line format (simplified):
                 //   0: "C"
@@ -293,10 +292,10 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                 //   6: overlap/CIGAR
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() >= 4 {
-                    let container_name = parts[1].trim();
-                    let contained_name = parts[3].trim();
+                    let container_name = parts[1].trim().to_string();
+                    let contained_name = parts[3].trim().to_string();
                     if let (Some(&contnr_idx), Some(&contnd_idx)) =
-                        (segment_indices.get(&container_name), segment_indices.get(&contained_name))
+                        (segment_indices.get(container_name.as_str()), segment_indices.get(contained_name.as_str()))
                     {
                         local_edges.push((contnr_idx, contnd_idx));
                     }
@@ -311,10 +310,9 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() >= 3 {
                     let seg_list = parts[2].trim();
-                    // e.g. "10128348+,10127854+,10127856-"
                     let segments: Vec<&str> =
                         seg_list.split(',').filter(|s| !s.is_empty()).collect();
-    
+
                     // Helper: remove trailing orientation character
                     let strip_orientation = |s: &str| {
                         if let Some(last_char) = s.chars().last() {
@@ -326,14 +324,15 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                         // Otherwise return s in full, as a String
                         s.to_string()
                     };
-    
+
                     // Connect consecutive pairs in the path
                     for window in segments.windows(2) {
                         let from_raw = strip_orientation(window[0].trim());
                         let to_raw   = strip_orientation(window[1].trim());
-    
+
+                        // Convert from_raw/to_raw to &str for .get(...) calls
                         if let (Some(&f_idx), Some(&t_idx)) =
-                            (segment_indices.get(&from_raw), segment_indices.get(&to_raw))
+                            (segment_indices.get(from_raw.as_str()), segment_indices.get(to_raw.as_str()))
                         {
                             local_edges.push((f_idx, t_idx));
                         }
