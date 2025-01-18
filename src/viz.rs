@@ -183,11 +183,6 @@ pub fn run_viz(
             }
             positions[i].0 += dx * dt;
             positions[i].1 += dy * dt;
-            // Keep them in [0..1] region
-            if positions[i].0 < 0.0 { positions[i].0 = 0.0; }
-            if positions[i].1 < 0.0 { positions[i].1 = 0.0; }
-            if positions[i].0 > 1.0 { positions[i].0 = 1.0; }
-            if positions[i].1 > 1.0 { positions[i].1 = 1.0; }
         }
     }
     eprintln!("[viz] Force layout done for {} nodes, {} edges.", node_count, edges.len());
