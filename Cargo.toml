@@ -32,6 +32,7 @@ num_cpus = "1.16.0"
 termimage = "1.2.1"
 image = "0.25.5"
 termsize = "0.1.9"
+viu = "0.1.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
