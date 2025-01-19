@@ -1,12 +1,3 @@
-//
-// REWRITTEN IN FULL TO USE THE viu CRATE FOR DISPLAY, FALLING BACK TO THE ORIGINAL
-// `termimage`-BASED APPROACH IF viu RETURNS AN ERROR.
-//
-// Unused code/traits/imports have been removed.
-//
-// `main()` is replaced by `display_gradient_image()` so it can be imported from other files.
-//
-
 use std::fmt;
 use std::io::{self, Write, BufWriter};
 use std::path::PathBuf;
@@ -108,7 +99,7 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
 
 /// Creates and displays a gradient TGA image. First tries using the viu crate,
 /// and if that fails, falls back to the original `termimage` approach.
-pub fn display_gradient_image() -> Result<(), DisplayError> {
+pub fn display() -> Result<(), DisplayError> {
     // Determine dimensions from the terminal size
     let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
     let width = size.cols as u16;
