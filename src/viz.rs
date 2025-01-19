@@ -7,6 +7,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write, BufRead};
 use std::path::Path;
 use image::GenericImageView;
+use crate::display::display_tga;
 
 use std::f32::consts::PI;
 
@@ -250,20 +251,27 @@ pub fn run_viz(
     );
     
     // Display in terminal
-    eprintln!("[viz] Displaying {} in the terminal...",output_tga);
-    use termimage::ops;
-    use std::io::Write;
-    let path_info=(String::new(),std::path::PathBuf::from(output_tga));
-    let guessed_fmt=ops::guess_format(&path_info)
-        .map_err(|e|format!("Termimage guess_format error: {:?}",e))?;
-    let img=ops::load_image(&path_info,guessed_fmt)
-        .map_err(|e|format!("Termimage load_image error: {:?}",e))?;
-    let original_size=(img.width(),img.height());
-    let term_size=(600,400);
-    let resized_size=ops::image_resized_size(original_size,term_size,true);
-    let resized=ops::resize_image(&img,resized_size);
-    ops::write_ansi_truecolor(&mut std::io::stdout(),&resized);
-    std::io::stdout().flush()?;
+    eprintln!("[viz] Displaying image in terminal...");
+    
+    // Create the full TGA data including header
+    let mut tga_data = Vec::with_capacity(buffer.len() + 18);
+    // Add TGA header
+    tga_data.extend_from_slice(&[
+        0, 0, 2,  // Uncompressed RGB
+        0, 0, 0, 0, 0,  // Color map info (none)
+        0, 0, 0, 0,  // Image position
+        (width & 0xFF) as u8,  // Image width (little endian)
+        ((width >> 8) & 0xFF) as u8,
+        (height & 0xFF) as u8,  // Image height (little endian)
+        ((height >> 8) & 0xFF) as u8,
+        24, 0  // 24 bits per pixel, image descriptor
+    ]);
+    // Add image data
+    tga_data.extend_from_slice(&buffer);
+    
+    // Display
+    display_tga(&tga_data)
+        .map_err(|e| format!("Display error: {}", e))?;
     
     Ok(())
     
