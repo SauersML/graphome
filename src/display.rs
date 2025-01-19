@@ -47,7 +47,6 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     let conf = viuer::Config {
         transparent: false,
         absolute_offset: false,
-        use_sixel: true,
         use_kitty: true,
         use_iterm: true,
         ..Default::default()
