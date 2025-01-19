@@ -2,12 +2,14 @@ use std::fmt;
 use std::io::{self, Write};
 use tempfile::Builder;
 use viuer;
+use image::ImageError;
 
 /// Possible errors when displaying the image.
 #[derive(Debug)]
 enum DisplayError {
     Io(std::io::Error),
     Viuer(viuer::ViuError),
+    Image(image::error::ImageError)
 }
 
 impl From<std::io::Error> for DisplayError {
@@ -22,11 +24,18 @@ impl From<viuer::ViuError> for DisplayError {
     }
 }
 
+impl From<ImageError> for DisplayError {
+    fn from(e: ImageError) -> Self {
+        DisplayError::Image(e)
+    }
+}
+
 impl fmt::Display for DisplayError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DisplayError::Io(e) => write!(f, "I/O error: {}", e),
             DisplayError::Viuer(e) => write!(f, "Viuer error: {:?}", e),
+            DisplayError::Image(e) => write!(f, "Image error: {}", e),
         }
     }
 }
@@ -46,16 +55,16 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     let conf = viuer::Config {
         transparent: false,
         absolute_offset: false,
-        width: None,       // Let viuer determine based on terminal
-        height: None,      // Let viuer determine based on terminal
-        x: 0,             // Start at left edge
-        y: 0,             // Start at top
+        width: None,
+        height: None,
+        x: 0,
+        y: 0,
         restore_cursor: true,
         ..Default::default()
     };
 
-    // First try to load the image using image crate
-    let img = image::open(tmp_file.path())?;
+    // Load image from the memory buffer directly instead of using the file
+    let img = image::load_from_memory(tga_data)?;
     
     // Display using viuer
     viuer::print(&img, &conf)?;
