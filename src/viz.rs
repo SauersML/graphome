@@ -112,9 +112,6 @@ pub fn run_viz(
     
     eprintln!("[viz] Subgraph has {} edges after dedup.", edges.len());
 
-    
-    
-    
     // Force-based layout using node_count + edges (we no longer use `subgraph`).
     //
     // We already built:
@@ -133,33 +130,62 @@ pub fn run_viz(
         positions[i] = (rng.gen::<f32>(), rng.gen::<f32>());
     }
     
-    // Force layout parameters
-    let iterations = 200;
-    let repulsion = 0.00005_f32;
-    let attraction = 0.05_f32;
-    let dt = 0.85_f32;
+    // Convert the subgraph's edge list into an adjacency matrix (floats)
+    let adjacency_nd = adjacency_matrix_to_ndarray(&edges_vec, start_idx, end_idx);
     
-    for _iter in 0..iterations {
-        let mut disp = vec![(0.0_f32, 0.0_f32); node_count];
+    // Build the Laplacian matrix from adjacency_nd
+    //    Size is node_count x node_count
+    let size = node_count;
+    let mut laplacian = adjacency_nd.clone();
     
-        // Repulsive forces => O(n^2)
-        for i in 0..node_count {
-            for j in (i+1)..node_count {
-                let (xi, yi) = positions[i];
-                let (xj, yj) = positions[j];
-                let dx = xi - xj;
-                let dy = yi - yj;
-                let dist2 = dx*dx + dy*dy + 0.000001;
-                let force = repulsion / dist2;
-                let len = dist2.sqrt();
-                let ux = dx / len;
-                let uy = dy / len;
-                disp[i].0 += ux * force;
-                disp[i].1 += uy * force;
-                disp[j].0 -= ux * force;
-                disp[j].1 -= uy * force;
+    // First, set diagonal entries to each node's degree, and
+    // set off-diagonal entries to negative if there's an edge.
+    for i in 0..size {
+        let mut degree = 0.0;
+        for j in 0..size {
+            if adjacency_nd[(i, j)] != 0.0 {
+                degree += 1.0;
+                // off-diagonal is already 1.0, we need it to be -1?
+                laplacian[(i, j)] = -1.0;
             }
         }
+        laplacian[(i, i)] = degree;
+    }
+    
+    // Compute the eigenvalues and eigenvectors of the Laplacian
+    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)
+        .expect("Eigendecomposition failed");
+    
+    // Sort the eigenvalue–eigenvector pairs by ascending eigenvalue
+    //    (Should we skip the first eigenvector if it corresponds to eigenvalue=0 in a connected graph?)
+    let mut pairs: Vec<(f64, Vec<f64>)> = eigvals
+        .iter()
+        .enumerate()
+        .map(|(idx, &val)| {
+            // Extract that entire column of eigvecs
+            // In ndarray, columns are (row, col)...
+            let column_vec = (0..size)
+                .map(|row| eigvecs[(row, idx)])
+                .collect::<Vec<_>>();
+            (val, column_vec)
+        })
+        .collect();
+    
+    // Sort by eigenvalue
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    
+    // Use the 2nd and 3rd smallest eigenvectors as our (x,y) coordinates... perhaps
+    //    (Index 0 is typically the trivial eigenvector, especially if graph is connected. Try both later.)
+    let (_, second_eigvec) = pairs[1].clone();
+    let (_, third_eigvec)  = pairs[2].clone();
+    
+    let mut positions = vec![(0.0_f32, 0.0_f32); size];
+    for i in 0..size {
+        positions[i] = (
+            second_eigvec[i] as f32,
+            third_eigvec[i]  as f32
+        );
+    }
     
         // Attractive forces on edges
         for &(i, j) in &edges {
