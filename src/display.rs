@@ -55,6 +55,10 @@ impl std::error::Error for DisplayError {}
 /// Displays TGA image data in the terminal.
 /// Takes raw TGA data (including header) as input.
 pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
+    // Set Kitty terminal if possible
+    if env::var("KITTY_WINDOW_ID").is_ok() {
+        env::set_var("TERM", "xterm-kitty");
+    }
     // Try viuer first
     let conf = viuer::Config {
         transparent: false,
