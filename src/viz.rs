@@ -127,9 +127,9 @@ pub fn run_viz(
         })
         .collect();
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-    let (_, first_eigvec) = pairs[0].clone();
-    let (_, second_eigvec) = pairs[1].clone();
+    
+    let (_, first_eigvec) = pairs[1].clone();
+    let (_, second_eigvec) = pairs[2].clone();
 
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     for i in 0..size {
