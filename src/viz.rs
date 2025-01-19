@@ -213,8 +213,8 @@ pub fn run_viz(
     
     // Draw the TGA
     let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-    let width = (size.cols * 4) as u16;  // Just storage
-    let height = (size.rows * 4) as u16;
+    let width = (size.cols * 64) as u16;  // Just storage
+    let height = (size.rows * 64) as u16;
     let mut buffer=vec![0u8; (width as usize)*(height as usize)*3];
     let sx=|xx:f32| -> i32 { (xx*(width-1) as f32).round() as i32 };
     let sy=|yy:f32| -> i32 { (yy*(height-1)as f32).round()as i32 };
