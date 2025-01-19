@@ -188,6 +188,7 @@ pub fn run_viz(
         );
     }
 
+    // Render the glow for all nodes first
     for i in 0..node_count {
         let (xf, yf) = positions[i];
         let cx = sx(xf);
@@ -196,6 +197,16 @@ pub fn run_viz(
         let (b, g, r) = color_from_node(&format!("{}", i), length);
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
+    }
+    
+    // Render the filled circles for all nodes after the glows
+    for i in 0..node_count {
+        let (xf, yf) = positions[i];
+        let cx = sx(xf);
+        let cy = sy(yf);
+        let length = node_data[i].length;
+        let (b, g, r) = color_from_node(&format!("{}", i), length);
+        let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
 
