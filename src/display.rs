@@ -43,20 +43,22 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
         .tempfile()?;
     tmp_file.write_all(tga_data)?;
 
-    // Configure viuer
     let conf = viuer::Config {
         transparent: false,
         absolute_offset: false,
-        use_kitty: true,
-        use_iterm: true,
+        width: None,       // Let viuer determine based on terminal
+        height: None,      // Let viuer determine based on terminal
+        x: 0,             // Start at left edge
+        y: 0,             // Start at top
+        restore_cursor: true,
         ..Default::default()
     };
+
+    // First try to load the image using image crate
+    let img = image::open(tmp_file.path())?;
     
     // Display using viuer
-    viuer::print_from_file(
-        &tmp_file.path().to_string_lossy().to_string(),
-        &conf
-    )?;
+    viuer::print(&img, &conf)?;
 
     Ok(())
 }
