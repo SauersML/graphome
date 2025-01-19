@@ -6,6 +6,7 @@ pub mod window;
 pub mod entropy;
 pub mod map;
 pub mod viz;
+pub mod display;
 
 #[cfg(false)]
 pub mod dsbevd;
