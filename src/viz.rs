@@ -5,9 +5,10 @@ use std::error::Error;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write, BufRead};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use image::GenericImageView;
-
+use crate::convert::convert_gfa_to_edge_list;
+use crate::extract::load_adjacency_matrix;
 use crate::display::display_tga;
 use crate::eigen_print::{adjacency_matrix_to_ndarray, call_eigendecomp};
 
@@ -25,8 +26,8 @@ struct NodeData {
 /// fall in the inclusive lexicographical range [start_node..end_node].
 ///
 /// Steps:
-///  1) Parse GFA (S-lines and L-lines) from `gfa_path`.
-///  2) Keep only nodes N with `start_node <= N <= end_node`.
+///  1) Parse GFA from gfa_path.
+///  2) Keep only nodes N with start_node <= N <= end_node.
 ///  3) Build adjacency (subgraph).
 ///  4) Run a force‐directed layout to get (x,y) for each node.
 ///  5) Draw edges and nodes as a 2D image.
@@ -36,29 +37,20 @@ pub fn run_viz(
     start_node: &str,
     end_node: &str,
     output_tga: &str
-) -> Result<(), Box<dyn Error>> 
+) -> Result<(), Box<dyn Error>>
 {
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
-
-    
-    // Possibly build or reuse .gam adjacency
-    use std::path::PathBuf;
-    use crate::convert::convert_gfa_to_edge_list;
-    use crate::extract::load_adjacency_matrix;
-    
     let gfa_pathbase = Path::new(gfa_path);
     let mut gam_path = gfa_pathbase.with_extension("gam");
-    
-    // If no .gam exists for this GFA, run convert_gfa_to_edge_list
+
     if !gam_path.exists() {
-        eprintln!("[viz] No .gam found at {:?}. Converting GFA -> .gam...", gam_path);
+        eprintln!("[viz] No .gam found at {:?}. Converting GFA -> .gam", gam_path);
         convert_gfa_to_edge_list(gfa_pathbase, &gam_path)?;
     } else {
         eprintln!("[viz] Using cached adjacency file {:?}", gam_path);
     }
-    
-    // Interpret start_node..end_node as indices
+
     let start_idx = start_node.parse::<usize>()
         .map_err(|_| format!("start-node must be an integer, got {}", start_node))?;
     let end_idx = end_node.parse::<usize>()
@@ -74,235 +66,166 @@ pub fn run_viz(
         ).into());
     }
     eprintln!("[viz] Building subgraph for node indices [{start_idx}..{end_idx}], total {} nodes", node_count);
-    
-    // Load edges in that index range
+
     let edges_vec = load_adjacency_matrix(&gam_path, start_idx, end_idx)?;
-    // edges_vec is Vec<(u32,u32)>
-    
-    // Build a minimal structure to store node “length”, adjacency, etc.
-    // Length=1 for each node (just for a radius in the draw)... for now
-    let mut adjacency = vec![Vec::new(); node_count]; // adjacency[i] = list of neighbors i->?
+    let mut adjacency = vec![Vec::new(); node_count];
     for &(f, t) in &edges_vec {
-        // subtract start_idx so i in [0..(node_count-1)]
         let i = (f as usize) - start_idx;
         let j = (t as usize) - start_idx;
         adjacency[i].push(j);
         adjacency[j].push(i);
     }
-    
-    // We'll store node_data in an array
+
+    #[derive(Debug)]
+    struct NodeData {
+        length: usize,
+        neighbors: std::collections::HashSet<String>,
+    }
+
     let mut node_data = Vec::with_capacity(node_count);
     for _ in 0..node_count {
-        node_data.push( NodeData {
-            length: 1, // placeholder... for now
-            neighbors: HashSet::new() // we won't use string-based adjacency, so unused... for now
+        node_data.push(NodeData {
+            length: 1,
+            neighbors: std::collections::HashSet::new(),
         });
     }
-    
-    // Build a numeric edges list for the force layout
+
     let mut edges = Vec::new();
     for (i, nbrs) in adjacency.iter().enumerate() {
-        // push (i,j) only if i<j to avoid duplicates
         for &j in nbrs {
             if i < j {
-                edges.push((i,j));
+                edges.push((i, j));
             }
         }
     }
-    
     eprintln!("[viz] Subgraph has {} edges after dedup.", edges.len());
 
-    // Force-based layout using node_count + edges (we no longer use `subgraph`).
-    //
-    // We already built:
-    //   node_count (the # of nodes in [start_idx..end_idx])
-    //   node_data => an array with node_data[i].length
-    //   edges => Vec<(usize, usize)>
-    // 
-    // We'll store positions in [0..1], do the layout, and then draw.
-    
-    use rand::Rng;
-    
-    // Initialize positions
-    let mut positions = vec![(0.0_f32, 0.0_f32); node_count];
-    let mut rng = rand::thread_rng();
-    for i in 0..node_count {
-        positions[i] = (rng.gen::<f32>(), rng.gen::<f32>());
-    }
-    
-    // Convert the subgraph's edge list into an adjacency matrix (floats)
     let adjacency_nd = adjacency_matrix_to_ndarray(&edges_vec, start_idx, end_idx);
-    
-    // Build the Laplacian matrix from adjacency_nd
-    //    Size is node_count x node_count
     let size = node_count;
     let mut laplacian = adjacency_nd.clone();
-    
-    // First, set diagonal entries to each node's degree, and
-    // set off-diagonal entries to negative if there's an edge.
+
     for i in 0..size {
         let mut degree = 0.0;
         for j in 0..size {
             if adjacency_nd[(i, j)] != 0.0 {
                 degree += 1.0;
-                // off-diagonal is already 1.0, we need it to be -1?
                 laplacian[(i, j)] = -1.0;
             }
         }
         laplacian[(i, i)] = degree;
     }
-    
-    // Compute the eigenvalues and eigenvectors of the Laplacian
-    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)
-        .expect("Eigendecomposition failed");
-    
-    // Sort the eigenvalue–eigenvector pairs by ascending eigenvalue
-    //    (Should we skip the first eigenvector if it corresponds to eigenvalue=0 in a connected graph?)
+
+    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
     let mut pairs: Vec<(f64, Vec<f64>)> = eigvals
         .iter()
         .enumerate()
         .map(|(idx, &val)| {
-            // Extract that entire column of eigvecs
-            // In ndarray, columns are (row, col)...
             let column_vec = (0..size)
                 .map(|row| eigvecs[(row, idx)])
                 .collect::<Vec<_>>();
             (val, column_vec)
         })
         .collect();
-    
-    // Sort by eigenvalue
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    
-    // Use the 2nd and 3rd smallest eigenvectors as our (x,y) coordinates... perhaps
-    //    (Index 0 is typically the trivial eigenvector, especially if graph is connected. Try both later.)
+
+    let (_, first_eigvec) = pairs[0].clone();
     let (_, second_eigvec) = pairs[1].clone();
-    let (_, third_eigvec)  = pairs[2].clone();
-    
+
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     for i in 0..size {
         positions[i] = (
-            second_eigvec[i] as f32,
-            third_eigvec[i]  as f32
+            first_eigvec[i] as f32,
+            second_eigvec[i] as f32
         );
     }
-    
-        // Attractive forces on edges
-        for &(i, j) in &edges {
-            let (xi, yi) = positions[i];
-            let (xj, yj) = positions[j];
-            let dx = xi - xj;
-            let dy = yi - yj;
-            let dist = (dx*dx + dy*dy + 0.000001).sqrt();
-            let force = attraction * (dist - 0.05);
-            let ux = dx / dist;
-            let uy = dy / dist;
-            disp[i].0 -= ux * force;
-            disp[i].1 -= uy * force;
-            disp[j].0 += ux * force;
-            disp[j].1 += uy * force;
-        }
-    
-        // Apply
-        for i in 0..node_count {
-            let (mut dx, mut dy) = disp[i];
-            let max_disp = 0.01;
-            let dd = (dx*dx + dy*dy).sqrt();
-            if dd>max_disp {
-                dx *= max_disp/dd;
-                dy *= max_disp/dd;
-            }
-            positions[i].0 += dx * dt;
-            positions[i].1 += dy * dt;
-        }
-    }
-    
-    eprintln!("[viz] Force layout done for {} nodes, {} edges.", node_count, edges.len());
-    
-    // Re-center & re-scale [0..1]
+
     let mut minx = f32::MAX;
     let mut miny = f32::MAX;
     let mut maxx = f32::MIN;
     let mut maxy = f32::MIN;
-    for &(x,y) in &positions {
-        if x<minx {minx=x}
-        if x>maxx {maxx=x}
-        if y<miny {miny=y}
-        if y>maxy {maxy=y}
+    for &(x, y) in &positions {
+        if x < minx {
+            minx = x;
+        }
+        if x > maxx {
+            maxx = x;
+        }
+        if y < miny {
+            miny = y;
+        }
+        if y > maxy {
+            maxy = y;
+        }
     }
-    let rangex = (maxx-minx).max(0.00001);
-    let rangey = (maxy-miny).max(0.00001);
-    for (x,y) in &mut positions {
-        *x = (*x-minx)/rangex;
-        *y = (*y-miny)/rangey;
-        *x = 0.05 + *x*0.90;
-        *y = 0.05 + *y*0.90;
+    let rangex = (maxx - minx).max(0.00001);
+    let rangey = (maxy - miny).max(0.00001);
+    for (x, y) in &mut positions {
+        *x = (*x - minx) / rangex;
+        *y = (*y - miny) / rangey;
+        *x = 0.05 + *x * 0.90;
+        *y = 0.05 + *y * 0.90;
     }
-    
-    // Draw the TGA
+
     let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-    let width = (size.cols * 8) as u16;  // Just storage
+    let width = (size.cols * 8) as u16;
     let height = (size.rows * 8) as u16;
-    let mut buffer=vec![0u8; (width as usize)*(height as usize)*3];
-    let sx=|xx:f32| -> i32 { (xx*(width-1) as f32).round() as i32 };
-    let sy=|yy:f32| -> i32 { (yy*(height-1)as f32).round()as i32 };
-    
-    // Edges
-    for &(i,j) in &edges {
-        let (xi,yi)=positions[i];
-        let (xj,yj)=positions[j];
+    let mut buffer = vec![0u8; (width as usize) * (height as usize) * 3];
+    let sx = |xx: f32| -> i32 { (xx * (width - 1) as f32).round() as i32 };
+    let sy = |yy: f32| -> i32 { (yy * (height - 1) as f32).round() as i32 };
+
+    for &(i, j) in &edges {
+        let (xi, yi) = positions[i];
+        let (xj, yj) = positions[j];
         draw_line_bgr(
-            &mut buffer,width,height,
-            sx(xi),sy(yi),sx(xj),sy(yj),
-            (80,80,80)
+            &mut buffer,
+            width,
+            height,
+            sx(xi),
+            sy(yi),
+            sx(xj),
+            sy(yj),
+            (80, 80, 80)
         );
     }
-    
-    // Nodes
+
     for i in 0..node_count {
-        let (xf,yf)=positions[i];
-        let cx=sx(xf);
-        let cy=sy(yf);
-        // color by i
-        let length=node_data[i].length;
-        let (b,g,r)=color_from_node(&format!("{}",i), length);
-        let radius=3.max((length as f32).log2().round()as i32).min(20);
-        draw_radial_glow(&mut buffer,width,height,cx,cy,radius+10,(b,g,r));
-        draw_filled_circle_bgr(&mut buffer,width,height,cx,cy,radius,(b,g,r));
+        let (xf, yf) = positions[i];
+        let cx = sx(xf);
+        let cy = sy(yf);
+        let length = node_data[i].length;
+        let (b, g, r) = color_from_node(&format!("{}", i), length);
+        let radius = 3.max((length as f32).log2().round() as i32).min(20);
+        draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
+        draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
-    
-    // Write TGA
-    write_uncompressed_tga(width,height,&buffer,output_tga)?;
+
+    write_uncompressed_tga(width, height, &buffer, output_tga)?;
     eprintln!(
         "[viz] Wrote subgraph layout with {} nodes to {}. Image is {}x{}.",
-        node_count,output_tga,width,height
+        node_count,
+        output_tga,
+        width,
+        height
     );
-    
-    // Display in terminal
+
     eprintln!("[viz] Displaying image in terminal...");
-    
-    // Create the full TGA data including header
+
     let mut tga_data = Vec::with_capacity(buffer.len() + 18);
-    // Add TGA header
     tga_data.extend_from_slice(&[
-        0, 0, 2,  // Uncompressed RGB
-        0, 0, 0, 0, 0,  // Color map info (none)
-        0, 0, 0, 0,  // Image position
-        (width & 0xFF) as u8,  // Image width (little endian)
+        0, 0, 2,
+        0, 0, 0, 0, 0,
+        0, 0, 0, 0,
+        (width & 0xFF) as u8,
         ((width >> 8) & 0xFF) as u8,
-        (height & 0xFF) as u8,  // Image height (little endian)
+        (height & 0xFF) as u8,
         ((height >> 8) & 0xFF) as u8,
-        24, 0  // 24 bits per pixel, image descriptor
+        24, 0
     ]);
-    // Add image data
     tga_data.extend_from_slice(&buffer);
-    
-    // Display
-    display_tga(&tga_data)
-        .map_err(|e| format!("Display error: {}", e))?;
-    
+
+    display_tga(&tga_data)?;
+
     Ok(())
-    
 }
 
 /// Convert HSL to RGB, each in [0..255]. 
@@ -399,7 +322,7 @@ fn draw_line_bgr(
     }
 }
 
-/// Draw a filled circle of radius `radius` at (cx, cy).
+/// Draw a filled circle of radius radius at (cx, cy).
 /// We use a naive approach: check all points within bounding box.
 fn draw_filled_circle_bgr(
     buffer: &mut [u8],
@@ -437,7 +360,7 @@ fn draw_filled_circle_bgr(
     }
 }
 
-/// Draw an additive radial glow extending out to `glow_radius`.
+/// Draw an additive radial glow extending out to glow_radius.
 /// Uses a falloff so that brightness fades as distance increases.
 fn draw_radial_glow(
     buffer: &mut [u8],
