@@ -1,5 +1,6 @@
 use std::fmt;
 use std::io::{self, Write, BufWriter};
+use std::env
 use tempfile::Builder;
 use termsize;
 use termimage::ops;
