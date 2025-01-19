@@ -4,7 +4,7 @@ use tempfile::Builder;
 use termsize;
 use termimage::ops;
 use viuer;
-use image::ImageError;
+use image::{ImageError, ImageFormat};
 
 /// Possible errors when displaying the image.
 #[derive(Debug)]
@@ -68,7 +68,7 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     };
 
     // Load image from the memory buffer
-    let img = image::load_from_memory(tga_data)?;
+    let img = image::load_from_memory_with_format(tga_data, image::ImageFormat::Tga)?;
     
     // Try viuer first
     if let Err(_) = viuer::print(&img, &conf) {
