@@ -1,10 +1,20 @@
+//
+// REWRITTEN IN FULL TO USE THE viu CRATE FOR DISPLAY, FALLING BACK TO THE ORIGINAL
+// `termimage`-BASED APPROACH IF viu RETURNS AN ERROR.
+//
+// Unused code/traits/imports have been removed.
+//
+// `main()` is replaced by `display_gradient_image()` so it can be imported from other files.
+//
+
 use std::fmt;
 use std::io::{self, Write, BufWriter};
-use termsize;
 use std::path::PathBuf;
 use tempfile::Builder;
+use termsize;
 use termimage::ops;
 
+/// Possible errors when displaying the image.
 #[derive(Debug)]
 enum DisplayError {
     Io(std::io::Error),
@@ -34,6 +44,7 @@ impl fmt::Display for DisplayError {
 
 impl std::error::Error for DisplayError {}
 
+/// Creates a circular rainbow TGA image of the given dimensions.
 fn create_gradient_tga(width: u16, height: u16) -> Vec<u8> {
     // TGA header (18 bytes)
     let mut data = vec![
@@ -43,27 +54,26 @@ fn create_gradient_tga(width: u16, height: u16) -> Vec<u8> {
         (width >> 8) as u8,
         (height & 0xFF) as u8,
         (height >> 8) as u8,
-        24,    // bits per pixel
-        0,     // image descriptor
+        24, // bits per pixel
+        0,  // image descriptor
     ];
 
-    // Generate a circular gradient pattern
     for y in 0..height {
         for x in 0..width {
             let cx = x as f32 / width as f32 - 0.5;
             let cy = y as f32 / height as f32 - 0.5;
             let dist = (cx * cx + cy * cy).sqrt() * 2.0;
-            
+
             // Create a rainbow effect based on angle
             let angle = cy.atan2(cx);
             let hue = (angle / std::f32::consts::PI + 1.0) * 180.0;
-            
+
             // Convert HSV to RGB with distance-based saturation and value
             let saturation = (1.0 - dist).max(0.0);
             let value = (1.0 - dist * 0.5).max(0.0);
             let (r, g, b) = hsv_to_rgb(hue, saturation, value);
 
-            // Add BGR values (TGA format)
+            // TGA stores color in BGR order
             data.push(b);
             data.push(g);
             data.push(r);
@@ -73,6 +83,7 @@ fn create_gradient_tga(width: u16, height: u16) -> Vec<u8> {
     data
 }
 
+/// Convert hue-saturation-value to an RGB triple (0..=255 each).
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     let h = h % 360.0;
     let c = v * s;
@@ -95,39 +106,49 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
     )
 }
 
-fn main() -> Result<(), DisplayError> {
-    // Create a larger, more interesting image
+/// Creates and displays a gradient TGA image. First tries using the viu crate,
+/// and if that fails, falls back to the original `termimage` approach.
+pub fn display_gradient_image() -> Result<(), DisplayError> {
+    // Determine dimensions from the terminal size
     let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-    let width = size.cols as u16;  // One pixel per character width
-    let height = (size.rows * 2) as u16;  // Two pixels per character height (for half-blocks)
+    let width = size.cols as u16;
+    let height = (size.rows * 2) as u16; // 2 px per text row for half-block style
+
+    // Create the gradient in TGA format
     let tga_data = create_gradient_tga(width, height);
 
-    // Create a temp file with ".tga" extension
+    // Write TGA data to a temporary file
     let mut tmp_file = Builder::new()
         .prefix("gradient_")
         .suffix(".tga")
         .tempfile()?;
-    
-    // Write the TGA data
     tmp_file.write_all(&tga_data)?;
-    
-    // Set up for termimage
-    let path_info = (String::new(), tmp_file.path().to_path_buf());
-    let guessed_fmt = ops::guess_format(&path_info)?;
-    let img = ops::load_image(&path_info, guessed_fmt)?;
-    
-    // Get terminal size for better fitting
-    let original_size = (width as u32, height as u32);
-    let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-    let term_size = (size.cols as u32, size.rows as u32);
-    let resized_size = ops::image_resized_size(original_size, term_size, true);
-    
-    // Resize and display
-    let resized = ops::resize_image(&img, resized_size);
-    let stdout = io::stdout();
-    let mut writer = BufWriter::new(stdout.lock());
-    ops::write_ansi_truecolor(&mut writer, &resized);
-    writer.flush()?;
+
+    // Attempt to display using the viu library:
+    let path_str = tmp_file.path().to_string_lossy().to_string();
+    let result_viu = viu::print_from_file(path_str, &viu::Config::default());
+
+    // If viu fails for any reason, fall back to the original `termimage` method.
+    if let Err(_err) = result_viu {
+        println!("viu failed.");
+        // Fallback: termimage
+        let path_info = (String::new(), tmp_file.path().to_path_buf());
+        let guessed_fmt = ops::guess_format(&path_info)?;  // Might fail -> DisplayError::Term
+        let img = ops::load_image(&path_info, guessed_fmt)?;  // Might fail -> DisplayError::Term
+
+        // We scale the image to fit the terminal
+        let original_size = (width as u32, height as u32);
+        let term_size = (size.cols as u32, size.rows as u32);
+        let resized_size = ops::image_resized_size(original_size, term_size, true);
+        let resized_img = ops::resize_image(&img, resized_size);
+
+        let stdout = io::stdout();
+        let mut writer = BufWriter::new(stdout.lock());
+
+        // Write to terminal with ANSI Truecolor
+        ops::write_ansi_truecolor(&mut writer, &resized_img);
+        writer.flush()?;
+    }
 
     Ok(())
 }
