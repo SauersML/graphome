@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use tempfile::Builder;
 use termsize;
 use termimage::ops;
-use viu;
 
 /// Possible errors when displaying the image.
 #[derive(Debug)]
