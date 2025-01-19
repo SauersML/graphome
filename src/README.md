@@ -18,9 +18,9 @@ This module handles converting GFA files into adjacency matrices in edge list fo
 - `parse_segments`: Parses GFA segments and assigns indices.
 - `parse_links_and_write_edges`: Extracts links and writes edges in a bidirectional format.
 
-### `eigen.rs`
+### `eigen_print.rs`
 
-This module performs eigendecomposition on the Laplacian matrix derived from adjacency matrices. It uses either LAPACK's `dsbevd` function or nalgebra's `SymmetricEigen` depending on the structure of the matrix.
+This module performs eigendecomposition on the Laplacian matrix derived from adjacency matrices.
 
 #### Key Functions:
 - `call_eigendecomp`: Selects between LAPACK and nalgebra eigendecomposition based on the matrix bandedness.
