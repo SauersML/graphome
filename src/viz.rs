@@ -7,7 +7,9 @@ use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write, BufRead};
 use std::path::Path;
 use image::GenericImageView;
+
 use crate::display::display_tga;
+use crate::eigen_print::{adjacency_matrix_to_ndarray, call_eigendecomp};
 
 use std::f32::consts::PI;
 
