@@ -51,7 +51,3 @@ path = "tests/test_eigen.rs"
 [[test]]
 name = "test_extract"
 path = "tests/test_extract.rs"
-
-[[bin]]
-name = "display"
-path = "src/display.rs"
