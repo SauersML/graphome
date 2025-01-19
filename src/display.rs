@@ -6,7 +6,7 @@ use image::ImageError;
 
 /// Possible errors when displaying the image.
 #[derive(Debug)]
-enum DisplayError {
+pub enum DisplayError {
     Io(std::io::Error),
     Viuer(viuer::ViuError),
     Image(image::error::ImageError)
@@ -45,13 +45,6 @@ impl std::error::Error for DisplayError {}
 /// Displays TGA image data in the terminal.
 /// Takes raw TGA data (including header) as input.
 pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
-    // Write TGA data to a temporary file
-    let mut tmp_file = Builder::new()
-        .prefix("image_")
-        .suffix(".tga")
-        .tempfile()?;
-    tmp_file.write_all(tga_data)?;
-
     let conf = viuer::Config {
         transparent: false,
         absolute_offset: false,
@@ -63,7 +56,7 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
         ..Default::default()
     };
 
-    // Load image from the memory buffer directly instead of using the file
+    // Load image from the memory buffer directly
     let img = image::load_from_memory(tga_data)?;
     
     // Display using viuer
