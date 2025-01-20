@@ -227,6 +227,31 @@ pub fn run_viz(
         .cluster()
         .map_err(|e| format!("HDBSCAN failed: {:?}", e))?;
     
+    // Compute local density for each node as #neighbors in adjacency.
+    // We'll use it later to vary saturation.
+    let mut local_densities = vec![0.0_f32; node_count];
+    for i in 0..node_count {
+        // The "adjacency" vector is the filtered adjacency lists.
+        // Just count how many neighbors node i has.
+        let deg = adjacency[i].len() as f32;
+        local_densities[i] = deg;
+    }
+    
+    // Find min/max to map density into [0..1].
+    let mut min_dens = f32::MAX;
+    let mut max_dens = f32::MIN;
+    for &val in &local_densities {
+        if val < min_dens {
+            min_dens = val;
+        }
+        if val > max_dens {
+            max_dens = val;
+        }
+    }
+    if max_dens < 1.0 {
+        max_dens = 1.0; // avoid divide-by-zero
+    }
+    
     // We'll define color_from_cluster. For positioning, we only need 2D:
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     if m >= 2 {
@@ -373,16 +398,41 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     ((r*255.0) as u8, (g*255.0) as u8, (b*255.0) as u8)
 }
 
-fn color_from_cluster(cluster_id: i32) -> (u8, u8, u8) {
-    // Noise gets a white color:
+// We give ourselves a small array of four base hues: blue, pink, purple, red.
+// If the cluster ID is 0, it uses index 0 => 240° (blue).
+// If 1 => pink (330°), 2 => purple (270°), 3 => red (0°), then it cycles for ID >= 4. (Fix later: no cycle)
+fn color_from_cluster(
+    i: usize,
+    cluster_id: i32,
+    local_density: f32,
+    min_dens: f32,
+    max_dens: f32
+) -> (u8, u8, u8) {
+    // Noise as white:
     if cluster_id < 0 {
         return (255, 255, 255); // BGR
     }
 
-    // Spread clusters around the hue wheel in a stable manner:
-    let hue = (cluster_id as f32 * 37.0) % 360.0;
-    let saturation = 0.9;
+    // Our list of favored hues: [blue, pink, purple, red]
+    let base_hues = [240.0, 330.0, 270.0, 0.0];
+    let cluster_idx = cluster_id as usize % base_hues.len();
+    let hue = base_hues[cluster_idx];
+
+    // Map local density into [0..1]
+    let normalized = if max_dens > min_dens {
+        (local_density - min_dens) / (max_dens - min_dens)
+    } else {
+        0.0
+    };
+
+    // We vary saturation from 0.3..0.9 based on local density.
+    // If density is low => 0.3 (pastel). If density is high => 0.9 (vibrant).
+    let saturation = 0.3 + 0.6 * normalized;
+
+    // We'll keep lightness fixed at 0.55 so it doesn't wash out too much.
     let lightness = 0.55;
+
+    // Convert HSL -> RGB, then swap to BGR
     let (r, g, b) = hsl_to_rgb(hue, saturation, lightness);
     (b, g, r)
 }
