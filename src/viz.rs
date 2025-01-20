@@ -510,7 +510,6 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
     let mut disp = vec![(0.0_f32, 0.0_f32); n];
 
     // Collision thresholds
-    let node_collision_dist = 0.08_f32; // how close is "too close" for nodes
     let edge_overlap_dist = 0.01_f32;   // how close is "too close" for edges
     // Tiny epsilon to avoid divide-by-zero
     let eps = 0.000001_f32;
@@ -660,18 +659,34 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         }
 
         // Node collision resolution
-        // If two nodes are closer than node_collision_dist, push them apart
+        // If two nodes are close, push them apart
+        let image_width = (size.cols * 8) as f32;
+        let image_height = (size.rows * 8) as f32;
+        let max_dim = image_width.max(image_height);
+        
+        // Precompute a normalized radius for every node.
+        // This matches how you compute the pixel radius, but divided by max_dim.
+        let mut node_radii = Vec::with_capacity(n);
+        for i in 0..n {
+            let length_f = node_data[i].length as f32;
+            let pixel_radius = 3.0_f32.max(length_f.log2().round()).min(20.0);
+            let normalized_radius = pixel_radius / max_dim;
+            node_radii.push(normalized_radius);
+        }
+        
+        // Node collision resolution
         for i in 0..n {
             for j in (i + 1)..n {
                 let dx = positions[j].0 - positions[i].0;
                 let dy = positions[j].1 - positions[i].1;
                 let dist_sqr = dx*dx + dy*dy + eps;
                 let dist = dist_sqr.sqrt();
-                if dist < node_collision_dist {
-                    let overlap = (node_collision_dist - dist) * 0.5; 
+                let col_dist = node_radii[i] + node_radii[j];  // sum of radii
+        
+                if dist < col_dist {
+                    let overlap = (col_dist - dist) * 0.5;
                     let nx = dx / dist;
                     let ny = dy / dist;
-                    // Push each node half the overlap distance
                     disp[i].0 -= nx * overlap;
                     disp[i].1 -= ny * overlap;
                     disp[j].0 += nx * overlap;
