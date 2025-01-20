@@ -104,15 +104,30 @@ pub fn run_viz(
     let size = node_count;
     let mut laplacian = adjacency_nd.clone();
 
+    // Store the degree of each node in an array
+    let mut degrees = vec![0.0; size];
     for i in 0..size {
-        let mut degree = 0.0;
+        let mut deg = 0.0;
         for j in 0..size {
             if adjacency_nd[(i, j)] != 0.0 {
-                degree += 1.0;
-                laplacian[(i, j)] = -1.0;
+                deg += 1.0;
             }
         }
-        laplacian[(i, i)] = degree;
+        degrees[i] = deg;
+    }
+    
+    // Build the normalized Laplacian
+    for i in 0..size {
+        for j in 0..size {
+            if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0.0 && degrees[j] > 0.0 {
+                // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
+                laplacian[(i, j)] = -1.0 / (degrees[i] * degrees[j]).sqrt();
+            } else {
+                laplacian[(i, j)] = 0.0;
+            }
+        }
+        // Diagonal entries: 1.0
+        laplacian[(i, i)] = 1.0;
     }
 
     let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
