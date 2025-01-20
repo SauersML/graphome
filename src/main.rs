@@ -111,6 +111,10 @@ enum Commands {
         /// Path to output TGA file
         #[arg(long)]
         output_tga: String,
+
+        /// Whether to run force-directed refinement after spectral
+        #[arg(long, default_value_t = false)]
+        force_directed: bool,
     },
 }
 
