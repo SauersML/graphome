@@ -659,13 +659,25 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         }
 
         // Node collision resolution
-        let node_collision_dist = 1.0_f32;
+        let node_collision_dist = 0.12_f32;
         for i in 0..n {
             for j in (i + 1)..n {
-                let dx = positions[j].0 - positions[i].0;
-                let dy = positions[j].1 - positions[i].1;
-                let dist_sqr = dx*dx + dy*dy + eps;
+                let mut dx = positions[j].0 - positions[i].0;
+                let mut dy = positions[j].1 - positions[i].1;
+                let mut dist_sqr = dx*dx + dy*dy;
+                
+                // If they're essentially at the same spot, nudge one slightly so we have a direction
+                if dist_sqr < 1e-12 {
+                    positions[j].0 += 0.0001 * (j as f32 + 1.0);
+                    positions[j].1 += 0.0001 * (i as f32 + 1.0);
+                    dx = positions[j].0 - positions[i].0;
+                    dy = positions[j].1 - positions[i].1;
+                    dist_sqr = dx*dx + dy*dy;
+                }
+                
+                dist_sqr += eps;
                 let dist = dist_sqr.sqrt();
+                
                 if dist < node_collision_dist {
                     let overlap = (node_collision_dist - dist) * 0.5;
                     let nx = dx / dist;
