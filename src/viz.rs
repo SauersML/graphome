@@ -29,16 +29,17 @@ struct NodeData {
 ///  1) Parse GFA from gfa_path.
 ///  2) Keep only nodes N with start_node <= N <= end_node.
 ///  3) Build adjacency (subgraph).
-///  4) Run a force‐directed layout to get (x,y) for each node.
-///  5) Draw edges and nodes as a 2D image.
-///  6) Write an uncompressed TGA (24‐bit BGR).
+///  4) Run a spectral layout to get initial (x,y) positions.
+///  5) If force_directed is true, apply a force-directed refinement.
+///  6) Draw edges and nodes as a 2D image.
+///  7) Write an uncompressed TGA (24‐bit BGR).
 pub fn run_viz(
     gfa_path: &str,
     start_node: &str,
     end_node: &str,
-    output_tga: &str
-) -> Result<(), Box<dyn Error>>
-{
+    output_tga: &str,
+    force_directed: bool
+) -> Result<(), Box<dyn Error>> {
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
     let gfa_pathbase = Path::new(gfa_path);
