@@ -142,10 +142,17 @@ pub fn run_viz(
     let adjacency = adjacency_filtered;
     let node_count = new_count;
     
-    let adjacency_nd = adjacency_matrix_to_ndarray(&edges_vec, start_idx, end_idx);
+    // Build an NxN adjacency matrix from the filtered edges,
+    // so Laplacian indexing matches the nodes actually in use.
+    let mut adjacency_nd = Array2::<f64>::zeros((node_count, node_count));
+    for &(i, j) in &edges {
+        adjacency_nd[(i, j)] = 1.0;
+        adjacency_nd[(j, i)] = 1.0;
+    }
+    
     let size = node_count;
     let mut laplacian = adjacency_nd.clone();
-
+    
     // Store the degree of each node in an array
     let mut degrees = vec![0u32; size];
     for i in 0..size {
@@ -163,7 +170,8 @@ pub fn run_viz(
         for j in 0..size {
             if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0 && degrees[j] > 0 {
                 // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
-                laplacian[(i, j)] = -1.0f64 / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
+                laplacian[(i, j)] = -1.0f64
+                    / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
             } else {
                 laplacian[(i, j)] = 0.0;
             }
@@ -218,7 +226,7 @@ pub fn run_viz(
         .cluster()
         .map_err(|e| format!("HDBSCAN failed: {:?}", e))?;
     
-    // We'll define color_from_cluster below. For positioning, we only need 2D:
+    // We'll define color_from_cluster. For positioning, we only need 2D:
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     if m >= 2 {
         // If at least 2 nonzero eigenpairs, use the first two dims for an initial layout
