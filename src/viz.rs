@@ -499,22 +499,95 @@ fn write_uncompressed_tga(
 }
 
 fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usize)]) {
+    // Basic FR config
     let n = positions.len();
+    if n < 2 {
+        return;
+    }
     let iterations = 50;
     let area = 1.0;
     let k = (area / n as f32).sqrt();
     let mut disp = vec![(0.0_f32, 0.0_f32); n];
 
+    // Collision thresholds
+    let node_collision_dist = 0.02_f32; // how close is "too close" for nodes
+    let edge_overlap_dist = 0.01_f32;   // how close is "too close" for edges
+    // Tiny epsilon to avoid divide-by-zero
+    let eps = 0.000001_f32;
+
+    // A helper function that returns the squared distance between two points
+    fn dist_sq(ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
+        let dx = bx - ax;
+        let dy = by - ay;
+        dx*dx + dy*dy
+    }
+
+    // A helper to compute the minimum distance between line segment AB and segment CD
+    // We'll push them apart if this distance < edge_overlap_dist
+    fn segment_segment_min_dist(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> f32 {
+        // Parametric approach adapted from standard geometry
+        // Source references: e.g. "Real-Time Collision Detection" by Christer Ericson
+        let (ax, ay) = a;
+        let (bx, by) = b;
+        let (cx, cy) = c;
+        let (dx, dy) = d;
+
+        let abx = bx - ax;
+        let aby = by - ay;
+        let cdx = dx - cx;
+        let cdy = dy - cy;
+
+        let ab_dot_ab = abx*abx + aby*aby + 1e-12;  // to avoid zero
+        let cd_dot_cd = cdx*cdx + cdy*cdy + 1e-12;  // to avoid zero
+
+        // We will solve for param t on AB, u on CD
+        // AB(t) = A + t*(B - A)
+        // CD(u) = C + u*(D - C)
+        // We'll clamp t,u in [0..1] to stay on the segments
+        let mut t = 0.0_f32;
+        let mut u = 0.0_f32;
+
+        // The cross terms
+        let r_x = ax - cx;
+        let r_y = ay - cy;
+        let ab_dot_cd = abx*cdx + aby*cdy;
+        let r_dot_ab = r_x*abx + r_y*aby;
+        let r_dot_cd = r_x*cdx + r_y*cdy;
+
+        let denom = ab_dot_ab*cd_dot_cd - ab_dot_cd*ab_dot_cd;
+        if denom.abs() > 1e-12 {
+            t = (r_dot_ab*cd_dot_cd - r_dot_cd*ab_dot_cd) / denom;
+            u = (r_dot_cd*ab_dot_ab - r_dot_ab*ab_dot_cd) / denom;
+        }
+
+        // Clamp t, u
+        t = t.clamp(0.0, 1.0);
+        u = u.clamp(0.0, 1.0);
+
+        // Compute the actual closest points in that param range
+        let closest_ab_x = ax + abx * t;
+        let closest_ab_y = ay + aby * t;
+        let closest_cd_x = cx + cdx * u;
+        let closest_cd_y = cy + cdy * u;
+
+        let dxm = closest_cd_x - closest_ab_x;
+        let dym = closest_cd_y - closest_ab_y;
+        (dxm*dxm + dym*dym).sqrt()
+    }
+
     for iter in 0..iterations {
+        // Reset displacement
         for i in 0..n {
             disp[i] = (0.0, 0.0);
         }
+
+        // Node–node repulsion
         for i in 0..n {
             for j in (i + 1)..n {
                 let dx = positions[j].0 - positions[i].0;
                 let dy = positions[j].1 - positions[i].1;
-                let dist_sq = dx * dx + dy * dy + 0.000001;
-                let dist = dist_sq.sqrt();
+                let dist_sqr = dx*dx + dy*dy + eps;
+                let dist = dist_sqr.sqrt();
                 let rep = k * k / dist;
                 let rx = (dx / dist) * rep;
                 let ry = (dy / dist) * rep;
@@ -524,12 +597,14 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
                 disp[j].1 += ry;
             }
         }
+
+        // Edge attraction
         for &(ii, jj) in edges {
             let dx = positions[jj].0 - positions[ii].0;
             let dy = positions[jj].1 - positions[ii].1;
-            let dist_sq = dx * dx + dy * dy + 0.000001;
-            let dist = dist_sq.sqrt();
-            let att = dist * dist / k;
+            let dist_sqr = dx*dx + dy*dy + eps;
+            let dist = dist_sqr.sqrt();
+            let att = (dist * dist) / k;
             let ax = (dx / dist) * att;
             let ay = (dy / dist) * att;
             disp[ii].0 += ax;
@@ -537,16 +612,86 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
             disp[jj].0 -= ax;
             disp[jj].1 -= ay;
         }
+
+        // Edge–edge overlap repulsion
+        // For each pair of edges, if they come within edge_overlap_dist, push endpoints away
+        for i in 0..edges.len() {
+            let (a1, a2) = edges[i];
+            let seg_a1 = positions[a1];
+            let seg_a2 = positions[a2];
+            for j in (i + 1)..edges.len() {
+                let (b1, b2) = edges[j];
+                // If they share a node, skip (because it's the same edge or adjacent edges)
+                if a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2 {
+                    continue;
+                }
+                let seg_b1 = positions[b1];
+                let seg_b2 = positions[b2];
+                let d = segment_segment_min_dist(seg_a1, seg_a2, seg_b1, seg_b2);
+                if d < edge_overlap_dist {
+                    // We'll push each pair of endpoints away from the midpoint
+                    // to reduce overlap
+                    let mid_a_x = 0.5 * (seg_a1.0 + seg_a2.0);
+                    let mid_a_y = 0.5 * (seg_a1.1 + seg_a2.1);
+                    let mid_b_x = 0.5 * (seg_b1.0 + seg_b2.0);
+                    let mid_b_y = 0.5 * (seg_b1.1 + seg_b2.1);
+                    let dx = mid_b_x - mid_a_x;
+                    let dy = mid_b_y - mid_a_y;
+                    let dist_sqr = dx*dx + dy*dy + eps;
+                    let dist = dist_sqr.sqrt();
+                    // A small repulsive force that grows as we get closer
+                    let repel = 0.5 * k * (edge_overlap_dist - d).max(0.0) / dist;
+                    let rx = dx * repel;
+                    let ry = dy * repel;
+
+                    // Push segment A away from B
+                    disp[a1].0 -= rx; 
+                    disp[a1].1 -= ry;
+                    disp[a2].0 -= rx; 
+                    disp[a2].1 -= ry;
+
+                    // Push segment B away from A
+                    disp[b1].0 += rx; 
+                    disp[b1].1 += ry;
+                    disp[b2].0 += rx; 
+                    disp[b2].1 += ry;
+                }
+            }
+        }
+
+        // Node collision resolution
+        // If two nodes are closer than node_collision_dist, push them apart
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dx = positions[j].0 - positions[i].0;
+                let dy = positions[j].1 - positions[i].1;
+                let dist_sqr = dx*dx + dy*dy + eps;
+                let dist = dist_sqr.sqrt();
+                if dist < node_collision_dist {
+                    let overlap = (node_collision_dist - dist) * 0.5; 
+                    let nx = dx / dist;
+                    let ny = dy / dist;
+                    // Push each node half the overlap distance
+                    disp[i].0 -= nx * overlap;
+                    disp[i].1 -= ny * overlap;
+                    disp[j].0 += nx * overlap;
+                    disp[j].1 += ny * overlap;
+                }
+            }
+        }
+
+        // Apply displacements with a "temperature" (cooling)
         let temp = 0.1 * (1.0 - iter as f32 / iterations as f32);
         for i in 0..n {
             let (dx, dy) = disp[i];
-            let dist_sq = dx * dx + dy * dy + 0.000001;
-            let dist = dist_sq.sqrt();
-            let limit = dist.min(temp);
-            positions[i].0 += (dx / dist) * limit;
-            positions[i].1 += (dy / dist) * limit;
+            let len_sqr = dx*dx + dy*dy + eps;
+            let len = len_sqr.sqrt();
+            let limit = len.min(temp);
+            positions[i].0 += (dx / len) * limit;
+            positions[i].1 += (dy / len) * limit;
         }
     }
+
     // Final pass: rescale all positions into [0..1] after iterations
     let mut minx = f32::MAX;
     let mut maxx = f32::MIN;
