@@ -328,7 +328,8 @@ pub fn run_viz(
         let cy = sy(yf);
         let length = node_data[i].length;
         let cluster_id = labels[i];
-        let (b, g, r) = color_from_cluster(cluster_id);
+        let local_d = local_densities[i];
+        let (b, g, r) = color_from_cluster(i, cluster_id, local_d, min_dens, max_dens);
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
     }
@@ -340,7 +341,8 @@ pub fn run_viz(
         let cy = sy(yf);
         let length = node_data[i].length;
         let cluster_id = labels[i];
-        let (b, g, r) = color_from_cluster(cluster_id);
+        let local_d = local_densities[i];
+        let (b, g, r) = color_from_cluster(i, cluster_id, local_d, min_dens, max_dens);
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
