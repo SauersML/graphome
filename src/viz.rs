@@ -143,8 +143,25 @@ pub fn run_viz(
         .collect();
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
     
-    let (_, first_eigvec) = pairs[1].clone();
-    let (_, second_eigvec) = pairs[2].clone();
+    // Skip all zero (or near-zero) eigenvalues
+    let near_zero_threshold = 1e-9;
+    let nonzero_pairs: Vec<(f64, Vec<f64>)> = pairs
+        .iter()
+        .filter(|(val, _)| val.abs() > near_zero_threshold)
+        .cloned()
+        .collect();
+    
+    // Make sure we have at least two non-zero eigenvalues
+    if nonzero_pairs.len() < 2 {
+        return Err(format!(
+            "Not enough non-zero eigenvalues for a 2D spectral layout. Found only {}.",
+            nonzero_pairs.len()
+        ).into());
+    }
+    
+    // Use the first two from the filtered list
+    let (_, first_eigvec) = nonzero_pairs[0].clone();
+    let (_, second_eigvec) = nonzero_pairs[1].clone();
 
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     for i in 0..size {
