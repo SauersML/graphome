@@ -185,8 +185,8 @@ fn main() -> io::Result<()> {
                 },
             }
         }
-        Commands::Viz { gfa, start_node, end_node, output_tga } => {
-            if let Err(err) = viz::run_viz(gfa, start_node, end_node, output_tga) {
+        Commands::Viz { gfa, start_node, end_node, output_tga, force_directed } => {
+            if let Err(err) = viz::run_viz(gfa, start_node, end_node, output_tga, *force_directed) {
                 eprintln!("[viz error] {}", err);
                 std::process::exit(1);
             }
