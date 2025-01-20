@@ -6,7 +6,10 @@ use std::fs::File;
 use std::hash::{Hash, Hasher};
 use std::io::{BufWriter, Write, BufRead};
 use std::path::{Path, PathBuf};
+
 use image::GenericImageView;
+use hdbscan::{Hdbscan, HdbscanHyperParams};
+
 use crate::convert::convert_gfa_to_edge_list;
 use crate::extract::load_adjacency_matrix;
 use crate::display::display_tga;
@@ -198,17 +201,37 @@ pub fn run_viz(
         ).into());
     }
     
-    // Use the first two from the filtered list
-    let (_, first_eigvec) = nonzero_pairs[0].clone();
-    let (_, second_eigvec) = nonzero_pairs[1].clone();
-
-    let mut positions = vec![(0.0_f32, 0.0_f32); size];
-    for i in 0..size {
-        positions[i] = (
-            first_eigvec[i] as f32,
-            second_eigvec[i] as f32
-        );
+    // Build a weighted spectral embedding from ALL nonzero eigenpairs.
+    // We weight each eigenvector's columns by 1/sqrt(lambda_i).
+    let m = nonzero_pairs.len();
+    let mut embedding = vec![vec![0.0_f32; m]; size];
+    for (dim, (lambda, vec_col)) in nonzero_pairs.iter().enumerate() {
+        let w = 1.0 / (lambda.sqrt().max(1e-12));
+        for i in 0..size {
+            embedding[i][dim] = vec_col[i] as f32 * w as f32;
+        }
     }
+    
+    // Now cluster with HDBSCAN, letting it decide clusters automatically.
+    let clusterer = Hdbscan::default_hyper_params(&embedding);
+    let labels = clusterer
+        .cluster()
+        .map_err(|e| format!("HDBSCAN failed: {:?}", e))?;
+    
+    // We'll define color_from_cluster below. For positioning, we only need 2D:
+    let mut positions = vec![(0.0_f32, 0.0_f32); size];
+    if m >= 2 {
+        // If at least 2 nonzero eigenpairs, use the first two dims for an initial layout
+        for i in 0..size {
+            positions[i] = (embedding[i][0], embedding[i][1]);
+        }
+    } else {
+        // If we only have 1 dimension or none, just spread them in a line
+        for i in 0..size {
+            positions[i] = (i as f32, 0.0);
+        }
+    }
+    
 
     if force_directed {
         eprintln!("[viz] Running force-directed refinement on initial spectral layout...");
@@ -270,7 +293,8 @@ pub fn run_viz(
         let cx = sx(xf);
         let cy = sy(yf);
         let length = node_data[i].length;
-        let (b, g, r) = color_from_node(&format!("{}", i), length);
+        let cluster_id = labels[i];
+        let (b, g, r) = color_from_cluster(cluster_id);
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
     }
@@ -281,7 +305,8 @@ pub fn run_viz(
         let cx = sx(xf);
         let cy = sy(yf);
         let length = node_data[i].length;
-        let (b, g, r) = color_from_node(&format!("{}", i), length);
+        let cluster_id = labels[i];
+        let (b, g, r) = color_from_cluster(cluster_id);
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_filled_circle_bgr(&mut buffer, width, height, cx, cy, radius, (b, g, r));
     }
@@ -339,26 +364,17 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     ((r*255.0) as u8, (g*255.0) as u8, (b*255.0) as u8)
 }
 
-/// Assign a bright, high‐saturation color based on a hash of the node ID.
-/// Then return it in BGR order for the TGA image.
-fn color_from_node(node_id: &str, length: usize) -> (u8, u8, u8) {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+fn color_from_cluster(cluster_id: i32) -> (u8, u8, u8) {
+    // Noise gets a gray color:
+    if cluster_id < 0 {
+        return (128, 128, 128); // BGR
+    }
 
-    let mut hasher = DefaultHasher::new();
-    node_id.hash(&mut hasher);
-    let h64 = hasher.finish();
-
-    // Hue in [0..360]
-    let hue = (h64 % 360) as f32;
-    // High saturation and moderate lightness
+    // Spread clusters around the hue wheel in a stable manner:
+    let hue = (cluster_id as f32 * 37.0) % 360.0;
     let saturation = 0.9;
     let lightness = 0.55;
-
-    // Convert HSL -> RGB
     let (r, g, b) = hsl_to_rgb(hue, saturation, lightness);
-
-    // Return in BGR order for TGA
     (b, g, r)
 }
 
