@@ -119,7 +119,7 @@ pub fn run_viz(
     // Build the normalized Laplacian
     for i in 0..size {
         for j in 0..size {
-            if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0.0 && degrees[j] > 0.0 {
+            if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0 && degrees[j] > 0 {
                 // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
                 laplacian[(i, j)] = -1.0f64 / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
             } else {
