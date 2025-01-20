@@ -510,7 +510,7 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
     let mut disp = vec![(0.0_f32, 0.0_f32); n];
 
     // Collision thresholds
-    let node_collision_dist = 0.02_f32; // how close is "too close" for nodes
+    let node_collision_dist = 0.08_f32; // how close is "too close" for nodes
     let edge_overlap_dist = 0.01_f32;   // how close is "too close" for edges
     // Tiny epsilon to avoid divide-by-zero
     let eps = 0.000001_f32;
