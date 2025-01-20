@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use image::GenericImageView;
 use hdbscan::{Hdbscan, HdbscanHyperParams};
+use ndarray::Array2;
 
 use crate::convert::convert_gfa_to_edge_list;
 use crate::extract::load_adjacency_matrix;
