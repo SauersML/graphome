@@ -121,7 +121,7 @@ pub fn run_viz(
         for j in 0..size {
             if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0.0 && degrees[j] > 0.0 {
                 // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
-                laplacian[(i, j)] = -1.0 / (degrees[i] * degrees[j]).sqrt();
+                laplacian[(i, j)] = -1.0f64 / (degrees[i] * degrees[j]).sqrt();
             } else {
                 laplacian[(i, j)] = 0.0;
             }
