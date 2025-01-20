@@ -329,11 +329,15 @@ pub fn run_viz(
         let length = node_data[i].length;
         let cluster_id = labels[i];
         let local_d = local_densities[i];
-        let (b, g, r) = color_from_cluster(i, cluster_id, local_d, min_dens, max_dens);
+        let (b, g, r) = if cluster_id < 0 {
+            (255, 255, 255) // White glow for noise points
+        } else {
+            color_from_cluster(i, cluster_id, local_d, min_dens, max_dens)
+        };
         let radius = 3.max((length as f32).log2().round() as i32).min(20);
         draw_radial_glow(&mut buffer, width, height, cx, cy, radius + 10, (b, g, r));
     }
-    
+
     // Render the filled circles for all nodes after the glows
     for i in 0..node_count {
         let (xf, yf) = positions[i];
@@ -412,7 +416,7 @@ fn color_from_cluster(
 ) -> (u8, u8, u8) {
     // Noise as white:
     if cluster_id < 0 {
-        return (255, 255, 255); // BGR
+        return (0, 0, 0); // BGR (black)
     }
 
     // Our list of favored hues: [blue, pink, purple, red]
