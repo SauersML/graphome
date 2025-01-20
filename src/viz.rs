@@ -376,7 +376,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 fn color_from_cluster(cluster_id: i32) -> (u8, u8, u8) {
     // Noise gets a gray color:
     if cluster_id < 0 {
-        return (128, 128, 128); // BGR
+        return (255, 255, 255); // BGR
     }
 
     // Spread clusters around the hue wheel in a stable manner:
