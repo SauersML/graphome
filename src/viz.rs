@@ -69,6 +69,9 @@ pub fn run_viz(
     eprintln!("[viz] Building subgraph for node indices [{start_idx}..{end_idx}], total {} nodes", node_count);
 
     let edges_vec = load_adjacency_matrix(&gam_path, start_idx, end_idx)?;
+
+
+    // Build adjacency
     let mut adjacency = vec![Vec::new(); node_count];
     for &(f, t) in &edges_vec {
         let i = (f as usize) - start_idx;
@@ -76,31 +79,66 @@ pub fn run_viz(
         adjacency[i].push(j);
         adjacency[j].push(i);
     }
-
+    
+    // Filter out nodes that have no neighbors
+    let mut keep_list = Vec::new();
+    for i in 0..node_count {
+        if !adjacency[i].is_empty() {
+            keep_list.push(i);
+        }
+    }
+    if keep_list.is_empty() {
+        return Err("No nodes with edges found in the specified range".into());
+    }
+    
+    // Create a mapping from old node indices to new indices
+    let new_count = keep_list.len();
+    let mut old_to_new = vec![usize::MAX; node_count];
+    for (new_i, &old_i) in keep_list.iter().enumerate() {
+        old_to_new[old_i] = new_i;
+    }
+    
+    // Rebuild adjacency and node data for only those kept nodes
     #[derive(Debug)]
     struct NodeData {
         length: usize,
         neighbors: std::collections::HashSet<String>,
     }
-
-    let mut node_data = Vec::with_capacity(node_count);
-    for _ in 0..node_count {
+    let mut node_data = Vec::with_capacity(new_count);
+    let mut adjacency_filtered = vec![Vec::new(); new_count];
+    for _ in 0..new_count {
         node_data.push(NodeData {
             length: 1,
             neighbors: std::collections::HashSet::new(),
         });
     }
-
+    for &old_i in &keep_list {
+        let new_i = old_to_new[old_i];
+        for &old_j in &adjacency[old_i] {
+            let new_j = old_to_new[old_j];
+            adjacency_filtered[new_i].push(new_j);
+        }
+    }
+    
+    // Gather edges (in the reduced set)
     let mut edges = Vec::new();
-    for (i, nbrs) in adjacency.iter().enumerate() {
+    for (i, nbrs) in adjacency_filtered.iter().enumerate() {
         for &j in nbrs {
             if i < j {
                 edges.push((i, j));
             }
         }
     }
-    eprintln!("[viz] Subgraph has {} edges after dedup.", edges.len());
-
+    eprintln!(
+        "[viz] Subgraph now has {} nodes and {} edges (after hiding no-edge nodes).",
+        new_count,
+        edges.len()
+    );
+    
+    // Replace the old adjacency with the filtered one, and reset node_count
+    let adjacency = adjacency_filtered;
+    let node_count = new_count;
+    
     let adjacency_nd = adjacency_matrix_to_ndarray(&edges_vec, start_idx, end_idx);
     let size = node_count;
     let mut laplacian = adjacency_nd.clone();
