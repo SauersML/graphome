@@ -172,6 +172,11 @@ pub fn run_viz(
         );
     }
 
+    if force_directed {
+        eprintln!("[viz] Running force-directed refinement on initial spectral layout...");
+        force_directed_refinement(&mut positions, &edges);
+    }
+
     let mut minx = f32::MAX;
     let mut miny = f32::MAX;
     let mut maxx = f32::MIN;
@@ -491,4 +496,57 @@ fn write_uncompressed_tga(
     w.flush()?;
 
     Ok(())
+}
+
+fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usize)]) {
+    let n = positions.len();
+    let iterations = 50;
+    let area = 1.0;
+    let k = (area / n as f32).sqrt();
+    let mut disp = vec![(0.0_f32, 0.0_f32); n];
+
+    for iter in 0..iterations {
+        for i in 0..n {
+            disp[i] = (0.0, 0.0);
+        }
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let dx = positions[j].0 - positions[i].0;
+                let dy = positions[j].1 - positions[i].1;
+                let dist_sq = dx * dx + dy * dy + 0.000001;
+                let dist = dist_sq.sqrt();
+                let rep = k * k / dist;
+                let rx = (dx / dist) * rep;
+                let ry = (dy / dist) * rep;
+                disp[i].0 -= rx;
+                disp[i].1 -= ry;
+                disp[j].0 += rx;
+                disp[j].1 += ry;
+            }
+        }
+        for &(ii, jj) in edges {
+            let dx = positions[jj].0 - positions[ii].0;
+            let dy = positions[jj].1 - positions[ii].1;
+            let dist_sq = dx * dx + dy * dy + 0.000001;
+            let dist = dist_sq.sqrt();
+            let att = dist * dist / k;
+            let ax = (dx / dist) * att;
+            let ay = (dy / dist) * att;
+            disp[ii].0 += ax;
+            disp[ii].1 += ay;
+            disp[jj].0 -= ax;
+            disp[jj].1 -= ay;
+        }
+        let temp = 0.1 * (1.0 - iter as f32 / iterations as f32);
+        for i in 0..n {
+            let (dx, dy) = disp[i];
+            let dist_sq = dx * dx + dy * dy + 0.000001;
+            let dist = dist_sq.sqrt();
+            let limit = dist.min(temp);
+            positions[i].0 += (dx / dist) * limit;
+            positions[i].1 += (dy / dist) * limit;
+            positions[i].0 = positions[i].0.clamp(0.0, 1.0);
+            positions[i].1 = positions[i].1.clamp(0.0, 1.0);
+        }
+    }
 }
