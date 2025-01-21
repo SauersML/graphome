@@ -53,11 +53,7 @@ impl From<DisplayError> for VideoError {
     }
 }
 
-/// Renders a multi-frame GIF of rotating 3D points:
-/// 1. Generates ~60 frames for a full 360° rotation.
-/// 2. Encodes those frames into one animated GIF.
-/// 3. Saves that GIF to disk.
-/// 4. Displays it once in the terminal (via `display_gif`).
+/// Renders a multi-frame GIF of rotating 3D points with axes and tick marks.
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     let width = 800;
     let height = 600;
@@ -85,6 +81,9 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         let mut z_buffer = vec![f32::INFINITY; (width * height) as usize];
 
         println!("  - Rotation matrix for this frame: {:?}", rotation);
+
+        // Draw axes and ticks
+        draw_axes(&mut img, width, height);
 
         // Fill the image by projecting each point
         for point in &points {
@@ -156,6 +155,31 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     println!("GIF displayed successfully!");
 
     Ok(())
+}
+
+/// Draws axes with units and tick marks on the image.
+fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
+    // Draw x-axis (in red)
+    for x in 0..width {
+        let y = height / 2;
+        img.put_pixel(x, y, Rgb([255, 0, 0]));
+        if x % 100 == 0 {
+            // Mark tick marks at regular intervals
+            img.put_pixel(x, y - 5, Rgb([255, 0, 0]));  // Tick mark
+        }
+    }
+
+    // Draw y-axis (in green)
+    for y in 0..height {
+        let x = width / 2;
+        img.put_pixel(x, y, Rgb([0, 255, 0]));
+        if y % 100 == 0 {
+            // Mark tick marks at regular intervals
+            img.put_pixel(x + 5, y, Rgb([0, 255, 0]));  // Tick mark
+        }
+    }
+
+    // Optional: Draw z-axis or labels if necessary
 }
 
 /// Projects a 3D vector onto a 2D screen.
