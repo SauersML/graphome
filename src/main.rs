@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, eigen_print, window, entropy, map, viz};
+use graphome::{convert, extract, eigen_print, window, entropy, map, viz, embed, video};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -190,6 +190,14 @@ fn main() -> io::Result<()> {
                 eprintln!("[viz error] {}", err);
                 std::process::exit(1);
             }
+        }
+        Commands::Embed {
+            input,
+            start_node,
+            end_node,
+        } => {
+            let points = embed::embed(start_node, end_node, input)?;
+            video::render(points)?;
         }
     }
     Ok(())
