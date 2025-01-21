@@ -127,7 +127,6 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Convert the GIF image to base64 encoding.
     println!("Converting GIF data to base64...");
     let base64_data = base64::encode(gif_data);
-    println!("GIF data converted to base64 successfully.");
 
     // Prepare the inline image escape sequence for Kitty terminal.
     let inline_image_esc = format!("\x1b]1337;File=inline=1:{}", base64_data);
