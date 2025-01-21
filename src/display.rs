@@ -144,7 +144,6 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     println!("Displaying GIF...");
     print!("\x1b[2J"); // Clear screen
     print!("\x1b[H");  // Move cursor to home position
-    print!("{}", inline_image_esc);
 
     // Output the escape sequence to display the GIF.
     print!("{}", inline_image_esc);
