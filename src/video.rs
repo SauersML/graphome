@@ -85,8 +85,12 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         // Fill the image by projecting each point
         for point in &points {
             let rotated = rotation.transform_point(&point.pos);
-            let camera_offset = 5.0;
-            let transformed = Vector3::new(rotated.x, rotated.y, rotated.z - camera_offset);
+            let camera_pos = Vector3::new(3.0, 2.0, 5.0);
+            let transformed = Vector3::new(
+                rotated.x - camera_pos.x,
+                rotated.y - camera_pos.y, 
+                rotated.z - camera_pos.z
+            );
 
             if let Some((sx, sy, depth)) = project_to_screen(
                 transformed, width, height, 60.0_f32.to_radians()
