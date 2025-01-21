@@ -301,7 +301,7 @@ fn project_to_screen(
     let far = 100.0;
 
     // If the point is behind the camera, skip.
-    if v.z >= 0.0 {
+    if v.z <= 0.0 {
         return None;
     }
 
