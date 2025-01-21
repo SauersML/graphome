@@ -160,53 +160,100 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 /// Draws axes with units and tick marks on the image.
 pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
     let axis_color = Rgb([255, 255, 255]); // White color for all axes
-    let center_x = width / 2;
-    let center_y = height / 2;
+    let axis_length = 2.0; // Length of each axis in 3D space
+    let steps = 100; // Number of points to draw per axis
     
-    // Draw x-axis
-    for x in 0..width {
-        img.put_pixel(x, center_y, axis_color);
-        if x % 100 == 0 {
-            img.put_pixel(x, center_y - 5, axis_color);
-        }
-    }
-
-    // Draw y-axis
-    for y in 0..height {
-        img.put_pixel(center_x, y, axis_color);
-        if y % 100 == 0 {
-            img.put_pixel(center_x + 5, y, axis_color);
-        }
-    }
-
-    // Draw z-axis using the same projection as points
-    let z_length = 2.0; // Length in 3D space
-    let z_steps = 100;
-    for i in 0..z_steps {
-        let t = i as f32 / z_steps as f32;
-        let point = Vector3::new(0.0, 0.0, -z_length * t);
+    // Draw all three axes using proper 3D projection
+    for i in 0..=steps {
+        let t = i as f32 / steps as f32;
         
+        // X axis points (from -axis_length to +axis_length)
+        let x_point = Vector3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
+        // Y axis points
+        let y_point = Vector3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
+        // Z axis points
+        let z_point = Vector3::new(0.0, 0.0, -axis_length * t);
+        
+        // Project and draw X axis
         if let Some((sx, sy, _)) = project_to_screen(
-            point,
+            x_point,
             width,
             height,
             60.0_f32.to_radians()
         ) {
             img.put_pixel(sx, sy, axis_color);
             
-            // Tick marks every 0.5 units
-            if (t * z_length).fract() < 0.01 {
-                // Draw tick marks perpendicular to the axis
-                for dx in -3..=3 {
-                    for dy in -3..=3 {
-                        let px = sx.saturating_add(dx).min(width - 1);
-                        let py = sy.saturating_add(dy).min(height - 1);
-                        img.put_pixel(px, py, axis_color);
+            // Tick marks at regular intervals
+            if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                    for (tx, ty) in tick_coords {
+                        if tx < width && ty < height {
+                            img.put_pixel(tx, ty, axis_color);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Project and draw Y axis
+        if let Some((sx, sy, _)) = project_to_screen(
+            y_point,
+            width,
+            height,
+            60.0_f32.to_radians()
+        ) {
+            img.put_pixel(sx, sy, axis_color);
+            
+            // Tick marks at regular intervals
+            if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                    for (tx, ty) in tick_coords {
+                        if tx < width && ty < height {
+                            img.put_pixel(tx, ty, axis_color);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Project and draw Z axis
+        if let Some((sx, sy, _)) = project_to_screen(
+            z_point,
+            width,
+            height,
+            60.0_f32.to_radians()
+        ) {
+            img.put_pixel(sx, sy, axis_color);
+            
+            // Tick marks at regular intervals
+            if (t * axis_length).fract() < 0.01 {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                    for (tx, ty) in tick_coords {
+                        if tx < width && ty < height {
+                            img.put_pixel(tx, ty, axis_color);
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/// Helper function to get tick mark coordinates
+fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32) -> Option<Vec<(u32, u32)>> {
+    let mut coords = Vec::new();
+    
+    // Calculate safe ranges for tick marks
+    let x_start = if center_x >= size { center_x - size } else { return None };
+    let y_start = if center_y >= size { center_y - size } else { return None };
+    
+    for dx in 0..=size*2 {
+        for dy in 0..=size*2 {
+            coords.push((x_start + dx, y_start + dy));
+        }
+    }
+    
+    Some(coords)
 }
 
 /// Projects a 3D vector onto a 2D screen.
