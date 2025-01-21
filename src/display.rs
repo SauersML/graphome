@@ -105,10 +105,6 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
 pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     env::set_var("TERM", "xterm-kitty");
 
-    // Clear screen and move cursor home.
-    print!("\x1B[2J\x1B[H");
-    io::stdout().flush()?;
-
     // viuer configuration.
     let conf = viuer::Config {
         transparent: false,
