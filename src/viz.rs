@@ -841,22 +841,4 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
             positions[i].1 += (dy / len) * limit;
         }
     }
-
-    // Final pass: rescale all positions into [0..1] after iterations
-    let mut minx = f32::MAX;
-    let mut maxx = f32::MIN;
-    let mut miny = f32::MAX;
-    let mut maxy = f32::MIN;
-    for (x, y) in positions.iter() {
-        if *x < minx { minx = *x; }
-        if *x > maxx { maxx = *x; }
-        if *y < miny { miny = *y; }
-        if *y > maxy { maxy = *y; }
-    }
-    let rangex = (maxx - minx).max(1e-12);
-    let rangey = (maxy - miny).max(1e-12);
-    for i in 0..n {
-        positions[i].0 = (positions[i].0 - minx) / rangex;
-        positions[i].1 = (positions[i].1 - miny) / rangey;
-    }
 }
