@@ -64,5 +64,5 @@ Visualize a pangenome node range.
 
 ### `embed.rs`
 ```
-./target/debug/graphome embed --input adjacency_matrix.gam --start-node 0 --end-node 100
+./target/release/graphome embed --input adjacency_matrix.gam --start-node 0 --end-node 100
 ```
