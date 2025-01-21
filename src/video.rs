@@ -161,98 +161,51 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 }
 
 /// Draws axes with units and tick marks on the image.
-pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32, rotation: &Rotation3<f32>) {
-    let axis_color = Rgb([255, 255, 255]); // White color for all axes
-    let axis_length = 2.0; // Length of each axis in 3D space
-    let steps = 100; // Number of points to draw per axis
-    
-    // Draw all three axes using proper 3D projection
-    let camera_pos = Vector3::new(3.0, 2.0, 5.0);
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        
-        // Create vectors for each axis in original position
-        let mut x_vec = Vector3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
-        let mut y_vec = Vector3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
-        let mut z_vec = Vector3::new(0.0, 0.0, axis_length * (2.0 * t - 1.0));
+pub fn draw_axes(
+    img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
+    width: u32,
+    height: u32,
+    rotation: &Rotation3<f32>,
+    z_buffer: &mut [f32],
+) {
+    const AXIS_LENGTH: f32 = 2.0;
+    const AXIS_STEPS: usize = 100;
 
-        // Apply rotation
-        x_vec = rotation * x_vec;
-        y_vec = rotation * y_vec;
-        z_vec = rotation * z_vec;
+    // X Axis (Red)
+    for t in -AXIS_STEPS..=AXIS_STEPS {
+        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+        let pt = rotation * Vector3::new(t, 0.0, 0.0);
+        draw_line(pt, img, width, height, z_buffer, Rgb([255, 0, 0]));
+    }
 
-        // Apply camera position
-        x_vec.x = camera_pos.x - x_vec.x;  
-        x_vec.y = camera_pos.y - x_vec.y;  
-        x_vec.z = camera_pos.z - x_vec.z;  
-        y_vec.x -= camera_pos.x;
-        y_vec.y -= camera_pos.y;
-        y_vec.z -= camera_pos.z;
-        z_vec.x -= camera_pos.x;
-        z_vec.y -= camera_pos.y;
-        z_vec.z -= camera_pos.z;
-        
-        // Project and draw X axis
-        if let Some((sx, sy, _)) = project_to_screen(
-            x_vec,
-            width,
-            height,
-            60.0_f32.to_radians()
-        ) {
-            img.put_pixel(sx, sy, axis_color);
-            
-            // Tick marks at regular intervals
-            if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'x') {
-                    for (tx, ty) in tick_coords {
-                        if tx < width && ty < height {
-                            img.put_pixel(tx, ty, axis_color);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Project and draw Y axis
-        if let Some((sx, sy, _)) = project_to_screen(
-            y_vec,
-            width,
-            height,
-            60.0_f32.to_radians()
-        ) {
-            img.put_pixel(sx, sy, axis_color);
-            
-            // Tick marks at regular intervals
-            if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'y') {
-                    for (tx, ty) in tick_coords {
-                        if tx < width && ty < height {
-                            img.put_pixel(tx, ty, axis_color);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Project and draw Z axis
-        if let Some((sx, sy, _)) = project_to_screen(
-            z_vec,
-            width,
-            height,
-            60.0_f32.to_radians()
-        ) {
-            img.put_pixel(sx, sy, axis_color);
-            
-            // Tick marks at regular intervals
-            if (t * axis_length).fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'z') {
-                    for (tx, ty) in tick_coords {
-                        if tx < width && ty < height {
-                            img.put_pixel(tx, ty, axis_color);
-                        }
-                    }
-                }
-            }
+    // Y Axis (Green)
+    for t in -AXIS_STEPS..=AXIS_STEPS {
+        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+        let pt = rotation * Vector3::new(0.0, t, 0.0);
+        draw_line(pt, img, width, height, z_buffer, Rgb([0, 255, 0]));
+    }
+
+    // Z Axis (Blue)
+    for t in -AXIS_STEPS..=AXIS_STEPS {
+        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+        let pt = rotation * Vector3::new(0.0, 0.0, t);
+        draw_line(pt, img, width, height, z_buffer, Rgb([0, 0, 255]));
+    }
+}
+
+fn draw_line(
+    point: Vector3<f32>,
+    img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
+    width: u32,
+    height: u32,
+    z_buffer: &mut [f32],
+    color: Rgb<u8>,
+) {
+    if let Some((sx, sy, depth)) = project_to_screen(point, width, height, 60.0_f32.to_radians()) {
+        let idx = (sy * width + sx) as usize;
+        if depth < z_buffer[idx] {
+            z_buffer[idx] = depth;
+            img.put_pixel(sx, sy, color);
         }
     }
 }
