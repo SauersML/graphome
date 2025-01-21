@@ -147,14 +147,10 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Output the escape sequence to display the GIF.
     print!("{}", inline_image_esc);
     io::stdout().flush()?;
-    println!("Escape sequence for GIF displayed in terminal.");
 
     // Reset the terminal.
     print!("\x1b[?25h"); // Show cursor
     print!("\x1b[?1049l"); // Exit alternate screen buffer
     io::stdout().flush()?;
-    println!("Terminal reset after displaying GIF.");
-
-    println!("Finished displaying GIF.");
     Ok(())
 }
