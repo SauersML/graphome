@@ -131,7 +131,7 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
 
     // Format the image escape sequence
     let inline_image_esc = format!(
-        "\x1b]1337;File=inline=1;width=80%:{}\x07",
+        "\x1b]1337;File=inline=1;width=400%:{}\x07",
         base64::encode(gif_data)
     );
 
