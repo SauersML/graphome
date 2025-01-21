@@ -57,25 +57,28 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     const WIDTH: u32 = 1600;
     const HEIGHT: u32 = 1200;
     const TOTAL_FRAMES: usize = 60;
-    const FOV: f32 = std::f32::consts::PI / 3.0; // 60 degrees in radians
+    const FOV: f32 = std::f32::consts::PI / 3.0; // 60 degrees
     
     let mut frames = Vec::with_capacity(TOTAL_FRAMES);
-    let camera_pos = Point3::new(8.0, 5.0, 12.0);
+    let camera_pos = Point3::new(0.0, 0.0, 15.0); // Centered camera
     let look_at = Point3::origin();
     let up = Vector3::y();
     let view = Matrix4::look_at_rh(&camera_pos, &look_at, &up);
 
-    println!("Starting render...\nCamera position: {:?}\nFrames: {}", camera_pos, TOTAL_FRAMES);
+    println!("Rendering {} frames...", TOTAL_FRAMES);
 
     for frame_num in 0..TOTAL_FRAMES {
-        let angle = (frame_num as f32 / TOTAL_FRAMES as f32) * 2.0 * std::f32::consts::PI;
-        let rotation = Rotation3::from_euler_angles(angle * 0.5, angle, 0.0);
+        let progress = (frame_num + 1) as f32 / TOTAL_FRAMES as f32;
+        let angle = progress * 2.0 * std::f32::consts::PI;
+        let rotation = Rotation3::from_euler_angles(angle, angle * 0.5, 0.0);
 
         let mut img = ImageBuffer::new(WIDTH, HEIGHT);
         let mut z_buffer = vec![f32::INFINITY; (WIDTH * HEIGHT) as usize];
 
+        // Draw axes first
         draw_axes(&mut img, WIDTH, HEIGHT, &rotation, &view, &mut z_buffer, FOV);
 
+        // Draw points
         for point in &points {
             let rotated = rotation.transform_point(&point.pos);
             if let Some((sx, sy, depth)) = project(view, rotated.coords, WIDTH, HEIGHT, FOV) {
@@ -114,19 +117,18 @@ fn draw_axes(
     z_buffer: &mut [f32],
     fov: f32,
 ) {
-    const AXIS_LENGTH: f32 = 8.0;
-    const AXIS_STEPS: i32 = 100; // Changed to signed integer
+    const AXIS_LENGTH: f32 = 10.0;
+    const AXIS_STEPS: i32 = 200;
 
-    let axis_colors = [
-        (Vector3::x(), Rgb([220, 50, 50])),
-        (Vector3::y(), Rgb([50, 220, 50])),
-        (Vector3::z(), Rgb([50, 50, 220])),
+    let axes = [
+        (Vector3::x(), Rgb([255, 0, 0])),   // Red X
+        (Vector3::y(), Rgb([0, 255, 0])),   // Green Y
+        (Vector3::z(), Rgb([0, 0, 255]))    // Blue Z
     ];
 
-    for (dir, color) in axis_colors {
+    for (dir, color) in axes {
         for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| {
-            let t_normalized = t as f32 / AXIS_STEPS as f32;
-            t_normalized * AXIS_LENGTH
+            t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH
         }) {
             let world_pos = rotation * (dir * t);
             if let Some((sx, sy, depth)) = project(*view, world_pos, width, height, fov) {
@@ -149,6 +151,7 @@ fn project(
 ) -> Option<(u32, u32, f32)> {
     let view_point = view.transform_vector(&point);
     
+    // Cull points behind camera
     if view_point.z > 0.0 {
         return None;
     }
@@ -156,9 +159,11 @@ fn project(
     let aspect = width as f32 / height as f32;
     let f = 1.0 / (fov * 0.5).tan();
 
+    // Perspective projection
     let x_ndc = (f * view_point.x) / (aspect * -view_point.z);
     let y_ndc = (f * view_point.y) / -view_point.z;
 
+    // Convert to screen coordinates (center at (width/2, height/2))
     let sx = ((x_ndc + 1.0) * 0.5 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
     let sy = ((1.0 - y_ndc) * 0.5 * height as f32).clamp(0.0, height as f32 - 1.0) as u32;
 
@@ -173,6 +178,7 @@ fn render_point(
     depth: f32,
     color: Rgb<u8>,
 ) {
+    // Draw 2x2 pixel square for visibility
     for dx in 0..2 {
         for dy in 0..2 {
             let px = x.saturating_add(dx).min(img.width() - 1);
