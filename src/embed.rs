@@ -2,18 +2,19 @@ use nalgebra as na;
 use rand_distr::{Distribution, Normal};
 use image::Rgb;
 use rand::thread_rng;
+use std::io;
 
 pub struct Point3D {
     pub pos: na::Point3<f32>,
     pub color: Rgb<u8>
 }
 
-pub fn embed() -> Vec<Point3D> {
-    let normal = Normal::new(0.0, 1.0).unwrap();
+pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec<Point3D>> {
+    let normal = Normal::new(0.0, 1.0).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
     let mut rng = thread_rng();
-    let num_points = 1000;
+    let num_points = end_node - start_node + 1;
 
-    (0..num_points)
+    Ok((0..num_points)
         .map(|_| {
             let x = normal.sample(&mut rng);
             let y = normal.sample(&mut rng); 
@@ -28,5 +29,5 @@ pub fn embed() -> Vec<Point3D> {
                 color: Rgb([r, g, b])
             }
         })
-        .collect()
+        .collect())
 }
