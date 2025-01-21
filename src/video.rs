@@ -149,9 +149,9 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 
     // Save the resulting GIF to disk.
     println!("\nSaving GIF to disk...");
-    let mut file = File::create("myanim.gif")?;
+    let mut file = File::create("graph.gif")?;
     file.write_all(&gif_data)?;
-    println!("GIF saved successfully to 'myanim.gif'.");
+    println!("GIF saved successfully to 'graph.gif'.");
 
     // Display it once via viuer
     println!("\nDisplaying GIF...");
