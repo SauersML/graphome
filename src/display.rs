@@ -113,7 +113,7 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
         // Output the resized image to terminal.
         let stdout = io::stdout();
         let mut writer = BufWriter::new(stdout.lock());
-        ops::write_ansi_truecolor(&mut writer, &resized_img)?;
+        ops::write_ansi_truecolor(&mut writer, &resized_img);
         writer.flush()?;
         println!("Image successfully written to terminal using termimage.");
     }
