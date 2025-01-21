@@ -105,22 +105,22 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
 pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     env::set_var("TERM", "xterm-kitty");
 
-    // viuer configuration.
-    let conf = viuer::Config {
-        transparent: false,
-        absolute_offset: false,
-        width: None,
-        height: None,
-        x: 0,
-        y: 0,
-        restore_cursor: false,
-        ..Default::default()
-    };
+    // Convert the GIF image to base64 encoding.
+    let base64_data = base64::encode(gif_data);
 
-    // Load the GIF
-    let img = image::load_from_memory_with_format(gif_data, ImageFormat::Gif)?;
-    if let Err(_) = viuer::print(&img, &conf) {
-        println!("Unable to render. Do you have Kitty?")
-    }
+    // Prepare the inline image escape sequence for Kitty terminal.
+    let inline_image_esc = format!("\x1b]1337;File=inline=1:{}", base64_data);
+
+    // Clear screen and move cursor home.
+    print!("\x1B[2J\x1B[H");
+
+    // Output the escape sequence to display the GIF.
+    print!("{}", inline_image_esc);
+    io::stdout().flush()?;
+
+    // Reset the terminal.
+    print!("\x1b\\");
+    io::stdout().flush()?;
+
     Ok(())
 }
