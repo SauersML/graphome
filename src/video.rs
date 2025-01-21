@@ -158,7 +158,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 }
 
 /// Draws axes with units and tick marks on the image.
-fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
+pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
     // Draw x-axis (in red)
     for x in 0..width {
         let y = height / 2;
