@@ -256,9 +256,16 @@ fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32) -> Option<Vec<(
     let x_start = if center_x >= size { center_x - size } else { return None };
     let y_start = if center_y >= size { center_y - size } else { return None };
     
-    for dx in 0..=size*2 {
+    // Create a horizontal or vertical line depending on which is smaller
+    if center_x % 2 == 0 {
+        // Horizontal tick
+        for dx in 0..=size*2 {
+            coords.push((x_start + dx, center_y));
+        }
+    } else {
+        // Vertical tick
         for dy in 0..=size*2 {
-            coords.push((x_start + dx, y_start + dy));
+            coords.push((center_x, y_start + dy));
         }
     }
     
