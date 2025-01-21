@@ -147,7 +147,7 @@ pub fn run_viz(
     // so Laplacian indexing matches the nodes actually in use.
     let mut adjacency_nd = Array2::<f64>::zeros((node_count, node_count));
     for &(i, j) in &edges {
-        adjacency_nd[(i, j)] = 1000.0;
+        adjacency_nd[(i, j)] = 1.0;
         adjacency_nd[(j, i)] = 1.0;
     }
     
