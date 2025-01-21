@@ -156,7 +156,6 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Display it once via viuer
     println!("\nDisplaying GIF...");
     display_gif(&gif_data)?;
-    println!("GIF displayed successfully!");
 
     Ok(())
 }
