@@ -1,9 +1,3 @@
-use nalgebra as na;
-use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder, ExtendedColorType};
-use std::io;
-use crate::display::display_tga;
-use crate::embed::Point3D;
-
 pub fn render(points: Vec<Point3D>) -> io::Result<()> {
     let mut angle = 0.0f32;
     loop {
@@ -12,17 +6,23 @@ pub fn render(points: Vec<Point3D>) -> io::Result<()> {
         let height = 600;
         let mut img = ImageBuffer::new(width, height);
 
+        // Loop through all points to project them
         for point in &points {
             let rotated = rotation * point.pos;
+
+            // Naive perspective
             let z_factor = (rotated.z + 3.0) / 6.0;
             if z_factor > 0.0 {
+                // Arbitrary screen mapping
                 let screen_x = ((rotated.x / z_factor + 1.0) * width as f32 / 2.0) as u32;
                 let screen_y = ((rotated.y / z_factor + 1.0) * height as f32 / 2.0) as u32;
                 
                 if screen_x < width && screen_y < height {
+                    // Arbitrary point sizing and brightness
                     let size = (2.0 / z_factor) as u32;
                     let brightness = (1.0 / z_factor) as f32;
-                    
+
+                    // Draw "square" point with no depth check
                     for dx in 0..size {
                         for dy in 0..size {
                             let px = screen_x.saturating_add(dx).min(width-1);
@@ -41,6 +41,7 @@ pub fn render(points: Vec<Point3D>) -> io::Result<()> {
             }
         }
 
+        // Encode as TGA and display
         let mut tga_data = Vec::new();
         TgaEncoder::new(&mut tga_data)
             .encode(
@@ -48,9 +49,10 @@ pub fn render(points: Vec<Point3D>) -> io::Result<()> {
                 width,
                 height,
                 ExtendedColorType::Rgb8
-            ).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            )?;
+        display_tga(&tga_data)?;
 
-        display_tga(&tga_data).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        // Infinite loop
         angle += 0.02;
         std::thread::sleep(std::time::Duration::from_millis(16));
     }
