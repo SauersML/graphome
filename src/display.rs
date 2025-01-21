@@ -126,8 +126,8 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
         .unwrap_or((80, 24));
     
     // Calculate display size
-    let display_width = (term_size.0 as f32 * 0.5) as u32;
-    let display_height = (display_width * 3 / 4) as u32;
+    let display_width = 600;
+    let display_height = 450;
 
     // Set the terminal to support inline images (Kitty terminal).
     env::set_var("TERM", "xterm-kitty");
