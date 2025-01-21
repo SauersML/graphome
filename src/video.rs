@@ -116,7 +116,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         println!("  - Frame {} processed: image filled with points.", i + 1);
 
         // Draw axes and ticks after points
-        draw_axes(&mut img, width, height, &rotation);
+        draw_axes(&mut img, width, height, &rotation, &mut z_buffer);
 
         // Convert RGB image to RGBA for the GIF frames.
         let rgba: RgbaImage = DynamicImage::ImageRgb8(img).to_rgba8();
