@@ -171,7 +171,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
         // Create vectors for each axis in original position
         let mut x_vec = Vector3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
         let mut y_vec = Vector3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
-        let mut z_vec = Vector3::new(0.0, 0.0, -axis_length * t);
+        let mut z_vec = Vector3::new(0.0, 0.0, axis_length * (2.0 * t - 1.0));
 
         // Apply rotation
         x_vec = rotation * x_vec;
