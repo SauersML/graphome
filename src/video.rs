@@ -1,12 +1,37 @@
-use std::io;
 use std::thread;
 use std::time::Duration;
+use std::io;
 use nalgebra::{Rotation3, Vector3};
-use image::{ImageBuffer, Rgb, codecs::tga::TgaEncoder, ExtendedColorType};
+use image::{ImageBuffer, Rgb, codecs::tga::TgaEncoder, ExtendedColorType, ImageError};
 use crate::embed::Point3D;
-use crate::display::display_tga;
+use crate::display::{display_tga, DisplayError};
 
-pub fn render(points: Vec<Point3D>) -> io::Result<()> {
+#[derive(Debug)]
+pub enum VideoError {
+    Io(std::io::Error),
+    Image(ImageError),
+    Display(DisplayError),
+}
+
+impl From<std::io::Error> for VideoError {
+    fn from(e: std::io::Error) -> Self {
+        VideoError::Io(e)
+    }
+}
+
+impl From<ImageError> for VideoError {
+    fn from(e: ImageError) -> Self {
+        VideoError::Image(e)
+    }
+}
+
+impl From<DisplayError> for VideoError {
+    fn from(e: DisplayError) -> Self {
+        VideoError::Display(e)
+    }
+}
+
+pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     let mut angle = 0.0;
     let width = 800;
     let height = 600;
