@@ -269,7 +269,7 @@ pub fn run_viz(
     if force_directed {
         eprintln!("[viz] Running force-directed refinement on initial spectral layout...");
         let node_radii: Vec<f32> = node_data.iter()
-            .map(|node| (3.0f32.max((node.length as f32).log2().round()).min(20.0) / width as f32))
+            .map(|node| 3.0f32.max((node.length as f32).log2().round()).min(20.0) * 0.02)
             .collect();
         force_directed_refinement(&mut positions, &edges, &node_radii);
     }
