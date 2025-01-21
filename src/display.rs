@@ -142,9 +142,11 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
         base64::encode(gif_data)
     );
 
-    // Convert the GIF image to base64 encoding.
-    println!("Converting GIF data to base64...");
-    let base64_data = base64::encode(gif_data);
+    // Output the escape sequence to display the GIF.
+    println!("Displaying GIF...");
+    print!("\x1b[2J"); // Clear screen
+    print!("\x1b[H");  // Move cursor to home position
+    print!("{}", inline_image_esc);
 
     // Output the escape sequence to display the GIF.
     print!("{}", inline_image_esc);
