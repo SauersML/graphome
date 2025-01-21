@@ -1,5 +1,3 @@
-// display.rs
-
 use std::fmt;
 use std::io::{self, Write, BufWriter};
 use std::env;
@@ -54,10 +52,16 @@ impl fmt::Display for DisplayError {
 
 impl std::error::Error for DisplayError {}
 
+/// Display a TGA image in the terminal.
 pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
+    // Force use of a terminal that supports inline images (like Kitty).
     env::set_var("TERM", "xterm-kitty");
+
+    // Clear screen and move cursor home.
     print!("\x1B[2J\x1B[H");
     io::stdout().flush()?;
+
+    // Basic viuer configuration.
     let conf = viuer::Config {
         transparent: false,
         absolute_offset: false,
@@ -69,22 +73,58 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
         ..Default::default()
     };
 
+    // Attempt to load this data as TGA, then display with viuer.
     let img = image::load_from_memory_with_format(tga_data, ImageFormat::Tga)?;
     if let Err(_) = viuer::print(&img, &conf) {
+        // If that fails (e.g., viuer doesn't support the protocol), fall back to termimage.
         let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
+
+        // Write the bytes to a temporary TGA file so termimage can handle it.
         let mut tmp_file = Builder::new().prefix("image_").suffix(".tga").tempfile()?;
         tmp_file.write_all(tga_data)?;
+
         let path_info = (String::new(), tmp_file.path().to_path_buf());
         let guessed_fmt = ops::guess_format(&path_info)?;
         let term_img = ops::load_image(&path_info, guessed_fmt)?;
+
+        // Resize to fit the terminal, preserving aspect ratio.
         let original_size = (term_img.width(), term_img.height());
         let term_size = (size.cols as u32, size.rows as u32);
         let resized_size = ops::image_resized_size(original_size, term_size, true);
         let resized_img = ops::resize_image(&term_img, resized_size);
+
         let stdout = io::stdout();
         let mut writer = BufWriter::new(stdout.lock());
         ops::write_ansi_truecolor(&mut writer, &resized_img);
         writer.flush()?;
+    }
+    Ok(())
+}
+
+/// Display a GIF image in the terminal.
+pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
+    env::set_var("TERM", "xterm-kitty");
+
+    // Clear screen and move cursor home.
+    print!("\x1B[2J\x1B[H");
+    io::stdout().flush()?;
+
+    // viuer configuration.
+    let conf = viuer::Config {
+        transparent: false,
+        absolute_offset: false,
+        width: None,
+        height: None,
+        x: 0,
+        y: 0,
+        restore_cursor: false,
+        ..Default::default()
+    };
+
+    // Load the GIF
+    let img = image::load_from_memory_with_format(gif_data, ImageFormat::Gif)?;
+    if let Err(_) = viuer::print(&img, &conf) {
+        println!("Unable to render. Do you have Kitty?")
     }
     Ok(())
 }
