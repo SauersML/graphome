@@ -1,6 +1,7 @@
 use std::thread;
 use std::time::Duration;
 use std::io;
+use std::fmt;
 use nalgebra::{Rotation3, Vector3};
 use image::{ImageBuffer, Rgb, codecs::tga::TgaEncoder, ExtendedColorType, ImageError};
 use crate::embed::Point3D;
@@ -12,6 +13,18 @@ pub enum VideoError {
     Image(ImageError),
     Display(DisplayError),
 }
+
+impl fmt::Display for VideoError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            VideoError::Io(e) => write!(f, "IO error: {}", e),
+            VideoError::Image(e) => write!(f, "Image error: {}", e),
+            VideoError::Display(e) => write!(f, "Display error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for VideoError {}
 
 impl From<std::io::Error> for VideoError {
     fn from(e: std::io::Error) -> Self {
