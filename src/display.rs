@@ -125,10 +125,6 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     let term_size = termsize::get()
         .map(|size| (size.cols as u32, size.rows as u32))
         .unwrap_or((80, 24));
-    
-    // Calculate display size
-    let display_width = 600;
-    let display_height = 450;
 
     // Set the terminal to support inline images (Kitty terminal).
     env::set_var("TERM", "xterm-kitty");
@@ -136,8 +132,6 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Format the image escape sequence
     let inline_image_esc = format!(
         "\x1b]1337;File=inline=1;width=40%:{}\x07",
-        display_width,
-        display_height,
         base64::encode(gif_data)
     );
 
