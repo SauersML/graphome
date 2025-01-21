@@ -1,59 +1,59 @@
-pub fn render(points: Vec<Point3D>) -> io::Result<()> {
-    let mut angle = 0.0f32;
-    loop {
-        let rotation = na::Rotation3::from_euler_angles(0.0, angle, 0.0);
-        let width = 800;
-        let height = 600;
-        let mut img = ImageBuffer::new(width, height);
+use std::io;
+use std::thread;
+use std::time::Duration;
+use nalgebra::{Rotation3, Vector3};
+use image::{ImageBuffer, Rgb, codecs::tga::TgaEncoder, ExtendedColorType};
+use crate::embed::Point3D;
+use crate::display::display_tga;
 
-        // Loop through all points to project them
+pub fn render(points: Vec<Point3D>) -> io::Result<()> {
+    let mut angle = 0.0;
+    let width = 800;
+    let height = 600;
+    loop {
+        let rotation = Rotation3::from_euler_angles(0.0, angle, 0.0);
+        let mut img = ImageBuffer::new(width, height);
         for point in &points {
             let rotated = rotation * point.pos;
-
-            // Naive perspective
-            let z_factor = (rotated.z + 3.0) / 6.0;
-            if z_factor > 0.0 {
-                // Arbitrary screen mapping
-                let screen_x = ((rotated.x / z_factor + 1.0) * width as f32 / 2.0) as u32;
-                let screen_y = ((rotated.y / z_factor + 1.0) * height as f32 / 2.0) as u32;
-                
-                if screen_x < width && screen_y < height {
-                    // Arbitrary point sizing and brightness
-                    let size = (2.0 / z_factor) as u32;
-                    let brightness = (1.0 / z_factor) as f32;
-
-                    // Draw "square" point with no depth check
-                    for dx in 0..size {
-                        for dy in 0..size {
-                            let px = screen_x.saturating_add(dx).min(width-1);
-                            let py = screen_y.saturating_add(dy).min(height-1);
-                            
-                            let color = Rgb([
-                                (point.color[0] as f32 * brightness) as u8,
-                                (point.color[1] as f32 * brightness) as u8,
-                                (point.color[2] as f32 * brightness) as u8,
-                            ]);
-                            
-                            img.put_pixel(px, py, color);
-                        }
+            let camera_offset = 5.0;
+            let transformed = Vector3::new(rotated.x, rotated.y, rotated.z - camera_offset);
+            if let Some((sx, sy)) = project_to_screen(transformed, width, height, 60.0_f32.to_radians()) {
+                let size = 2;
+                for dx in 0..size {
+                    for dy in 0..size {
+                        let px = sx.saturating_add(dx).min(width - 1);
+                        let py = sy.saturating_add(dy).min(height - 1);
+                        img.put_pixel(px, py, point.color);
                     }
                 }
             }
         }
-
-        // Encode as TGA and display
         let mut tga_data = Vec::new();
-        TgaEncoder::new(&mut tga_data)
-            .encode(
-                img.as_raw(),
-                width,
-                height,
-                ExtendedColorType::Rgb8
-            )?;
+        TgaEncoder::new(&mut tga_data).encode(
+            img.as_raw(),
+            width,
+            height,
+            ExtendedColorType::Rgb8
+        )?;
         display_tga(&tga_data)?;
-
-        // Infinite loop
-        angle += 0.02;
-        std::thread::sleep(std::time::Duration::from_millis(16));
+        angle += 0.01;
+        thread::sleep(Duration::from_millis(16));
     }
+}
+
+fn project_to_screen(v: Vector3<f32>, width: u32, height: u32, fov: f32) -> Option<(u32, u32)> {
+    let aspect = width as f32 / height as f32;
+    let f = 1.0 / (fov * 0.5).tan();
+    let near = 0.1;
+    let far = 100.0;
+    if v.z < -near && v.z > -far {
+        let x = (f / aspect) * v.x / -v.z;
+        let y = f * v.y / -v.z;
+        let sx = ((x + 1.0) * 0.5 * width as f32).round() as i32;
+        let sy = ((-y + 1.0) * 0.5 * height as f32).round() as i32;
+        if sx >= 0 && sx < width as i32 && sy >= 0 && sy < height as i32 {
+            return Some((sx as u32, sy as u32));
+        }
+    }
+    None
 }
