@@ -22,9 +22,9 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
             let y = normal.sample(&mut rng);
             let z = normal.sample(&mut rng);
 
-            let r = ((x + 2.0) * 127.5).clamp(0.0, 255.0) as u8;
-            let g = ((y + 2.0) * 127.5).clamp(0.0, 255.0) as u8;
-            let b = ((z + 2.0) * 127.5).clamp(0.0, 255.0) as u8;
+            let r = ((x + 2.0) * 127.5).max(0.0).min(255.0) as u8;
+            let g = ((y + 2.0) * 127.5).max(0.0).min(255.0) as u8;
+            let b = ((z + 2.0) * 127.5).max(0.0).min(255.0) as u8;
 
             Point3D {
                 pos: na::Point3::new(x, y, z),
