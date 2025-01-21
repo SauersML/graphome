@@ -138,7 +138,7 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Output the escape sequence to display the GIF.
     println!("Displaying GIF...");
     print!("\x1b[2J"); // Clear screen
-    print!("\x1b[5;20H");  // Position cursor at row 5, column 20
+    println!("\n\n\n      ");
 
     // Output the escape sequence to display the GIF.
     print!("{}", inline_image_esc);
