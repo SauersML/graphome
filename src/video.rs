@@ -67,13 +67,24 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Collect each frame as an RGBA buffer.
     let mut frames = Vec::with_capacity(total_frames);
 
+    println!("Render started.");
+    println!("Image width: {}", width);
+    println!("Image height: {}", height);
+    println!("Total frames to generate: {}", total_frames);
+    println!("Angle step per frame: {}", angle_step);
+    println!("Begin rendering frames...");
+
     for i in 0..total_frames {
+        println!("\nProcessing frame {}/{}", i + 1, total_frames);
+
         let angle = i as f32 * angle_step;
         let rotation = Rotation3::from_euler_angles(0.0, angle, 0.0);
 
         // Create a blank image and Z-buffer
         let mut img = ImageBuffer::new(width, height);
         let mut z_buffer = vec![f32::INFINITY; (width * height) as usize];
+
+        println!("  - Rotation matrix for this frame: {:?}", rotation);
 
         // Fill the image by projecting each point
         for point in &points {
@@ -102,6 +113,8 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
             }
         }
 
+        println!("  - Frame {} processed: image filled with points.", i + 1);
+
         // Convert RGB image to RGBA for the GIF frames.
         let rgba: RgbaImage = DynamicImage::ImageRgb8(img).to_rgba8();
 
@@ -113,26 +126,35 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         );
 
         frames.push(frame);
+
+        println!("  - Frame {} ready for GIF encoding.", i + 1);
     }
 
-    // Encode all frames into one multi-frame GIF.
+    println!("\nEncoding GIF...");
     let mut gif_data = Vec::new();
     {
         let mut encoder = GifEncoder::new(&mut gif_data);
         // Loop infinitely.
         encoder.set_repeat(Repeat::Infinite)?;
 
-        for frame in frames {
+        for (i, frame) in frames.iter().enumerate() {
+            println!("  - Encoding frame {}/{}", i + 1, total_frames);
             encoder.encode_frame(frame)?;
         }
     }
 
+    println!("GIF encoding complete!");
+
     // Save the resulting GIF to disk.
+    println!("\nSaving GIF to disk...");
     let mut file = File::create("myanim.gif")?;
     file.write_all(&gif_data)?;
+    println!("GIF saved successfully to 'myanim.gif'.");
 
     // Display it once via viuer
+    println!("\nDisplaying GIF...");
     display_gif(&gif_data)?;
+    println!("GIF displayed successfully!");
 
     Ok(())
 }
