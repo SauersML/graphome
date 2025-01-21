@@ -47,7 +47,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), Box<dyn Error>> {
                 img.as_raw(),
                 width,
                 height,
-                image::ColorType::Rgb8
+                image::codecs::tga::TgaColorType::Rgb24
             )?;
 
         display_tga(&tga_data)?;
