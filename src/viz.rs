@@ -404,9 +404,19 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
     ((r*255.0) as u8, (g*255.0) as u8, (b*255.0) as u8)
 }
 
-// We give ourselves a small array of four base hues: blue, pink, purple, red.
-// If the cluster ID is 0, it uses index 0 => 240° (blue).
-// If 1 => pink (330°), 2 => purple (270°), 3 => red (0°), then it cycles for ID >= 4. (Fix later: no cycle)
+/// Dynamically assign each cluster a unique hue in [0..360], skipping an orange/yellow band
+/// from H = 40..70. We also scale saturation by local density, making denser nodes more vibrant.
+/// Noise is drawn in white.
+///
+/// * `cluster_id` < 0 => noise => white.
+/// * `cluster_id` >= 0 => we compute a fraction = cluster_id / (cluster_id + 1).
+///   That means each cluster_id gets a distinct fraction in [0..1].
+/// * Then we map that fraction into an effective hue range of 360 - 30 = 330 degrees,
+///   skipping H=40..70. 
+///   1) raw_hue = fraction * 330
+///   2) if raw_hue >= 40 => raw_hue += 30  (jumps over orange/yellow)
+/// * Local density => scale saturation, so low-density ~ pastel, high-density ~ vivid.
+/// * Lightness is set to 0.45 for a deeper, more colorful look.
 fn color_from_cluster(
     i: usize,
     cluster_id: i32,
@@ -414,32 +424,43 @@ fn color_from_cluster(
     min_dens: f32,
     max_dens: f32
 ) -> (u8, u8, u8) {
-    // Noise as white:
+    // Noise => white
     if cluster_id < 0 {
-        return (0, 0, 0); // BGR (black)
+        return (255, 255, 255); // BGR
     }
 
-    // Our list of favored hues: [blue, pink, purple, red]
-    let base_hues = [240.0, 330.0, 270.0, 0.0];
-    let cluster_idx = cluster_id as usize % base_hues.len();
-    let hue = base_hues[cluster_idx];
+    // Compute fraction in [0..1], unique per cluster_id (assuming 0..N).
+    // If you have 10 clusters (IDs 0..9), then for ID=9 => fraction= 9/10= 0.9, etc.
+    let frac = {
+        let cid = cluster_id as f32;
+        cid / (cid + 1.0)
+    };
 
-    // Map local density into [0..1]
-    let normalized = if max_dens > min_dens {
+    // We'll skip an orange/yellow band ~40..70 (30 degrees).
+    // So effectively, the "usable" range is 330 degrees. 
+    // aw_hue in [0..330], then if raw_hue >= 40 => raw_hue += 30.
+    let skip_start = 40.0;
+    let skip_len   = 30.0;
+    let total_range = 360.0 - skip_len; // 330
+    let mut raw_hue = frac * total_range;
+    if raw_hue >= skip_start {
+        raw_hue += skip_len;
+    }
+
+    // Next, vary saturation by local density.  We map local_density -> [0..1].
+    // Then saturation in [0.2..1.0].
+    let norm_d = if max_dens > min_dens {
         (local_density - min_dens) / (max_dens - min_dens)
     } else {
         0.0
     };
+    let saturation = 0.2 + norm_d;
 
-    // We vary saturation from 0.3..0.9 based on local density.
-    // If density is low => 0.3 (pastel). If density is high => 0.9 (vibrant).
-    let saturation = 0.3 + 0.6 * normalized;
+    // Choose a somewhat lower lightness so colors are deeper:
+    let lightness = 0.45;
 
-    // We'll keep lightness fixed at 0.55 so it doesn't wash out too much.
-    let lightness = 0.55;
-
-    // Convert HSL -> RGB, then swap to BGR
-    let (r, g, b) = hsl_to_rgb(hue, saturation, lightness);
+    // Convert HSL -> RGB, then swap to BGR (since TGA is BGR).
+    let (r, g, b) = hsl_to_rgb(raw_hue, saturation, lightness);
     (b, g, r)
 }
 
