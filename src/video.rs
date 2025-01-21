@@ -164,19 +164,22 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
     let steps = 100; // Number of points to draw per axis
     
     // Draw all three axes using proper 3D projection
+    let camera_offset = 5.0;
     for i in 0..=steps {
         let t = i as f32 / steps as f32;
         
         // X axis points (from -axis_length to +axis_length)
-        let x_point = Vector3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
+        let x_point = Point3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
         // Y axis points
-        let y_point = Vector3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
+        let y_point = Point3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
         // Z axis points
-        let z_point = Vector3::new(0.0, 0.0, -axis_length * t);
+        let z_point = Point3::new(0.0, 0.0, -axis_length * t);
         
         // Project and draw X axis
+        let rotated_x = rotation.transform_point(&x_point);
+        let transformed_x = Vector3::new(rotated_x.x, rotated_x.y, rotated_x.z - camera_offset);
         if let Some((sx, sy, _)) = project_to_screen(
-            x_point,
+            transformed_x,
             width,
             height,
             60.0_f32.to_radians()
