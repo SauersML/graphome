@@ -57,7 +57,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     const WIDTH: u32 = 1600;
     const HEIGHT: u32 = 1200;
     const TOTAL_FRAMES: usize = 60;
-    const FOV: f32 = 60.0f32.to_radians();
+    const FOV: f32 = std::f32::consts::PI / 3.0; // 60 degrees in radians
     
     let mut frames = Vec::with_capacity(TOTAL_FRAMES);
     let camera_pos = Point3::new(8.0, 5.0, 12.0);
@@ -115,7 +115,7 @@ fn draw_axes(
     fov: f32,
 ) {
     const AXIS_LENGTH: f32 = 8.0;
-    const AXIS_STEPS: usize = 100;
+    const AXIS_STEPS: i32 = 100; // Changed to signed integer
 
     let axis_colors = [
         (Vector3::x(), Rgb([220, 50, 50])),
@@ -124,7 +124,10 @@ fn draw_axes(
     ];
 
     for (dir, color) in axis_colors {
-        for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH) {
+        for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| {
+            let t_normalized = t as f32 / AXIS_STEPS as f32;
+            t_normalized * AXIS_LENGTH
+        }) {
             let world_pos = rotation * (dir * t);
             if let Some((sx, sy, depth)) = project(*view, world_pos, width, height, fov) {
                 let idx = (sy * width + sx) as usize;
