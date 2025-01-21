@@ -268,9 +268,20 @@ pub fn run_viz(
     
     if force_directed {
         eprintln!("[viz] Running force-directed refinement on initial spectral layout...");
+        // Get display size first since we need it for radius scaling
+        let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
+        let width = (size.cols * 8) as f32;
+        let height = (size.rows * 8) as f32;
+        let viewport_scale = width.min(height);
+        
+        // Scale radii to match final display size
         let node_radii: Vec<f32> = node_data.iter()
-            .map(|node| 3.0f32.max((node.length as f32).log2().round()).min(20.0) * 0.02)
+            .map(|node| {
+                let radius_pixels = 3.0f32.max((node.length as f32).log2().round()).min(20.0);
+                (radius_pixels / viewport_scale) * 0.90  // 0.90 matches final position scaling
+            })
             .collect();
+            
         force_directed_refinement(&mut positions, &edges, &node_radii);
     }
 
