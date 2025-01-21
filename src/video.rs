@@ -1,5 +1,5 @@
 use nalgebra as na;
-use image::{ImageBuffer, Rgb, ImageEncoder};
+use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder};
 use std::error::Error;
 use crate::display::display_tga;
 use crate::embed::Point3D;
@@ -42,7 +42,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), Box<dyn Error>> {
         }
 
         let mut tga_data = Vec::new();
-        image::tga::TgaEncoder::new(&mut tga_data)
+        TgaEncoder::new(&mut tga_data)
             .encode(
                 img.as_raw(),
                 width,
