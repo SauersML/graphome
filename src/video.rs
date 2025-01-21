@@ -168,18 +168,24 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
     for i in 0..=steps {
         let t = i as f32 / steps as f32;
         
-        // X axis points (from -axis_length to +axis_length)
-        let x_point = Point3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
-        // Y axis points
-        let y_point = Point3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
-        // Z axis points
-        let z_point = Point3::new(0.0, 0.0, -axis_length * t);
+        // Create vectors for each axis in original position
+        let mut x_vec = Vector3::new(axis_length * (2.0 * t - 1.0), 0.0, 0.0);
+        let mut y_vec = Vector3::new(0.0, axis_length * (2.0 * t - 1.0), 0.0);
+        let mut z_vec = Vector3::new(0.0, 0.0, -axis_length * t);
+
+        // Apply rotation
+        x_vec = rotation * x_vec;
+        y_vec = rotation * y_vec;
+        z_vec = rotation * z_vec;
+
+        // Apply camera offset
+        x_vec.z -= camera_offset;
+        y_vec.z -= camera_offset;
+        z_vec.z -= camera_offset;
         
         // Project and draw X axis
-        let rotated_x = rotation.transform_point(&x_point);
-        let transformed_x = Vector3::new(rotated_x.x, rotated_x.y, rotated_x.z - camera_offset);
         if let Some((sx, sy, _)) = project_to_screen(
-            transformed_x,
+            x_vec,
             width,
             height,
             60.0_f32.to_radians()
@@ -200,7 +206,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
         
         // Project and draw Y axis
         if let Some((sx, sy, _)) = project_to_screen(
-            y_point,
+            y_vec,
             width,
             height,
             60.0_f32.to_radians()
@@ -221,7 +227,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
         
         // Project and draw Z axis
         if let Some((sx, sy, _)) = project_to_screen(
-            z_point,
+            z_vec,
             width,
             height,
             60.0_f32.to_radians()
