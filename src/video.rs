@@ -137,8 +137,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         // Loop infinitely.
         encoder.set_repeat(Repeat::Infinite)?;
 
-        for (i, frame) in frames.iter().enumerate() {
-            println!("  - Encoding frame {}/{}", i + 1, total_frames);
+        for frame in frames {
             encoder.encode_frame(frame)?;
         }
     }
