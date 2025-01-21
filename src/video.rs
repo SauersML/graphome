@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Write};
-use nalgebra::{Rotation3, Vector3, Point3};
+use nalgebra::{Matrix4, Point3, Rotation3, Vector3};
 use image::{
     ImageBuffer,
     Rgb,
