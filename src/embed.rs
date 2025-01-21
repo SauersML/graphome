@@ -5,6 +5,7 @@ use rand_distr::{Distribution, Normal};
 use image::Rgb;
 use rand::thread_rng;
 use std::io;
+use std::io::Write;
 
 pub struct Point3D {
     pub pos: na::Point3<f32>,
