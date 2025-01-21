@@ -238,40 +238,35 @@ fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32, axis: char) -> 
 /// Projects a 3D vector onto a 2D screen.
 /// Returns (screen_x, screen_y, depth).
 fn project_to_screen(
-    point: Vector3<f32>,  // Point in WORLD SPACE
+    point: Vector3<f32>,
     width: u32,
     height: u32,
     fov: f32,
 ) -> Option<(u32, u32, f32)> {
-    // Camera configuration
-    let camera_pos = Vector3::new(0.0, 0.0, 5.0);  // Centered camera
-    let look_at = Vector3::new(0.0, 0.0, 0.0);      // Look at origin
-    let up = Vector3::y();                          // Up direction
+    let camera_pos = Vector3::new(3.0, 2.0, 5.0);
+    let look_at = Vector3::new(0.0, 0.0, 0.0);
+    let up = Vector3::y();
 
-    // Create view matrix
     let view = Matrix4::look_at_rh(
         &Point3::from(camera_pos),
         &Point3::from(look_at),
         &up,
     );
 
-    // Transform point to view space
     let view_point = view.transform_vector(&point);
 
-    // Skip points behind camera
     if view_point.z <= 0.0 {
         return None;
     }
 
-    // Perspective projection
     let aspect = width as f32 / height as f32;
     let f = 1.0 / (fov * 0.5).tan();
     
     let x_proj = (f * view_point.x) / (aspect * view_point.z);
     let y_proj = (f * view_point.y) / view_point.z;
 
-    // Convert to screen coordinates (centered)
-    let sx = ((x_proj + 1.0) * 0.5 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
+    // Offset for non-centered view
+    let sx = ((x_proj + 1.2) * 0.4 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
     let sy = ((1.0 - y_proj) * 0.5 * height as f32).clamp(0.0, height as f32 - 1.0) as u32;
 
     Some((sx, sy, view_point.z))
