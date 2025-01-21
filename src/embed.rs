@@ -23,6 +23,8 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
     let num_points = if end_node >= start_node { end_node - start_node + 1 } else { 0 };
     println!("Calculated number of points to generate: {}", num_points);
 
+    io::stdout().flush()?;
+
     Ok((0..num_points)
         .map(|_| {
             println!("Generating point...");
