@@ -208,7 +208,7 @@ fn main() -> io::Result<()> {
             start_node,
             end_node,
         } => {
-            let points = embed::embed(start_node, end_node, input)?;
+            let points = embed::embed(*start_node, *end_node, input)?;
             video::render(points)?;
         }
     }
