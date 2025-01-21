@@ -1,10 +1,10 @@
 use nalgebra as na;
-use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder, ColorType, ExtendedColorType};
-use std::error::Error;
+use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder, ExtendedColorType};
+use std::io;
 use crate::display::display_tga;
 use crate::embed::Point3D;
 
-pub fn render(points: Vec<Point3D>) -> Result<(), Box<dyn Error>> {
+pub fn render(points: Vec<Point3D>) -> io::Result<()> {
     let mut angle = 0.0f32;
     loop {
         let rotation = na::Rotation3::from_euler_angles(0.0, angle, 0.0);
@@ -48,9 +48,9 @@ pub fn render(points: Vec<Point3D>) -> Result<(), Box<dyn Error>> {
                 width,
                 height,
                 ExtendedColorType::Rgb8
-            )?;
+            ).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
-        display_tga(&tga_data)?;
+        display_tga(&tga_data).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         angle += 0.02;
         std::thread::sleep(std::time::Duration::from_millis(16));
     }
