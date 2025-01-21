@@ -258,24 +258,28 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
 }
 
 /// Helper function to get tick mark coordinates
-fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32) -> Option<Vec<(u32, u32)>> {
+fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32, axis: char) -> Option<Vec<(u32, u32)>> {
     let mut coords = Vec::new();
     
     // Calculate safe ranges for tick marks
     let x_start = if center_x >= size { center_x - size } else { return None };
     let y_start = if center_y >= size { center_y - size } else { return None };
     
-    // Create a horizontal or vertical line depending on which is smaller
-    if center_x % 2 == 0 {
-        // Horizontal tick
-        for dx in 0..=size*2 {
-            coords.push((x_start + dx, center_y));
-        }
-    } else {
-        // Vertical tick
-        for dy in 0..=size*2 {
-            coords.push((center_x, y_start + dy));
-        }
+    // Create a horizontal or vertical line
+    match axis {
+        'x' => {
+            // Horizontal ticks for X axis
+            for dx in 0..=size*2 {
+                coords.push((x_start + dx, center_y));
+            }
+        },
+        'y' | 'z' => {
+            // Vertical ticks for Y and Z axes
+            for dy in 0..=size*2 {
+                coords.push((center_x, y_start + dy));
+            }
+        },
+        _ => return None
     }
     
     Some(coords)
