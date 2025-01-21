@@ -203,7 +203,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
             
             // Tick marks at regular intervals
             if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'x') {
                     for (tx, ty) in tick_coords {
                         if tx < width && ty < height {
                             img.put_pixel(tx, ty, axis_color);
@@ -224,7 +224,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
             
             // Tick marks at regular intervals
             if ((t * 2.0 - 1.0) * axis_length).abs().fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'y') {
                     for (tx, ty) in tick_coords {
                         if tx < width && ty < height {
                             img.put_pixel(tx, ty, axis_color);
@@ -245,7 +245,7 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
             
             // Tick marks at regular intervals
             if (t * axis_length).fract() < 0.01 {
-                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6) {
+                if let Some(tick_coords) = get_tick_coordinates(sx, sy, 6, 'z') {
                     for (tx, ty) in tick_coords {
                         if tx < width && ty < height {
                             img.put_pixel(tx, ty, axis_color);
@@ -311,7 +311,7 @@ fn project_to_screen(
         let y_ndc = f * (v.y / -v.z);
         let sx = ((x_ndc + 1.0) * 0.5 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
         let sy = ((1.0 - y_ndc) * 0.5 * height as f32).clamp(0.0, height as f32 - 1.0) as u32;
-        if sx >= 0 && sx < width as i32 && sy >= 0 && sy < height as i32 {
+        if sx < width && sy < height {
             return Some((sx as u32, sy as u32, depth));
         }
     }
