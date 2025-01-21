@@ -87,9 +87,9 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
             let rotated = rotation.transform_point(&point.pos);
             let camera_pos = Vector3::new(3.0, 2.0, 5.0);
             let transformed = Vector3::new(
-                rotated.x - camera_pos.x,
-                rotated.y - camera_pos.y, 
-                rotated.z - camera_pos.z
+                camera_pos.x - rotated.x,
+                camera_pos.y - rotated.y,
+                camera_pos.z - rotated.z
             );
 
             if let Some((sx, sy, depth)) = project_to_screen(
