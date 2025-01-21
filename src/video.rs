@@ -112,7 +112,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         println!("  - Frame {} processed: image filled with points.", i + 1);
 
         // Draw axes and ticks after points
-        draw_axes(&mut img, width, height);
+        draw_axes(&mut img, width, height, &rotation);
 
         // Convert RGB image to RGBA for the GIF frames.
         let rgba: RgbaImage = DynamicImage::ImageRgb8(img).to_rgba8();
@@ -158,7 +158,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 }
 
 /// Draws axes with units and tick marks on the image.
-pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
+pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32, rotation: &Rotation3<f32>) {
     let axis_color = Rgb([255, 255, 255]); // White color for all axes
     let axis_length = 2.0; // Length of each axis in 3D space
     let steps = 100; // Number of points to draw per axis
