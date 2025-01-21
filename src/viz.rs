@@ -424,9 +424,9 @@ fn color_from_cluster(
     min_dens: f32,
     max_dens: f32
 ) -> (u8, u8, u8) {
-    // Noise => white
+    // Noise => black
     if cluster_id < 0 {
-        return (255, 255, 255); // BGR
+        return (0, 0, 0); // BGR (black)
     }
 
     // Compute fraction in [0..1], unique per cluster_id (assuming 0..N).
