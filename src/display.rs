@@ -60,11 +60,6 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     env::set_var("TERM", "xterm-kitty");
     println!("Set terminal to 'xterm-kitty'.");
 
-    // Clear screen and move cursor home.
-    print!("\x1B[2J\x1B[H");
-    io::stdout().flush()?;
-    println!("Screen cleared and cursor moved to home position.");
-
     // Basic viuer configuration.
     let conf = viuer::Config {
         transparent: false,
