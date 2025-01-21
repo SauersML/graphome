@@ -82,9 +82,6 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 
         println!("  - Rotation matrix for this frame: {:?}", rotation);
 
-        // Draw axes and ticks
-        draw_axes(&mut img, width, height);
-
         // Fill the image by projecting each point
         for point in &points {
             let rotated = rotation.transform_point(&point.pos);
@@ -113,6 +110,9 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         }
 
         println!("  - Frame {} processed: image filled with points.", i + 1);
+
+        // Draw axes and ticks after points
+        draw_axes(&mut img, width, height);
 
         // Convert RGB image to RGBA for the GIF frames.
         let rgba: RgbaImage = DynamicImage::ImageRgb8(img).to_rgba8();
