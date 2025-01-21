@@ -179,17 +179,30 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
         }
     }
 
-    // Draw z-axis (at 45 degree angle)
-    let z_length = (height.min(width) / 3) as i32;
-    for i in 0..z_length {
-        let x = (center_x as i32 + i) as u32;
-        let y = (center_y as i32 - i) as u32;
-        if x < width && y < height {
-            img.put_pixel(x, y, axis_color);
-            if i % 50 == 0 {
-                // Z-axis tick marks
-                if x + 3 < width && y + 3 < height {
-                    img.put_pixel(x + 3, y + 3, axis_color);
+    // Draw z-axis using the same projection as points
+    let z_length = 2.0; // Length in 3D space
+    let z_steps = 100;
+    for i in 0..z_steps {
+        let t = i as f32 / z_steps as f32;
+        let point = Vector3::new(0.0, 0.0, -z_length * t);
+        
+        if let Some((sx, sy, _)) = project_to_screen(
+            point,
+            width,
+            height,
+            60.0_f32.to_radians()
+        ) {
+            img.put_pixel(sx, sy, axis_color);
+            
+            // Tick marks every 0.5 units
+            if (t * z_length).fract() < 0.01 {
+                // Draw tick marks perpendicular to the axis
+                for dx in -3..=3 {
+                    for dy in -3..=3 {
+                        let px = sx.saturating_add(dx).min(width - 1);
+                        let py = sy.saturating_add(dy).min(height - 1);
+                        img.put_pixel(px, py, axis_color);
+                    }
                 }
             }
         }
