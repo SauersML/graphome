@@ -55,8 +55,8 @@ impl From<DisplayError> for VideoError {
 
 /// Renders a multi-frame GIF of rotating 3D points with axes and tick marks.
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
-    let width = 500;
-    let height = 400;
+    let width = 1600;
+    let height = 1200;
     let total_frames = 60; // Number of frames in one full rotation
     let angle_step = 2.0 * std::f32::consts::PI / total_frames as f32;
 
