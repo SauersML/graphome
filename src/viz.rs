@@ -638,34 +638,32 @@ fn write_uncompressed_tga(
     Ok(())
 }
 
-fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usize)]) {
-    // Basic FR config
+fn force_directed_refinement(
+    positions: &mut [(f32, f32)], 
+    edges: &[(usize, usize)],
+    node_radii: &[f32]
+) {
+    // Basic force-directed (Fruchterman–Reingold) config
     let n = positions.len();
     if n < 2 {
         return;
     }
     let iterations = 50;
     let area = 1.0;
+    // Ideal edge length factor:
     let k = (area / n as f32).sqrt();
+
+    // We store displacement vectors for each node
     let mut disp = vec![(0.0_f32, 0.0_f32); n];
 
-    // Collision thresholds
-    let edge_overlap_dist = 0.01_f32;   // how close is "too close" for edges
+    // Edge overlap threshold (for segment-segment push)
+    let edge_overlap_dist = 0.01_f32;
     // Tiny epsilon to avoid divide-by-zero
     let eps = 0.000001_f32;
 
-    // A helper function that returns the squared distance between two points
-    fn dist_sq(ax: f32, ay: f32, bx: f32, by: f32) -> f32 {
-        let dx = bx - ax;
-        let dy = by - ay;
-        dx*dx + dy*dy
-    }
-
-    // A helper to compute the minimum distance between line segment AB and segment CD
-    // We'll push them apart if this distance < edge_overlap_dist
+    // Function to compute the minimal distance between two line segments
+    // We'll push them apart if they're too close (edge-overlap repulsion).
     fn segment_segment_min_dist(a: (f32, f32), b: (f32, f32), c: (f32, f32), d: (f32, f32)) -> f32 {
-        // Parametric approach adapted from standard geometry
-        // Source references: e.g. "Real-Time Collision Detection" by Christer Ericson
         let (ax, ay) = a;
         let (bx, by) = b;
         let (cx, cy) = c;
@@ -676,34 +674,26 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         let cdx = dx - cx;
         let cdy = dy - cy;
 
-        let ab_dot_ab = abx*abx + aby*aby + 1e-12;  // to avoid zero
-        let cd_dot_cd = cdx*cdx + cdy*cdy + 1e-12;  // to avoid zero
+        let ab_dot_ab = abx * abx + aby * aby + 1e-12;
+        let cd_dot_cd = cdx * cdx + cdy * cdy + 1e-12;
 
-        // We will solve for param t on AB, u on CD
-        // AB(t) = A + t*(B - A)
-        // CD(u) = C + u*(D - C)
-        // We'll clamp t,u in [0..1] to stay on the segments
-        let mut t = 0.0_f32;
-        let mut u = 0.0_f32;
-
-        // The cross terms
+        let ab_dot_cd = abx * cdx + aby * cdy;
         let r_x = ax - cx;
         let r_y = ay - cy;
-        let ab_dot_cd = abx*cdx + aby*cdy;
-        let r_dot_ab = r_x*abx + r_y*aby;
-        let r_dot_cd = r_x*cdx + r_y*cdy;
+        let r_dot_ab = r_x * abx + r_y * aby;
+        let r_dot_cd = r_x * cdx + r_y * cdy;
 
-        let denom = ab_dot_ab*cd_dot_cd - ab_dot_cd*ab_dot_cd;
+        let denom = ab_dot_ab * cd_dot_cd - ab_dot_cd * ab_dot_cd;
+        let mut t = 0.0_f32;
+        let mut u = 0.0_f32;
         if denom.abs() > 1e-12 {
-            t = (r_dot_ab*cd_dot_cd - r_dot_cd*ab_dot_cd) / denom;
-            u = (r_dot_cd*ab_dot_ab - r_dot_ab*ab_dot_cd) / denom;
+            t = (r_dot_ab * cd_dot_cd - r_dot_cd * ab_dot_cd) / denom;
+            u = (r_dot_cd * ab_dot_ab - r_dot_ab * ab_dot_cd) / denom;
         }
 
-        // Clamp t, u
         t = t.clamp(0.0, 1.0);
         u = u.clamp(0.0, 1.0);
 
-        // Compute the actual closest points in that param range
         let closest_ab_x = ax + abx * t;
         let closest_ab_y = ay + aby * t;
         let closest_cd_x = cx + cdx * u;
@@ -711,11 +701,11 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
 
         let dxm = closest_cd_x - closest_ab_x;
         let dym = closest_cd_y - closest_ab_y;
-        (dxm*dxm + dym*dym).sqrt()
+        (dxm * dxm + dym * dym).sqrt()
     }
 
     for iter in 0..iterations {
-        // Reset displacement
+        // Reset displacements each iteration
         for i in 0..n {
             disp[i] = (0.0, 0.0);
         }
@@ -725,9 +715,10 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
             for j in (i + 1)..n {
                 let dx = positions[j].0 - positions[i].0;
                 let dy = positions[j].1 - positions[i].1;
-                let dist_sqr = dx*dx + dy*dy + eps;
+                let dist_sqr = dx * dx + dy * dy + eps;
                 let dist = dist_sqr.sqrt();
-                let rep = k * k / dist;
+                // Fruchterman–Reingold repulsive force ~ k^2 / dist
+                let rep = (k * k) / dist;
                 let rx = (dx / dist) * rep;
                 let ry = (dy / dist) * rep;
                 disp[i].0 -= rx;
@@ -741,8 +732,9 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         for &(ii, jj) in edges {
             let dx = positions[jj].0 - positions[ii].0;
             let dy = positions[jj].1 - positions[ii].1;
-            let dist_sqr = dx*dx + dy*dy + eps;
+            let dist_sqr = dx * dx + dy * dy + eps;
             let dist = dist_sqr.sqrt();
+            // Fruchterman–Reingold attractive force ~ dist^2 / k
             let att = (dist * dist) / k;
             let ax = (dx / dist) * att;
             let ay = (dy / dist) * att;
@@ -753,14 +745,13 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         }
 
         // Edge–edge overlap repulsion
-        // For each pair of edges, if they come within edge_overlap_dist, push endpoints away
         for i in 0..edges.len() {
             let (a1, a2) = edges[i];
             let seg_a1 = positions[a1];
             let seg_a2 = positions[a2];
             for j in (i + 1)..edges.len() {
                 let (b1, b2) = edges[j];
-                // If they share a node, skip (because it's the same edge or adjacent edges)
+                // Skip if they share a node
                 if a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2 {
                     continue;
                 }
@@ -768,58 +759,57 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
                 let seg_b2 = positions[b2];
                 let d = segment_segment_min_dist(seg_a1, seg_a2, seg_b1, seg_b2);
                 if d < edge_overlap_dist {
-                    // We'll push each pair of endpoints away from the midpoint
-                    // to reduce overlap
                     let mid_a_x = 0.5 * (seg_a1.0 + seg_a2.0);
                     let mid_a_y = 0.5 * (seg_a1.1 + seg_a2.1);
                     let mid_b_x = 0.5 * (seg_b1.0 + seg_b2.0);
                     let mid_b_y = 0.5 * (seg_b1.1 + seg_b2.1);
-                    let dx = mid_b_x - mid_a_x;
-                    let dy = mid_b_y - mid_a_y;
-                    let dist_sqr = dx*dx + dy*dy + eps;
-                    let dist = dist_sqr.sqrt();
+
+                    let ddx = mid_b_x - mid_a_x;
+                    let ddy = mid_b_y - mid_a_y;
+                    let dist_sq = ddx * ddx + ddy * ddy + eps;
+                    let dist_mid = dist_sq.sqrt();
+
                     // A small repulsive force that grows as we get closer
-                    let repel = 0.5 * k * (edge_overlap_dist - d).max(0.0) / dist;
-                    let rx = dx * repel;
-                    let ry = dy * repel;
+                    let repel = 0.5 * k * (edge_overlap_dist - d).max(0.0) / dist_mid;
+                    let rx = ddx * repel;
+                    let ry = ddy * repel;
 
                     // Push segment A away from B
-                    disp[a1].0 -= rx; 
+                    disp[a1].0 -= rx;
                     disp[a1].1 -= ry;
-                    disp[a2].0 -= rx; 
+                    disp[a2].0 -= rx;
                     disp[a2].1 -= ry;
 
                     // Push segment B away from A
-                    disp[b1].0 += rx; 
+                    disp[b1].0 += rx;
                     disp[b1].1 += ry;
-                    disp[b2].0 += rx; 
+                    disp[b2].0 += rx;
                     disp[b2].1 += ry;
                 }
             }
         }
 
-        // Node collision resolution
-        let node_collision_dist = 0.05_f32;
+        // Node collision resolution (using node_radii)
         for i in 0..n {
             for j in (i + 1)..n {
                 let mut dx = positions[j].0 - positions[i].0;
                 let mut dy = positions[j].1 - positions[i].1;
-                let mut dist_sqr = dx*dx + dy*dy;
-                
-                // If they're essentially at the same spot, nudge one slightly so we have a direction
+                let mut dist_sqr = dx * dx + dy * dy;
+
                 if dist_sqr < 1e-12 {
+                    // If they overlap exactly, nudge one so we have a direction
                     positions[j].0 += 0.0001 * (j as f32 + 1.0);
                     positions[j].1 += 0.0001 * (i as f32 + 1.0);
                     dx = positions[j].0 - positions[i].0;
                     dy = positions[j].1 - positions[i].1;
-                    dist_sqr = dx*dx + dy*dy;
+                    dist_sqr = dx * dx + dy * dy;
                 }
-                
+
                 dist_sqr += eps;
                 let dist = dist_sqr.sqrt();
-                
-                if dist < node_collision_dist {
-                    let overlap = (node_collision_dist - dist) * 0.5;
+                let collision_dist = node_radii[i] + node_radii[j];
+                if dist < collision_dist {
+                    let overlap = (collision_dist - dist) * 0.5;
                     let nx = dx / dist;
                     let ny = dy / dist;
                     disp[i].0 -= nx * overlap;
@@ -831,10 +821,11 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         }
 
         // Apply displacements with a "temperature" (cooling)
+        // This stops the layout from exploding. We gradually reduce movement each iteration.
         let temp = 0.1 * (1.0 - iter as f32 / iterations as f32);
         for i in 0..n {
             let (dx, dy) = disp[i];
-            let len_sqr = dx*dx + dy*dy + eps;
+            let len_sqr = dx * dx + dy * dy + eps;
             let len = len_sqr.sqrt();
             let limit = len.min(temp);
             positions[i].0 += (dx / len) * limit;
