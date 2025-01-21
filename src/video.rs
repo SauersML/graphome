@@ -1,16 +1,20 @@
-use std::thread;
-use std::time::Duration;
-use std::io;
 use std::fmt;
-
+use std::fs::File;
+use std::io::{self, Write};
 use nalgebra::{Rotation3, Vector3, Point3};
 use image::{
-    ImageBuffer, Rgb, ImageError, ExtendedColorType,
-    codecs::tga::TgaEncoder,
-    codecs::gif::GifEncoder,
+    ImageBuffer,
+    Rgb,
+    Rgba,
+    RgbaImage,
+    DynamicImage,
+    ImageError,
+    Frame,
+    Delay,
+    codecs::gif::{GifEncoder, Repeat},
 };
 use crate::embed::Point3D;
-use crate::display::{display_tga, display_gif, DisplayError};
+use crate::display::{display_gif, DisplayError};
 
 #[derive(Debug)]
 pub enum VideoError {
@@ -49,28 +53,38 @@ impl From<DisplayError> for VideoError {
     }
 }
 
-/// Render loop that continues to produce TGA data for each frame
-/// and displays it in the terminal.
+/// Renders a multi-frame GIF of rotating 3D points:
+/// 1. Generates ~60 frames for a full 360° rotation.
+/// 2. Encodes those frames into one animated GIF.
+/// 3. Saves that GIF to disk.
+/// 4. Displays it once in the terminal (via `display_gif`).
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
-    let mut angle = 0.0;
     let width = 800;
     let height = 600;
-    let mut tga_data = Vec::new();
+    let total_frames = 60; // Number of frames in one full rotation
+    let angle_step = 2.0 * std::f32::consts::PI / total_frames as f32;
 
-    loop {
+    // Collect each frame as an RGBA buffer.
+    let mut frames = Vec::with_capacity(total_frames);
+
+    for i in 0..total_frames {
+        let angle = i as f32 * angle_step;
         let rotation = Rotation3::from_euler_angles(0.0, angle, 0.0);
-        let mut img = ImageBuffer::new(width, height);
 
-        // Simple z-buffer
+        // Create a blank image and Z-buffer
+        let mut img = ImageBuffer::new(width, height);
         let mut z_buffer = vec![f32::INFINITY; (width * height) as usize];
 
-        // Draw each point (rotate, project, z-test)
+        // Fill the image by projecting each point
         for point in &points {
             let rotated = rotation.transform_point(&point.pos);
             let camera_offset = 5.0;
             let transformed = Vector3::new(rotated.x, rotated.y, rotated.z - camera_offset);
 
-            if let Some((sx, sy, depth)) = project_to_screen(transformed, width, height, 60.0_f32.to_radians()) {
+            if let Some((sx, sy, depth)) = project_to_screen(
+                transformed, width, height, 60.0_f32.to_radians()
+            ) {
+                // Draw a small 2×2 "dot"
                 let size = 2;
                 for dx in 0..size {
                     for dy in 0..size {
@@ -78,6 +92,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
                         let py = sy.saturating_add(dy).min(height - 1);
                         let idx = (py * width + px) as usize;
 
+                        // Z-test
                         if depth < z_buffer[idx] {
                             z_buffer[idx] = depth;
                             img.put_pixel(px, py, point.color);
@@ -87,82 +102,49 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
             }
         }
 
-        // Encode current frame as TGA and display it
-        tga_data.clear();
-        TgaEncoder::new(&mut tga_data)
-            .encode(img.as_raw(), width, height, ExtendedColorType::Rgb8)?;
+        // Convert RGB image to RGBA for the GIF frames.
+        let rgba: RgbaImage = DynamicImage::ImageRgb8(img).to_rgba8();
 
-        display_tga(&tga_data)?;
+        // Create a Frame with a small delay (~16 ms -> ~60 fps).
+        let frame = Frame::from_parts(
+            rgba,
+            0, 0,
+            Delay::from_numer_denom_ms(16, 1), // 16ms per frame
+        );
 
-        angle = (angle + 0.01) % (2.0 * std::f32::consts::PI);
-        thread::sleep(Duration::from_millis(16));
+        frames.push(frame);
     }
-}
 
-/// Alternative render loop that encodes each frame as a single-frame GIF
-/// and displays it in the terminal. Most terminals won't animate GIFs,
-/// but Kitty and some others may show animations inline.
-pub fn render_gif(points: Vec<Point3D>) -> Result<(), VideoError> {
-    let mut angle = 0.0;
-    let width = 800;
-    let height = 600;
+    // Encode all frames into one multi-frame GIF.
     let mut gif_data = Vec::new();
+    {
+        let mut encoder = GifEncoder::new(&mut gif_data);
+        // Loop infinitely.
+        encoder.set_repeat(Repeat::Infinite)?;
 
-    loop {
-        let rotation = Rotation3::from_euler_angles(0.0, angle, 0.0);
-        let mut img = ImageBuffer::new(width, height);
-
-        // Simple z-buffer
-        let mut z_buffer = vec![f32::INFINITY; (width * height) as usize];
-
-        // Draw each point (rotate, project, z-test)
-        for point in &points {
-            let rotated = rotation.transform_point(&point.pos);
-            let camera_offset = 5.0;
-            let transformed = Vector3::new(rotated.x, rotated.y, rotated.z - camera_offset);
-
-            if let Some((sx, sy, depth)) = project_to_screen(transformed, width, height, 60.0_f32.to_radians()) {
-                let size = 2;
-                for dx in 0..size {
-                    for dy in 0..size {
-                        let px = sx.saturating_add(dx).min(width - 1);
-                        let py = sy.saturating_add(dy).min(height - 1);
-                        let idx = (py * width + px) as usize;
-
-                        if depth < z_buffer[idx] {
-                            z_buffer[idx] = depth;
-                            img.put_pixel(px, py, point.color);
-                        }
-                    }
-                }
-            }
+        for frame in frames {
+            encoder.encode_frame(frame)?;
         }
-
-        // Encode current frame as a GIF and display it
-        gif_data.clear();
-        {
-            // Create the GIF encoder in a scoped block to finish before display
-            let mut encoder = GifEncoder::new(&mut gif_data);
-            encoder.encode(
-                img.as_raw(),
-                width,
-                height,
-                ExtendedColorType::Rgb8,
-            )?;
-        }
-
-        display_gif(&gif_data)?;
-
-        angle = (angle + 0.01) % (2.0 * std::f32::consts::PI);
-        thread::sleep(Duration::from_millis(16));
     }
+
+    // Save the resulting GIF to disk.
+    let mut file = File::create("myanim.gif")?;
+    file.write_all(&gif_data)?;
+
+    // Display it once via viuer
+    display_gif(&gif_data)?;
+
+    Ok(())
 }
 
-/// Projects a 3D point to screen coordinates.
+/// Projects a 3D vector onto a 2D screen.
 /// Returns (screen_x, screen_y, depth).
-fn project_to_screen(v: Vector3<f32>, width: u32, height: u32, fov: f32)
-    -> Option<(u32, u32, f32)>
-{
+fn project_to_screen(
+    v: Vector3<f32>,
+    width: u32,
+    height: u32,
+    fov: f32,
+) -> Option<(u32, u32, f32)> {
     let aspect = width as f32 / height as f32;
     let half_fov_tan = (fov * 0.5).tan();
     let f = 1.0 / half_fov_tan;
@@ -170,7 +152,7 @@ fn project_to_screen(v: Vector3<f32>, width: u32, height: u32, fov: f32)
     let near = 0.1;
     let far = 100.0;
 
-    // Basic culling: if z >= 0, skip
+    // If the point is behind the camera, skip.
     if v.z >= 0.0 {
         return None;
     }
