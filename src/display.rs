@@ -129,7 +129,7 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     let base64_data = base64::encode(gif_data);
 
     // Prepare the inline image escape sequence for Kitty terminal.
-    let inline_image_esc = format!("\x1b]1337;File=inline=1:{}", base64_data);
+    let inline_image_esc = format!("\x1b]1337;File=inline=1:{}\x07", base64_data);
 
     // Output the escape sequence to display the GIF.
     print!("{}", inline_image_esc);
@@ -137,7 +137,8 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     println!("Escape sequence for GIF displayed in terminal.");
 
     // Reset the terminal.
-    print!("\x1b\\");
+    print!("\x1b[?25h"); // Show cursor
+    print!("\x1b[?1049l"); // Exit alternate screen buffer
     io::stdout().flush()?;
     println!("Terminal reset after displaying GIF.");
 
