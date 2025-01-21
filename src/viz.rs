@@ -778,7 +778,7 @@ fn force_directed_refinement(positions: &mut [(f32, f32)], edges: &[(usize, usiz
         }
 
         // Node collision resolution
-        let node_collision_dist = 0.5_f32;
+        let node_collision_dist = 0.05_f32;
         for i in 0..n {
             for j in (i + 1)..n {
                 let mut dx = positions[j].0 - positions[i].0;
