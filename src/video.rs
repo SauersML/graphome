@@ -159,27 +159,41 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 
 /// Draws axes with units and tick marks on the image.
 pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u32) {
-    // Draw x-axis (in red)
+    let axis_color = Rgb([255, 255, 255]); // White color for all axes
+    let center_x = width / 2;
+    let center_y = height / 2;
+    
+    // Draw x-axis
     for x in 0..width {
-        let y = height / 2;
-        img.put_pixel(x, y, Rgb([255, 0, 0]));
+        img.put_pixel(x, center_y, axis_color);
         if x % 100 == 0 {
-            // Mark tick marks at regular intervals
-            img.put_pixel(x, y - 5, Rgb([255, 0, 0]));  // Tick mark
+            img.put_pixel(x, center_y - 5, axis_color);
         }
     }
 
-    // Draw y-axis (in green)
+    // Draw y-axis
     for y in 0..height {
-        let x = width / 2;
-        img.put_pixel(x, y, Rgb([0, 255, 0]));
+        img.put_pixel(center_x, y, axis_color);
         if y % 100 == 0 {
-            // Mark tick marks at regular intervals
-            img.put_pixel(x + 5, y, Rgb([0, 255, 0]));  // Tick mark
+            img.put_pixel(center_x + 5, y, axis_color);
         }
     }
 
-    // Optional: Draw z-axis or labels if necessary
+    // Draw z-axis (at 45 degree angle)
+    let z_length = (height.min(width) / 3) as i32;
+    for i in 0..z_length {
+        let x = (center_x as i32 + i) as u32;
+        let y = (center_y as i32 - i) as u32;
+        if x < width && y < height {
+            img.put_pixel(x, y, axis_color);
+            if i % 50 == 0 {
+                // Z-axis tick marks
+                if x + 3 < width && y + 3 < height {
+                    img.put_pixel(x + 3, y + 3, axis_color);
+                }
+            }
+        }
+    }
 }
 
 /// Projects a 3D vector onto a 2D screen.
