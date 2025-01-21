@@ -182,9 +182,9 @@ pub fn draw_axes(img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, width: u32, height: u3
         z_vec = rotation * z_vec;
 
         // Apply camera position
-        x_vec.x -= camera_pos.x;
-        x_vec.y -= camera_pos.y;
-        x_vec.z -= camera_pos.z;
+        x_vec.x = camera_pos.x - x_vec.x;  
+        x_vec.y = camera_pos.y - x_vec.y;  
+        x_vec.z = camera_pos.z - x_vec.z;  
         y_vec.x -= camera_pos.x;
         y_vec.y -= camera_pos.y;
         y_vec.z -= camera_pos.z;
