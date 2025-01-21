@@ -6,6 +6,7 @@ use termsize;
 use termimage::ops;
 use viuer;
 use image::{ImageError, ImageFormat};
+use base64;
 
 #[derive(Debug)]
 pub enum DisplayError {
