@@ -132,11 +132,12 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Set the terminal to support inline images (Kitty terminal).
     env::set_var("TERM", "xterm-kitty");
 
-    // Calculate center position and include size and position in escape sequence
+    // Format the image escape sequence
     let inline_image_esc = format!(
         "\x1b]1337;File=inline=1;width={};height={}:{}\x07",
         display_width,
         display_height,
+        base64::encode(gif_data)
     );
 
     // Output the escape sequence to display the GIF.
