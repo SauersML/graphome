@@ -169,25 +169,22 @@ pub fn draw_axes(
     z_buffer: &mut [f32],
 ) {
     const AXIS_LENGTH: f32 = 2.0;
-    const AXIS_STEPS: usize = 100;
+    const AXIS_STEPS: i32 = 100;
 
     // X Axis (Red)
-    for t in -AXIS_STEPS..=AXIS_STEPS {
-        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+    for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH) {
         let pt = rotation * Vector3::new(t, 0.0, 0.0);
         draw_line(pt, img, width, height, z_buffer, Rgb([255, 0, 0]));
     }
 
     // Y Axis (Green)
-    for t in -AXIS_STEPS..=AXIS_STEPS {
-        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+    for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH) {
         let pt = rotation * Vector3::new(0.0, t, 0.0);
         draw_line(pt, img, width, height, z_buffer, Rgb([0, 255, 0]));
     }
 
     // Z Axis (Blue)
-    for t in -AXIS_STEPS..=AXIS_STEPS {
-        let t = t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH;
+    for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH) {
         let pt = rotation * Vector3::new(0.0, 0.0, t);
         draw_line(pt, img, width, height, z_buffer, Rgb([0, 0, 255]));
     }
