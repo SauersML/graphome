@@ -116,6 +116,18 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         force_directed: bool,
     },
+    /// Embed a submatrix in 3D and visualize with rotation
+    Embed {
+        /// Path to the adjacency matrix file
+        #[arg(short, long)]
+        input: String,
+        /// Start node index (inclusive)
+        #[arg(long)]
+        start_node: usize,
+        /// End node index (inclusive)
+        #[arg(long)]
+        end_node: usize,
+    },
 }
 
 #[derive(Subcommand)]
