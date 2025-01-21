@@ -1,5 +1,5 @@
 use nalgebra as na;
-use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder};
+use image::{ImageBuffer, Rgb, ImageEncoder, codecs::tga::TgaEncoder, codecs::tga::TgaColorType};
 use std::error::Error;
 use crate::display::display_tga;
 use crate::embed::Point3D;
