@@ -300,19 +300,20 @@ fn project_to_screen(
     let near = 0.1;
     let far = 100.0;
 
-    // If the point is behind the camera, skip.
     if v.z <= 0.0 {
         return None;
     }
 
-    let depth = -v.z;
+    let depth = v.z;
     if depth >= near && depth <= far {
-        let x_ndc = (f / aspect) * (v.x / -v.z);
-        let y_ndc = f * (v.y / -v.z);
+        let x_ndc = (f / aspect) * (v.x / v.z);
+        let y_ndc = f * (v.y / v.z);
+
         let sx = ((x_ndc + 1.0) * 0.5 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
         let sy = ((1.0 - y_ndc) * 0.5 * height as f32).clamp(0.0, height as f32 - 1.0) as u32;
+
         if sx < width && sy < height {
-            return Some((sx as u32, sy as u32, depth));
+            return Some((sx, sy, depth));
         }
     }
     None
