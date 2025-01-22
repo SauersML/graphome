@@ -61,6 +61,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     
     let mut frames = Vec::with_capacity(TOTAL_FRAMES);
     let camera_pos = Point3::new(0.0, 0.0, -15.0);
+    let look_at = Point3::new(0.0, 0.0, 0.0);
     let up = Vector3::y();
     let view = Matrix4::look_at_rh(&camera_pos, &look_at, &up);
 
