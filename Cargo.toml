@@ -38,7 +38,6 @@ base64 = "0.22.1"
 bevy_capture = "0.2.0"
 bevy = { version = "0.15.1", default-features = false, features = [
     "serialize",
-    "subpixel_glyph_atlas"
 ]}
 
 [target.'cfg(unix)'.dependencies]
