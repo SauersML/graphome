@@ -40,8 +40,7 @@ bevy = { version = "0.15.1", default-features = false, features = [
     "bevy_render",
     "bevy_core_pipeline",
     "bevy_pbr",
-    "bevy_winit",
-    "bevy_window"
+    "render"
 ]}
 
 [target.'cfg(unix)'.dependencies]
