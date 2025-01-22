@@ -84,16 +84,12 @@ struct PointCloudData {
 /// Renders a spinning 3D view of the given points, captures frames into a GIF,
 /// and displays that GIF in the terminal.
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
-    // Number of frames we want to capture for the GIF
     const TOTAL_FRAMES: usize = 60;
 
     let mut app = App::new();
 
-    // Build up the minimal set of plugins for 3D rendering and capturing
     app.add_plugins((
-        // Minimal base
         MinimalPlugins,
-        // Logging, transforms, input, assets, rendering, PBR, etc.
         LogPlugin::default(),
         TransformPlugin::default(),
         InputPlugin::default(),
@@ -102,22 +98,19 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         RenderPlugin::default(),
         CorePipelinePlugin::default(),
         PbrPlugin::default(),
-        // Capture plugin for screenshot
         CapturePlugin,
     ))
-    // Insert resources
+    // Explicitly initialize Assets<Image>
+    .init_resource::<Assets<Image>>()
     .insert_resource(RenderResources {
         frames: Vec::with_capacity(TOTAL_FRAMES),
         frame_count: 0,
         total_frames: TOTAL_FRAMES,
     })
     .insert_resource(PointCloudData { points })
-    // Startup: create camera, lights, geometry
     .add_systems(Startup, setup)
-    // Main loop: rotate camera, capture frames, exit if done
     .add_systems(Update, (rotate_camera, capture_frame, check_finished));
 
-    // Run the Bevy app until we exit (after capturing all frames)
     app.run();
 
     // After the app exits, retrieve the frames from RenderResources and build a GIF
