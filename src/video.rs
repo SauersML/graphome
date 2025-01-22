@@ -102,9 +102,14 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
     let num_frames = 36;
 
     // Camera parameters
+    // Camera parameters
     let camera_distance = 2.5 * max_dist;   // Distance from origin
-    let camera_elev_deg: f32 = -30.0;        // Elevation in degrees (more tilt to see all axes better)
+    let camera_elev_deg: f32 = -30.0;        // Elevation in degrees (X-axis tilt)
+    let camera_y_deg: f32 = 10.0;          // Y-axis tilt
+    let camera_z_deg: f32 = 5.0;           // Z-axis tilt
     let camera_elev_rad = camera_elev_deg.to_radians();
+    let camera_y_rad = camera_y_deg.to_radians();
+    let camera_z_rad = camera_z_deg.to_radians();
 
     // This function applies the same rotation+projection to any 3D point (axes, ticks, data).
     //
@@ -122,16 +127,18 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         width: u32,
         height: u32,
     ) -> Option<(u32, u32)> {
-        // 1) Rotation around Y-axis
+        // Fixed camera angles first
+        let y_fixed = na::Rotation3::from_axis_angle(&na::Vector3::y_axis(), camera_y_rad);
+        let z_fixed = na::Rotation3::from_axis_angle(&na::Vector3::z_axis(), camera_z_rad);
+        let point = z_fixed.transform_point(&y_fixed.transform_point(point));
+        
+        // Then animation rotation and elevation
         let y_rotation = na::Rotation3::from_axis_angle(&na::Vector3::y_axis(), angle_rad);
-        let rotated = y_rotation.transform_point(point);
-
-        // 2) Then rotate around X-axis by the camera elevation
+        let rotated = y_rotation.transform_point(&point);
         let x_rotation = na::Rotation3::from_axis_angle(&na::Vector3::x_axis(), camera_elev);
         let elevated = x_rotation.transform_point(&rotated);
 
-        // 3) Perspective division
-        //    We'll consider the camera to be looking along +Z, so we shift by camera_dist
+        // We'll consider the camera to be looking along +Z, so we shift by camera_dist
         let z_factor = (elevated.z + camera_dist) / camera_dist;
         if z_factor <= 0.0 {
             return None;
@@ -139,7 +146,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         let perspective_x = elevated.x / z_factor;
         let perspective_y = elevated.y / z_factor;
 
-        // 4) Convert to 2D image coords
+        // Convert to 2D image coords
         let half_w = width as f32 / 2.0;
         let half_h = height as f32 / 2.0;
         let scale = half_w / max_dist;
