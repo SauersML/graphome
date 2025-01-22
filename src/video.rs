@@ -91,14 +91,14 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 
     // plugin setup for headless rendering
     app.add_plugins(MinimalPlugins)
-        .add_plugin(AssetPlugin::default())
-        .add_plugin(ImagePlugin::default())
-        .add_plugin(LogPlugin::default())
-        .add_plugin(TransformPlugin::default())
-        .add_plugin(RenderPlugin::default())
-        .add_plugin(CorePipelinePlugin::default())
-        .add_plugin(PbrPlugin::default())
-        .add_plugin(CapturePlugin);
+        .add_plugins(AssetPlugin::default())
+        .add_plugins(ImagePlugin::default())
+        .add_plugins(LogPlugin::default())
+        .add_plugins(TransformPlugin::default())
+        .add_plugins(RenderPlugin::default())
+        .add_plugins(CorePipelinePlugin::default())
+        .add_plugins(PbrPlugin::default())
+        .add_plugins(CapturePlugin);
 
     // Remove the manual init_resource::<Assets<Image>>()
     // Keep the rest of your resource setup
