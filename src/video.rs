@@ -2,7 +2,7 @@
 
 use crate::display::{display_gif, DisplayError};
 use crate::embed::Point3D;
-use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat, SetParameter};
+use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat};
 use image::{ImageBuffer, Rgba, RgbaImage};
 use nalgebra as na;
 use std::io::Cursor;
