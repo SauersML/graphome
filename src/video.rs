@@ -133,7 +133,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
         // Write each frame.
-        for raw in frame_buffers {
+        for mut raw in frame_buffers {
             // Each frame is RGBA, so we can build a Frame using gif::Frame::from_rgba_speed.
             let mut frame = GifFrame::from_rgba_speed(width as u16, height as u16, &mut raw, 10);
             // Delay is in 1/100ths of a second. 5 => 50 ms => ~20 FPS.
