@@ -169,7 +169,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         .fold(0.0_f32, f32::max)
         .max(1.0_f32);
 
-    let num_frames = 108;
+    let num_frames = 648;
 
     // Original camera parameters in the snippet:
     let camera_distance = 2.5 * max_dist;   // Distance from origin
