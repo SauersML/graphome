@@ -243,11 +243,15 @@ fn capture_frame(
     // Start capturing if not already capturing
     if let Ok(mut capture) = capture_query.get_single_mut() {
         if !capture.is_capturing() {
-            capture.start(encoder::GifEncoder::new("output.gif"));
+            let file = File::create("output.gif").expect("Failed to create output file");
+            let encoder = bevy_capture::encoder::GifEncoder::new(file)
+                .with_repeat(gif::Repeat::Infinite);
+            capture.start(encoder);
         }
         render_resources.frame_count += 1;
     }
 }
+
 
 /// Exits the Bevy app once we've captured enough frames for the GIF.
 fn check_finished(render_resources: Res<RenderResources>, mut exit: EventWriter<AppExit>) {
