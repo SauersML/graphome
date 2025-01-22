@@ -153,7 +153,7 @@ fn setup(
         Camera3d {
             ..Default::default()
         },
-        Camera::default(),
+        Camera::default().target_headless(512, 512, &mut images),
         CaptureBundle::default(),
         Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         GlobalTransform::default(),
