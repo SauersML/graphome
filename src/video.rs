@@ -222,8 +222,8 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         // Draw main axes
         for (start, end) in &axes {
             if let (Some((sx, sy)), Some((ex, ey))) = (
-                transform_point(start, angle_rad, camera_elev_rad, camera_distance, max_dist, width, height),
-                transform_point(end,   angle_rad, camera_elev_rad, camera_distance, max_dist, width, height),
+                transform_point(start, angle_rad, camera_elev_rad, camera_y_rad, camera_z_rad, camera_distance, max_dist, width, height),
+                transform_point(end,   angle_rad, camera_elev_rad, camera_y_rad, camera_z_rad, camera_distance, max_dist, width, height),
             ) {
                 draw_line(&mut img, (sx, sy), (ex, ey), axis_color);
             }
