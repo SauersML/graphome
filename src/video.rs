@@ -10,11 +10,9 @@ use bevy::input::InputPlugin;
 use bevy::log::LogPlugin;
 use bevy::pbr::{PbrPlugin, MaterialMeshBundle};
 use bevy::prelude::*;
-use bevy::render::RenderPlugin;
+use bevy::render::{RenderPlugin, settings::{WgpuSettings, WgpuFeatures, Backends}};
 use bevy::render::mesh::shape;
 use bevy::transform::TransformPlugin;
-use bevy::window::WindowPlugin;
-use bevy::winit::WinitPlugin;
 
 use bevy_capture::prelude::*;
 
@@ -84,17 +82,23 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Number of frames we want to capture for the GIF.
     const TOTAL_FRAMES: usize = 60;
 
-    // Build a Bevy app with the necessary plugins for 3D + window + capture.
+    // Build a Bevy app with the necessary plugins for headless 3D rendering
     let mut app = App::new();
 
-    app
+    // Configure Vulkan/Metal for headless GPU access
+    let wgpu_settings = WgpuSettings {
+        backends: Some(Backends::VULKAN),
+        features: WgpuFeatures::empty(),
+        ..default()
+    };
+
+    app.insert_resource(wgpu_settings)
+        // Add minimal set of plugins needed for headless 3D rendering
         .add_plugin(LogPlugin::default())
         .add_plugin(TransformPlugin::default())
         .add_plugin(InputPlugin::default())
         .add_plugin(DiagnosticsPlugin::default())
         .add_plugin(AssetPlugin::default())
-        .add_plugin(WindowPlugin::default())
-        .add_plugin(WinitPlugin::default())
         .add_plugin(RenderPlugin::default())
         .add_plugin(CorePipelinePlugin::default())
         .add_plugin(PbrPlugin::default())
@@ -121,7 +125,6 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     app.run();
 
     // After app exits, collect the frames from the world resource into a GIF.
-    // (We do `world()` because `world` is a method, not a field.)
     let render_resources = app.world()
         .get_resource::<RenderResources>()
         .expect("RenderResources missing from World");
@@ -260,7 +263,7 @@ fn capture_frame(
             let height = captured.texture_descriptor.size.height;
             let raw_data = &captured.data;
 
-            // The GPU returns RGBA bytes
+            // The GPU returns RGBA bytes.
             // Convert that to a RgbaImage from the `image` crate:
             let mut rgba_image = match RgbaImage::from_raw(width, height, raw_data.clone()) {
                 Some(img) => img,
@@ -289,7 +292,6 @@ fn check_finished(
     mut exit: EventWriter<AppExit>,
 ) {
     if render_resources.frame_count >= render_resources.total_frames {
-        // `AppExit` is a unit struct, so we do `AppExit {}` or just `AppExit`.
         exit.send(AppExit {});
     }
 }
