@@ -152,7 +152,7 @@ fn project(
     let view_point = view.transform_vector(&point);
     
     // Cull points behind camera
-    if view_point.z > 0.0 {
+    if view_point.z <= 0.0 {
         return None;
     }
 
