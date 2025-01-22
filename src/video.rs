@@ -1,6 +1,7 @@
 use std::fmt;
 use std::io;
 use std::fs::File;
+use std::path::PathBuf;
 
 use bevy::app::AppExit;
 use bevy::asset::AssetPlugin;
@@ -18,7 +19,7 @@ use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 
 use bevy_capture::{Capture, CaptureBundle, CapturePlugin};
-use bevy_capture::encoder::gif::{GifEncoder, Repeat};
+use bevy_capture::encoder::frames::FramesEncoder;
 
 use image::{
     codecs::gif::{GifEncoder, Repeat},
