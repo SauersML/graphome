@@ -4,6 +4,7 @@ use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat};
 use image::{ImageBuffer, Rgba, RgbaImage};
 use nalgebra as na;
 use std::io::Cursor;
+use std::fs;
 
 /// Draws a line in screen coordinates (x0, y0) -> (x1, y1) using Bresenham's algorithm.
 fn draw_line(
@@ -289,8 +290,20 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
     }
 
+    // Spawn thread to save GIF in background
+    let gif_data_clone = gif_data.clone();
+    std::thread::spawn(move || {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        if let Err(e) = std::fs::write(format!("graph_{}.gif", timestamp), gif_data_clone) {
+            eprintln!("Failed to save GIF: {}", e);
+        }
+    });
+    
     // Display the resulting animation
     display_gif(&gif_data)?;
-
+    
     Ok(())
 }
