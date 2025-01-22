@@ -5,7 +5,8 @@ use image::{ImageBuffer, Rgba, RgbaImage};
 use nalgebra as na;
 use std::io::Cursor;
 
-/// Draws a line between two points using Bresenham's algorithm
+/// Draws a line between two points using Bresenham's algorithm.
+/// The line will be a single pixel wide.
 fn draw_line(
     img: &mut RgbaImage,
     (x0, y0): (u32, u32),
@@ -45,9 +46,10 @@ fn draw_line(
     }
 }
 
-/// Creates a rotating 3D plot of the given points, draws continuous XYZ axes, encodes it as a GIF,
-/// and displays it in the terminal.
+/// Creates a rotating 3D plot of the given points, draws continuous XYZ axes with tick marks,
+/// encodes it as a GIF, and displays it in the terminal.
 pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
+    // Determine bounding distance
     let max_dist = points
         .iter()
         .map(|p| p.pos.coords.norm())
@@ -83,8 +85,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
     }
 
-    // Define axis endpoints
-    let axis_color = Rgba([255u8, 255u8, 255u8, 255u8]);
+    // Define the main axes as start and end points
     let axes = [
         // X-axis: from (-max_dist, 0, 0) to (max_dist, 0, 0)
         (na::Point3::new(-max_dist, 0.0, 0.0), na::Point3::new(max_dist, 0.0, 0.0)),
@@ -94,11 +95,45 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         (na::Point3::new(0.0, 0.0, -max_dist), na::Point3::new(0.0, 0.0, max_dist)),
     ];
 
+    // Generate tick mark points (small cubes) along each axis
+    let tick_resolution = 60;
+    let mut tick_points: Vec<na::Point3<f32>> = Vec::new();
+    
+    // Helper to generate cube vertices around a center point
+    fn generate_cube_vertices(center: na::Point3<f32>, size: f32) -> Vec<na::Point3<f32>> {
+        let half = size / 2.0;
+        vec![
+            na::Point3::new(center.x - half, center.y - half, center.z - half),
+            na::Point3::new(center.x + half, center.y - half, center.z - half),
+            na::Point3::new(center.x - half, center.y + half, center.z - half),
+            na::Point3::new(center.x + half, center.y + half, center.z - half),
+            na::Point3::new(center.x - half, center.y - half, center.z + half),
+            na::Point3::new(center.x + half, center.y - half, center.z + half),
+            na::Point3::new(center.x - half, center.y + half, center.z + half),
+            na::Point3::new(center.x + half, center.y + half, center.z + half),
+        ]
+    }
+
+    // Generate tick marks (small cubes) along each axis
+    for i in 0..tick_resolution {
+        let fraction = i as f32 / (tick_resolution - 1) as f32;
+        let val = -max_dist + 2.0 * max_dist * fraction;
+        let cube_size = max_dist * 0.02; // Size of tick mark cubes
+
+        // X-axis ticks
+        tick_points.extend(generate_cube_vertices(na::Point3::new(val, 0.0, 0.0), cube_size));
+        // Y-axis ticks
+        tick_points.extend(generate_cube_vertices(na::Point3::new(0.0, val, 0.0), cube_size));
+        // Z-axis ticks
+        tick_points.extend(generate_cube_vertices(na::Point3::new(0.0, 0.0, val), cube_size));
+    }
+
     let mut frame_buffers = Vec::with_capacity(num_frames);
+    let axis_color = Rgba([255u8, 255u8, 255u8, 255u8]);
+    let tick_color = Rgba([128u8, 128u8, 128u8, 255u8]); // Dimmer color for tick marks
 
     for frame_idx in 0..num_frames {
         let angle_deg = (frame_idx as f32) * (360.0 / num_frames as f32);
-
         let mut img: RgbaImage = ImageBuffer::new(width, height);
 
         // Fill background with black
@@ -106,7 +141,15 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             *pixel = Rgba([0, 0, 0, 255]);
         }
 
-        // Draw the axes as continuous lines
+        // Draw tick marks (small cubes)
+        for tick_pt in &tick_points {
+            let rotated_pt = rotate_y(tick_pt, angle_deg);
+            if let Some((px, py)) = project_to_image(&rotated_pt, max_dist, width, height) {
+                img.put_pixel(px, py, tick_color);
+            }
+        }
+
+        // Draw the main axes as thin lines
         for (start, end) in &axes {
             let rotated_start = rotate_y(start, angle_deg);
             let rotated_end = rotate_y(end, angle_deg);
@@ -119,7 +162,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             }
         }
 
-        // Draw each data point
+        // Draw data points
         for pt in points {
             let rotated_pt = rotate_y(&pt.pos, angle_deg);
             if let Some((px, py)) = project_to_image(&rotated_pt, max_dist, width, height) {
@@ -133,7 +176,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         frame_buffers.push(raw_data);
     }
 
-    // Encode frames into GIF
+    // Encode all frames into a GIF
     let mut gif_data = Vec::new();
     {
         let mut encoder = GifEncoder::new(&mut gif_data, width as u16, height as u16, &[])
