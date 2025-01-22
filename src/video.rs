@@ -169,7 +169,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         .fold(0.0_f32, f32::max)
         .max(1.0_f32);
 
-    let num_frames = 648;
+    let num_frames = 1024;
 
     // Original camera parameters in the snippet:
     let camera_distance = 5.5 * max_dist;   // Distance from origin
@@ -279,10 +279,10 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             .set_repeat(Repeat::Infinite)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        // 8 hundredths of a second per frame
+        // 3 hundredths of a second per frame
         for mut raw in frame_buffers {
             let mut frame = GifFrame::from_rgba_speed(width as u16, height as u16, &mut raw, 10);
-            frame.delay = 8;
+            frame.delay = 3;
             encoder
                 .write_frame(&frame)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
