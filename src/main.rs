@@ -209,7 +209,7 @@ fn main() -> io::Result<()> {
             end_node,
         } => {
             let points = embed::embed(*start_node, *end_node, input)?;
-            video::render(points).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+            video::make_video(&points).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
         }
     }
     Ok(())
