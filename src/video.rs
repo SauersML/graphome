@@ -112,7 +112,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Startup: create camera, lights, geometry
     .add_systems(Startup, setup)
     // Main loop: rotate camera, capture frames, exit if done
-    .add_systems(Update, (rotate_camera, capture_frame, check_finished).in_set(OnUpdate));
+    .add_systems(Update, (rotate_camera, capture_frame, check_finished));
 
     // Run the Bevy app until we exit (after capturing all frames)
     app.run();
