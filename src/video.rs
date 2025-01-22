@@ -235,6 +235,8 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
                 &pt.pos,
                 angle_rad,
                 camera_elev_rad,
+                camera_y_rad,
+                camera_z_rad,
                 camera_distance,
                 max_dist,
                 width,
