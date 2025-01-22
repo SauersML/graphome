@@ -122,6 +122,8 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         point: &na::Point3<f32>,
         angle_rad: f32,
         camera_elev: f32,
+        camera_y_rad: f32,
+        camera_z_rad: f32,
         camera_dist: f32,
         max_dist: f32,
         width: u32,
@@ -210,8 +212,8 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         // Draw tick segments
         for (start_pt, end_pt) in &tick_segments {
             if let (Some((sx, sy)), Some((ex, ey))) = (
-                transform_point(start_pt, angle_rad, camera_elev_rad, camera_distance, max_dist, width, height),
-                transform_point(end_pt,   angle_rad, camera_elev_rad, camera_distance, max_dist, width, height),
+                transform_point(start_pt, angle_rad, camera_elev_rad, camera_y_rad, camera_z_rad, camera_distance, max_dist, width, height),
+                transform_point(end_pt,   angle_rad, camera_elev_rad, camera_y_rad, camera_z_rad, camera_distance, max_dist, width, height),
             ) {
                 draw_line(&mut img, (sx, sy), (ex, ey), tick_color);
             }
