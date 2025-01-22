@@ -18,6 +18,7 @@ use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 
 use bevy_capture::{Capture, CaptureBundle, CapturePlugin};
+use bevy_capture::encoder::gif::{GifEncoder, Repeat};
 
 use image::{
     codecs::gif::{GifEncoder, Repeat},
@@ -244,8 +245,8 @@ fn capture_frame(
     if let Ok(mut capture) = capture_query.get_single_mut() {
         if !capture.is_capturing() {
             let file = File::create("output.gif").expect("Failed to create output file");
-            let encoder = bevy_capture::encoder::GifEncoder::new(file)
-                .with_repeat(gif::Repeat::Infinite);
+            let encoder = GifEncoder::new(file)
+                .with_repeat(Repeat::Infinite);
             capture.start(encoder);
         }
         render_resources.frame_count += 1;
