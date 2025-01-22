@@ -245,14 +245,14 @@ fn capture_frame(
     // Start capturing if not already capturing
     if let Ok(mut capture) = capture_query.get_single_mut() {
         if !capture.is_capturing() {
-            let file = File::create("output.gif").expect("Failed to create output file");
-            let encoder = GifEncoder::new(file)
-                .with_repeat(Repeat::Infinite);
-            capture.start(encoder);
+            let output_dir = PathBuf::from("frames");
+            std::fs::create_dir_all(&output_dir).expect("Failed to create output directory");
+            capture.start(FramesEncoder::new(output_dir));
         }
         render_resources.frame_count += 1;
     }
 }
+
 
 
 /// Exits the Bevy app once we've captured enough frames for the GIF.
