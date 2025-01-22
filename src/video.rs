@@ -233,37 +233,18 @@ fn rotate_camera(
 /// Captures the camera image each frame and stores it in a buffer for the GIF.
 fn capture_frame(
     mut render_resources: ResMut<RenderResources>,
-    camera_query: Query<&Capture, With<Camera3d>>,
-    images: Res<Assets<Image>>,
+    mut capture_query: Query<&mut Capture, With<Camera3d>>,
 ) {
     if render_resources.frame_count >= render_resources.total_frames {
         return;
     }
 
-    // We assume only one capturing camera
-    if let Ok(capture_cam) = camera_query.get_single() {
-        if let Some(captured) = capture_cam.capture_image(&images) {
-            let width = captured.texture_descriptor.size.width;
-            let height = captured.texture_descriptor.size.height;
-            let raw_data = &captured.data;
-
-            // Convert GPU RGBA into an RgbaImage
-            let mut rgba_image = match RgbaImage::from_raw(width, height, raw_data.clone()) {
-                Some(img) => img,
-                None => {
-                    eprintln!("Failed to create RgbaImage from GPU data!");
-                    return;
-                }
-            };
-
-            // Flip upside down (common for GPU captures)
-            imageops::flip_vertical_in_place(&mut rgba_image);
-
-            // 16 ms -> ~60 FPS
-            let frame = Frame::from_parts(rgba_image, 0, 0, Delay::from_numer_denom_ms(16, 1));
-            render_resources.frames.push(frame);
-            render_resources.frame_count += 1;
+    // Start capturing if not already capturing
+    if let Ok(mut capture) = capture_query.get_single_mut() {
+        if !capture.is_capturing() {
+            capture.start(encoder::GifEncoder::new("output.gif"));
         }
+        render_resources.frame_count += 1;
     }
 }
 
