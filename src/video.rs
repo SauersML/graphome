@@ -103,7 +103,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
 
     // Camera parameters
     let camera_distance = 2.5 * max_dist;   // Distance from origin
-    let camera_elev_deg: f32 = 30.0;        // Elevation in degrees (more tilt to see all axes better)
+    let camera_elev_deg: f32 = -30.0;        // Elevation in degrees (more tilt to see all axes better)
     let camera_elev_rad = camera_elev_deg.to_radians();
 
     // This function applies the same rotation+projection to any 3D point (axes, ticks, data).
