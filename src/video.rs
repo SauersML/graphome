@@ -16,7 +16,7 @@ use bevy::transform::TransformPlugin;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 
-use bevy_capture::{CaptureCamera, CapturePlugin};
+use bevy_capture::{Capture, CaptureBundle, CapturePlugin};
 
 use image::{
     codecs::gif::{GifEncoder, Repeat},
@@ -100,7 +100,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         CorePipelinePlugin::default(),
         PbrPlugin::default(),
         // Capture plugin for screenshot
-        CapturePlugin::new(),
+        CapturePlugin,
     ))
     // Insert resources
     .insert_resource(RenderResources {
@@ -112,7 +112,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Startup: create camera, lights, geometry
     .add_systems(Startup, setup)
     // Main loop: rotate camera, capture frames, exit if done
-    .add_systems(Update, (rotate_camera, capture_frame, check_finished));
+    .add_systems(Update, (rotate_camera, capture_frame, check_finished).in_set(OnUpdate));
 
     // Run the Bevy app until we exit (after capturing all frames)
     app.run();
@@ -151,7 +151,8 @@ fn setup(
         Camera3d {
             ..Default::default()
         },
-        CaptureCamera::default(),
+        Camera::default(),
+        CaptureBundle::default(),
         Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         GlobalTransform::default(),
     ));
@@ -213,7 +214,7 @@ fn setup(
 /// Rotates the camera around the origin over `total_frames`.
 fn rotate_camera(
     render_resources: Res<RenderResources>,
-    mut camera_query: Query<&mut Transform, (With<Camera3d>, With<CaptureCamera>)>,
+    mut camera_query: Query<&mut Transform, (With<Camera3d>, With<Capture>)>,
 ) {
     // Stop once all frames have been captured
     if render_resources.frame_count >= render_resources.total_frames {
@@ -232,7 +233,7 @@ fn rotate_camera(
 /// Captures the camera image each frame and stores it in a buffer for the GIF.
 fn capture_frame(
     mut render_resources: ResMut<RenderResources>,
-    camera_query: Query<&CaptureCamera, With<Camera3d>>,
+    camera_query: Query<&Capture, With<Camera3d>>,
     images: Res<Assets<Image>>,
 ) {
     if render_resources.frame_count >= render_resources.total_frames {
