@@ -8,19 +8,21 @@ use bevy::core_pipeline::CorePipelinePlugin;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::input::InputPlugin;
 use bevy::log::LogPlugin;
-use bevy::pbr::{PbrPlugin, MaterialMeshBundle};
+use bevy::pbr::{PbrPlugin};
 use bevy::prelude::*;
-use bevy::render::{RenderPlugin, settings::{WgpuSettings, WgpuFeatures, Backends}};
-use bevy::render::mesh::shape;
+use bevy::render::render_resource::PrimitiveTopology;
+use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
+use bevy::render::mesh::Indices;
+use bevy::render::render_resource::RenderAssetUsages;
 
-use bevy_capture::prelude::*;
+use bevy_capture::{CaptureCamera, CapturePlugin};
 
 use image::{
     codecs::gif::{GifEncoder, Repeat},
-    Delay, Frame, ImageError, RgbaImage,
+    imageops, Delay, Frame, ImageError, RgbaImage,
 };
-use image::imageops;
+
 use crate::display::{display_gif, DisplayError};
 use crate::embed::Point3D;
 
@@ -79,93 +81,82 @@ struct PointCloudData {
 /// Renders a spinning 3D view of the given points, captures frames into a GIF,
 /// and displays that GIF in the terminal.
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
-    // Number of frames we want to capture for the GIF.
+    // Number of frames we want to capture for the GIF
     const TOTAL_FRAMES: usize = 60;
 
-    // Build a Bevy app with the necessary plugins for headless 3D rendering
     let mut app = App::new();
 
-    // Configure Vulkan/Metal for headless GPU access
-    let wgpu_settings = WgpuSettings {
-        backends: Some(Backends::VULKAN),
-        features: WgpuFeatures::empty(),
-        ..default()
-    };
+    // Build up the minimal set of plugins for 3D rendering and capturing
+    app.add_plugins((
+        // Minimal base
+        MinimalPlugins,
+        // Logging, transforms, input, assets, rendering, PBR, etc.
+        LogPlugin::default(),
+        TransformPlugin::default(),
+        InputPlugin::default(),
+        DiagnosticsPlugin::default(),
+        AssetPlugin::default(),
+        RenderPlugin::default(),
+        CorePipelinePlugin::default(),
+        PbrPlugin::default(),
+        // Capture plugin for screenshot
+        CapturePlugin::new(),
+    ))
+    // Insert resources
+    .insert_resource(RenderResources {
+        frames: Vec::with_capacity(TOTAL_FRAMES),
+        frame_count: 0,
+        total_frames: TOTAL_FRAMES,
+    })
+    .insert_resource(PointCloudData { points })
+    // Startup: create camera, lights, geometry
+    .add_systems(Startup, setup)
+    // Main loop: rotate camera, capture frames, exit if done
+    .add_systems(Update, (rotate_camera, capture_frame, check_finished).chain());
 
-    app.insert_resource(wgpu_settings)
-        // Add minimal set of plugins needed for headless 3D rendering
-        .add_plugin(LogPlugin::default())
-        .add_plugin(TransformPlugin::default())
-        .add_plugin(InputPlugin::default())
-        .add_plugin(DiagnosticsPlugin::default())
-        .add_plugin(AssetPlugin::default())
-        .add_plugin(RenderPlugin::default())
-        .add_plugin(CorePipelinePlugin::default())
-        .add_plugin(PbrPlugin::default())
-        // Add the capture plugin
-        .add_plugin(CapturePlugin::default())
-        // Resource that collects frames
-        .insert_resource(RenderResources {
-            frames: Vec::with_capacity(TOTAL_FRAMES),
-            frame_count: 0,
-            total_frames: TOTAL_FRAMES,
-        })
-        // Resource with user data
-        .insert_resource(PointCloudData { points })
-        // Set up scene once at startup
-        .add_startup_system(setup)
-        // Rotate the camera each frame
-        .add_system(rotate_camera)
-        // Capture each frame
-        .add_system(capture_frame)
-        // Check if we've finished collecting all frames
-        .add_system(check_finished);
-
-    // Run the Bevy main loop (blocks until exit).
+    // Run the Bevy app until we exit (after capturing all frames)
     app.run();
 
-    // After app exits, collect the frames from the world resource into a GIF.
-    let render_resources = app.world()
+    // After the app exits, retrieve the frames from RenderResources and build a GIF
+    let render_resources = app
+        .world()
         .get_resource::<RenderResources>()
-        .expect("RenderResources missing from World");
+        .expect("RenderResources missing from the World");
 
     let mut gif_data = Vec::new();
     {
         let mut encoder = GifEncoder::new(&mut gif_data);
-        // Loop forever
         encoder.set_repeat(Repeat::Infinite)?;
-        // Encode all frames
+        // Append all frames
         for frame in &render_resources.frames {
             encoder.encode_frame(frame.clone())?;
         }
     }
 
-    // Finally, display the resulting GIF in the terminal.
+    // Display the resulting GIF in the terminal
     display_gif(&gif_data)?;
 
     Ok(())
 }
 
-/// Sets up the scene: spawns a camera (with capture), light, spheres for points, and XYZ axes.
+/// Sets up the scene: spawns camera, lights, point-cloud spheres, and X/Y/Z axes.
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     point_cloud: Res<PointCloudData>,
 ) {
-    // Camera that we'll use for capturing frames.
-    //
-    // - `Camera3d::default()` configures a 3D camera pipeline.
-    // - `CaptureCamera::default()` from bevy_capture marks this camera for screenshot capture.
-    // - We also add a normal `Transform` and `GlobalTransform`.
+    // Camera with capturing
     commands.spawn((
-        Camera3d::default(),
-        CaptureCamera::default(), // from bevy_capture
+        Camera3d {
+            ..Default::default()
+        },
+        CaptureCamera::default(),
         Transform::from_xyz(0.0, 0.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         GlobalTransform::default(),
     ));
 
-    // A point light to illuminate the scene.
+    // Light
     commands.spawn((
         PointLight {
             intensity: 1800.0,
@@ -176,122 +167,272 @@ fn setup(
         GlobalTransform::default(),
     ));
 
-    // Spawn small spheres for each point in the data
+    // For each embedded point, spawn a small sphere
     for point in &point_cloud.points {
-        commands.spawn(MaterialMeshBundle {
-            mesh: meshes.add(Mesh::from(shape::UVSphere {
-                radius: 0.05,
-                sectors: 16,
-                stacks: 16,
-            })),
-            material: materials.add(StandardMaterial {
-                // Use sRGB for correct color
+        commands.spawn((
+            // A sphere mesh
+            Mesh3d(meshes.add(create_sphere_mesh(0.05, 16, 16))),
+            // Painted standard material
+            MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: Color::srgb_u8(
                     point.color.0[0],
                     point.color.0[1],
-                    point.color.0[2]
+                    point.color.0[2],
                 ),
-                unlit: false, // or true if you want no lighting
-                ..default()
-            }),
-            transform: Transform::from_xyz(point.pos.x, point.pos.y, point.pos.z),
-            ..default()
-        });
-    }
-
-    // Draw X/Y/Z axes as colored cylinders, each 10 units long
-    let axes = [
-        (Vec3::X, Color::RED),
-        (Vec3::Y, Color::GREEN),
-        (Vec3::Z, Color::BLUE),
-    ];
-    for (direction, color) in axes {
-        commands.spawn(MaterialMeshBundle {
-            mesh: meshes.add(Mesh::from(shape::Cylinder {
-                radius: 0.02,
-                height: 10.0,
+                unlit: false,
                 ..default()
             })),
-            material: materials.add(StandardMaterial {
+            // Position from the point data
+            Transform::from_xyz(point.pos.x, point.pos.y, point.pos.z),
+            GlobalTransform::default(),
+        ));
+    }
+
+    // Build three colored cylinders for X/Y/Z axes
+    let axes = [
+        (Vec3::X, Color::rgb(1.0, 0.0, 0.0)), // red
+        (Vec3::Y, Color::rgb(0.0, 1.0, 0.0)), // green
+        (Vec3::Z, Color::rgb(0.0, 0.0, 1.0)), // blue
+    ];
+
+    for (direction, color) in axes {
+        commands.spawn((
+            Mesh3d(meshes.add(create_cylinder_mesh(0.02, 10.0, 16))),
+            MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: color,
                 unlit: true,
                 ..default()
-            }),
-            transform: Transform::default().looking_to(direction, Vec3::Y),
-            ..default()
-        });
+            })),
+            // Start at origin, orient along direction
+            Transform::default().looking_to(direction, Vec3::Y),
+            GlobalTransform::default(),
+        ));
     }
 }
 
-/// System to rotate the camera around the origin across `total_frames`.
+/// Rotates the camera around the origin over `total_frames`.
 fn rotate_camera(
     render_resources: Res<RenderResources>,
     mut camera_query: Query<&mut Transform, (With<Camera3d>, With<CaptureCamera>)>,
 ) {
-    // If done capturing, no need to move camera
+    // Stop once all frames have been captured
     if render_resources.frame_count >= render_resources.total_frames {
         return;
     }
 
-    // Calculate fraction of full rotation based on how many frames we've captured so far
     let fraction = render_resources.frame_count as f32 / render_resources.total_frames as f32;
     let angle = fraction * std::f32::consts::TAU;
 
-    // Move camera in a circle around the origin, slightly above on Y
     if let Ok(mut transform) = camera_query.get_single_mut() {
         transform.translation = Vec3::new(15.0 * angle.cos(), 5.0, 15.0 * angle.sin());
         transform.look_at(Vec3::ZERO, Vec3::Y);
     }
 }
 
-/// Captures the current camera image each frame. We store it as a `Frame` for GIF encoding.
+/// Captures the camera image each frame and stores it in a buffer for the GIF.
 fn capture_frame(
     mut render_resources: ResMut<RenderResources>,
     camera_query: Query<&CaptureCamera, With<Camera3d>>,
     images: Res<Assets<Image>>,
 ) {
-    // If we've already captured all desired frames, skip
     if render_resources.frame_count >= render_resources.total_frames {
         return;
     }
 
-    // We only have one capturing camera. Try to get it.
+    // We assume only one capturing camera
     if let Ok(capture_cam) = camera_query.get_single() {
-        // Attempt to retrieve the latest captured frame from GPU
         if let Some(captured) = capture_cam.capture_image(&images) {
             let width = captured.texture_descriptor.size.width;
             let height = captured.texture_descriptor.size.height;
             let raw_data = &captured.data;
 
-            // The GPU returns RGBA bytes.
-            // Convert that to a RgbaImage from the `image` crate:
+            // Convert GPU RGBA into an RgbaImage
             let mut rgba_image = match RgbaImage::from_raw(width, height, raw_data.clone()) {
                 Some(img) => img,
                 None => {
-                    eprintln!("Failed to create RgbaImage from raw GPU data!");
+                    eprintln!("Failed to create RgbaImage from GPU data!");
                     return;
                 }
             };
 
-            // Many GPU captures come in "upside-down" (Y=0 at top). Flip vertically.
+            // Flip upside down (common for GPU captures)
             imageops::flip_vertical_in_place(&mut rgba_image);
 
-            // Insert it into an animated Frame, ~16ms (60 FPS).
+            // 16 ms -> ~60 FPS
             let frame = Frame::from_parts(rgba_image, 0, 0, Delay::from_numer_denom_ms(16, 1));
-
-            // Store in our resource to assemble into a GIF later
             render_resources.frames.push(frame);
             render_resources.frame_count += 1;
         }
     }
 }
 
-/// Checks if we've captured all frames, and if so requests an exit from the App.
-fn check_finished(
-    render_resources: Res<RenderResources>,
-    mut exit: EventWriter<AppExit>,
-) {
+/// Exits the Bevy app once we've captured enough frames for the GIF.
+fn check_finished(render_resources: Res<RenderResources>, mut exit: EventWriter<AppExit>) {
     if render_resources.frame_count >= render_resources.total_frames {
-        exit.send(AppExit {});
+        exit.send(AppExit::Success);
     }
+}
+
+/// Creates a simple sphere mesh (latitude-longitude) with the given radius/segments/rings.
+fn create_sphere_mesh(radius: f32, segments: u32, rings: u32) -> Mesh {
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    for lat_i in 0..=rings {
+        let lat = lat_i as f32 * std::f32::consts::PI / rings as f32;
+        let sin_lat = lat.sin();
+        let cos_lat = lat.cos();
+
+        for long_i in 0..=segments {
+            let long = long_i as f32 * 2.0 * std::f32::consts::PI / segments as f32;
+            let sin_long = long.sin();
+            let cos_long = long.cos();
+
+            let x = cos_long * sin_lat;
+            let y = cos_lat;
+            let z = sin_long * sin_lat;
+
+            positions.push([radius * x, radius * y, radius * z]);
+            normals.push([x, y, z]);
+            // approximate UVs
+            uvs.push([long / (2.0 * std::f32::consts::PI), 1.0 - (lat / std::f32::consts::PI)]);
+        }
+    }
+
+    // Construct indices
+    for lat_i in 0..rings {
+        for long_i in 0..segments {
+            let first = lat_i * (segments + 1) + long_i;
+            let second = first + segments + 1;
+            indices.push(first);
+            indices.push(second);
+            indices.push(first + 1);
+            indices.push(second);
+            indices.push(second + 1);
+            indices.push(first + 1);
+        }
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Some(Indices::U32(indices)));
+    mesh
+}
+
+/// Creates a simple cylinder mesh aligned along +Y (height in Y).
+/// `segments` is how many subdivisions for the circular cross-section.
+fn create_cylinder_mesh(radius: f32, height: f32, segments: u32) -> Mesh {
+    let half_h = height / 2.0;
+
+    // We'll build a top circle and bottom circle, plus side quads
+    let mut positions = Vec::new();
+    let mut normals = Vec::new();
+    let mut uvs = Vec::new();
+    let mut indices = Vec::new();
+
+    // We generate the top/bottom circles
+    // We'll store ring of vertices for top, ring for bottom, plus a center vertex for each.
+    let top_center_idx = 0;
+    let bottom_center_idx = 1;
+    let start_ring_top = 2;
+    let start_ring_bottom = 2 + segments;
+
+    // We'll place a dummy at index 0 for top center, index 1 for bottom center
+    positions.push([0.0, half_h, 0.0]);  // top center
+    normals.push([0.0, 1.0, 0.0]);
+    uvs.push([0.5, 0.5]);
+
+    positions.push([0.0, -half_h, 0.0]); // bottom center
+    normals.push([0.0, -1.0, 0.0]);
+    uvs.push([0.5, 0.5]);
+
+    // build ring for top
+    for i in 0..segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let (sin_a, cos_a) = (angle.sin(), angle.cos());
+        let x = radius * cos_a;
+        let z = radius * sin_a;
+
+        positions.push([x, half_h, z]);
+        normals.push([0.0, 1.0, 0.0]);
+        uvs.push([(cos_a * 0.5) + 0.5, (sin_a * 0.5) + 0.5]);
+    }
+
+    // build ring for bottom
+    for i in 0..segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let (sin_a, cos_a) = (angle.sin(), angle.cos());
+        let x = radius * cos_a;
+        let z = radius * sin_a;
+
+        positions.push([x, -half_h, z]);
+        normals.push([0.0, -1.0, 0.0]);
+        uvs.push([(cos_a * 0.5) + 0.5, (sin_a * 0.5) + 0.5]);
+    }
+
+    // Indices for top circle
+    for i in 0..segments {
+        let ring_idx = start_ring_top + i;
+        let next = start_ring_top + ((i + 1) % segments);
+        indices.push(top_center_idx);
+        indices.push(ring_idx);
+        indices.push(next);
+    }
+
+    // Indices for bottom circle
+    for i in 0..segments {
+        let ring_idx = start_ring_bottom + i;
+        let next = start_ring_bottom + ((i + 1) % segments);
+        indices.push(bottom_center_idx);
+        indices.push(next);
+        indices.push(ring_idx);
+    }
+
+    // Now the side. We'll store these in separate arrays because
+    // the top ring & bottom ring have different normals. We want side normals outward.
+    let side_start = positions.len() as u32;
+
+    for i in 0..segments {
+        let angle = 2.0 * std::f32::consts::PI * i as f32 / segments as f32;
+        let (sin_a, cos_a) = (angle.sin(), angle.cos());
+        let x = radius * cos_a;
+        let z = radius * sin_a;
+
+        // top vertex
+        positions.push([x, half_h, z]);
+        normals.push([cos_a, 0.0, sin_a]);
+        uvs.push([i as f32 / segments as f32, 0.0]);
+
+        // bottom vertex
+        positions.push([x, -half_h, z]);
+        normals.push([cos_a, 0.0, sin_a]);
+        uvs.push([i as f32 / segments as f32, 1.0]);
+    }
+
+    // side indices
+    for i in 0..segments {
+        let top0 = side_start + i * 2;
+        let bot0 = top0 + 1;
+        let top1 = side_start + ((i + 1) % segments) * 2;
+        let bot1 = top1 + 1;
+
+        // quad for side: (top0, bot0, top1), (top1, bot0, bot1)
+        indices.push(top0);
+        indices.push(bot0);
+        indices.push(top1);
+        indices.push(top1);
+        indices.push(bot0);
+        indices.push(bot1);
+    }
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Some(Indices::U32(indices)));
+    mesh
 }
