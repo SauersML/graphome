@@ -172,7 +172,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
     let num_frames = 648;
 
     // Original camera parameters in the snippet:
-    let camera_distance = 2.5 * max_dist;   // Distance from origin
+    let camera_distance = 5.5 * max_dist;   // Distance from origin
     let camera_elev_deg: f32 = -30.0;       // Elevation in degrees (X-axis tilt)
     let camera_y_deg: f32 = 10.0;          // Y-axis tilt
     let camera_z_deg: f32 = 5.0;           // Z-axis tilt
