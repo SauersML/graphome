@@ -1,5 +1,3 @@
-// src/video.rs
-
 use crate::display::{display_gif, DisplayError};
 use crate::embed::Point3D;
 use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat};
@@ -7,34 +5,65 @@ use image::{ImageBuffer, Rgba, RgbaImage};
 use nalgebra as na;
 use std::io::Cursor;
 
-/// Creates a rotating 3D plot of the given points, draws simple XYZ axes, encodes it as a GIF,
-/// and displays it in the terminal. No ticks are drawn on the axes.
+/// Draws a line between two points using Bresenham's algorithm
+fn draw_line(
+    img: &mut RgbaImage,
+    (x0, y0): (u32, u32),
+    (x1, y1): (u32, u32),
+    color: Rgba<u8>,
+) {
+    let (mut x0, mut y0) = (x0 as i32, y0 as i32);
+    let (x1, y1) = (x1 as i32, y1 as i32);
+    
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    let width = img.width() as i32;
+    let height = img.height() as i32;
+    
+    loop {
+        if x0 >= 0 && x0 < width && y0 >= 0 && y0 < height {
+            img.put_pixel(x0 as u32, y0 as u32, color);
+        }
+        
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+/// Creates a rotating 3D plot of the given points, draws continuous XYZ axes, encodes it as a GIF,
+/// and displays it in the terminal.
 pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
-    // Determine a bounding distance so all points (and axes) fit in view.
-    // This will be used to scale and center the plot.
     let max_dist = points
         .iter()
         .map(|p| p.pos.coords.norm())
         .fold(0.0_f32, f32::max)
         .max(1.0_f32);
 
-    // Number of frames for the 360-degree rotation around the Y-axis.
-    // 36 frames => each frame is 10 degrees => a full rotation for a looping GIF.
     let num_frames = 36;
-
-    // Dimensions of each GIF frame in pixels.
     let width = 400;
     let height = 400;
 
-    // Helper to rotate a 3D point around the Y-axis by a given angle (degrees).
     fn rotate_y(point: &na::Point3<f32>, angle_deg: f32) -> na::Point3<f32> {
         let angle_rad = angle_deg.to_radians();
         let rotation = na::Rotation3::from_euler_angles(0.0, angle_rad, 0.0);
         rotation.transform_point(point)
     }
 
-    // Helper to project a 3D point (after rotation) into 2D coordinates in the image.
-    // Uses an orthographic projection and centers the image so origin is in the middle.
     fn project_to_image(
         p: &na::Point3<f32>,
         max_dist: f32,
@@ -45,10 +74,8 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         let half_h = height as f32 / 2.0;
 
         let x_img = half_w + (p.x / max_dist) * half_w;
-        // Flip Y so positive is upward in the image (instead of downward).
         let y_img = half_h - (p.y / max_dist) * half_h;
 
-        // Only draw if within the image bounds.
         if x_img < 0.0 || y_img < 0.0 || x_img >= width as f32 || y_img >= height as f32 {
             None
         } else {
@@ -56,56 +83,43 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
     }
 
-    // Build axes as sets of points. Each axis goes from -max_dist to +max_dist.
-    // We'll sample each axis in small increments so it appears like a line.
+    // Define axis endpoints
     let axis_color = Rgba([255u8, 255u8, 255u8, 255u8]);
-    let axis_resolution = 60;
-    let mut axis_points: Vec<na::Point3<f32>> = Vec::new();
+    let axes = [
+        // X-axis: from (-max_dist, 0, 0) to (max_dist, 0, 0)
+        (na::Point3::new(-max_dist, 0.0, 0.0), na::Point3::new(max_dist, 0.0, 0.0)),
+        // Y-axis: from (0, -max_dist, 0) to (0, max_dist, 0)
+        (na::Point3::new(0.0, -max_dist, 0.0), na::Point3::new(0.0, max_dist, 0.0)),
+        // Z-axis: from (0, 0, -max_dist) to (0, 0, max_dist)
+        (na::Point3::new(0.0, 0.0, -max_dist), na::Point3::new(0.0, 0.0, max_dist)),
+    ];
 
-    // X-axis
-    for i in 0..axis_resolution {
-        let fraction = i as f32 / (axis_resolution - 1) as f32;
-        let val = -max_dist + 2.0 * max_dist * fraction;
-        axis_points.push(na::Point3::new(val, 0.0, 0.0));
-    }
-
-    // Y-axis
-    for i in 0..axis_resolution {
-        let fraction = i as f32 / (axis_resolution - 1) as f32;
-        let val = -max_dist + 2.0 * max_dist * fraction;
-        axis_points.push(na::Point3::new(0.0, val, 0.0));
-    }
-
-    // Z-axis
-    for i in 0..axis_resolution {
-        let fraction = i as f32 / (axis_resolution - 1) as f32;
-        let val = -max_dist + 2.0 * max_dist * fraction;
-        axis_points.push(na::Point3::new(0.0, 0.0, val));
-    }
-
-    // We will store the raw RGBA data for each frame here before encoding.
     let mut frame_buffers = Vec::with_capacity(num_frames);
 
     for frame_idx in 0..num_frames {
         let angle_deg = (frame_idx as f32) * (360.0 / num_frames as f32);
 
-        // Create a blank image for this frame.
         let mut img: RgbaImage = ImageBuffer::new(width, height);
 
-        // Fill background with black.
+        // Fill background with black
         for pixel in img.pixels_mut() {
             *pixel = Rgba([0, 0, 0, 255]);
         }
 
-        // Draw the axes by rotating each axis point, then projecting.
-        for axis_pt in &axis_points {
-            let rotated_pt = rotate_y(axis_pt, angle_deg);
-            if let Some((px, py)) = project_to_image(&rotated_pt, max_dist, width, height) {
-                img.put_pixel(px, py, axis_color);
+        // Draw the axes as continuous lines
+        for (start, end) in &axes {
+            let rotated_start = rotate_y(start, angle_deg);
+            let rotated_end = rotate_y(end, angle_deg);
+            
+            if let (Some(start_px), Some(end_px)) = (
+                project_to_image(&rotated_start, max_dist, width, height),
+                project_to_image(&rotated_end, max_dist, width, height),
+            ) {
+                draw_line(&mut img, start_px, end_px, axis_color);
             }
         }
 
-        // Draw each data point.
+        // Draw each data point
         for pt in points {
             let rotated_pt = rotate_y(&pt.pos, angle_deg);
             if let Some((px, py)) = project_to_image(&rotated_pt, max_dist, width, height) {
@@ -115,28 +129,22 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             }
         }
 
-        // Convert image into raw RGBA data and store.
         let raw_data = img.into_raw();
         frame_buffers.push(raw_data);
     }
 
-    // Encode all frames into a GIF using the 'gif' crate directly.
+    // Encode frames into GIF
     let mut gif_data = Vec::new();
     {
-        // We need to create a GIF encoder with the given width/height.
         let mut encoder = GifEncoder::new(&mut gif_data, width as u16, height as u16, &[])
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        // Repeat infinitely.
         encoder
             .set_repeat(Repeat::Infinite)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        // Write each frame.
         for mut raw in frame_buffers {
-            // Each frame is RGBA, so we can build a Frame using gif::Frame::from_rgba_speed.
             let mut frame = GifFrame::from_rgba_speed(width as u16, height as u16, &mut raw, 10);
-            // Delay is in 1/100ths of a second. 5 => 50 ms => ~20 FPS.
             frame.delay = 5;
             encoder
                 .write_frame(&frame)
@@ -144,7 +152,6 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
     }
 
-    // Finally, display the GIF in the terminal.
     display_gif(&gif_data)?;
 
     Ok(())
