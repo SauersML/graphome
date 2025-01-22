@@ -1,11 +1,9 @@
 use std::fmt;
-use std::fs::File;
-use std::io::{self, Write};
-use nalgebra::{Matrix4, Point3, Rotation3, Vector3};
+use std::io;
+use bevy::prelude::*;
 use image::{
     ImageBuffer,
     Rgb,
-    Rgba,
     RgbaImage,
     DynamicImage,
     ImageError,
@@ -53,155 +51,165 @@ impl From<DisplayError> for VideoError {
     }
 }
 
+#[derive(Resource)]
+struct RenderResources {
+    frames: Vec<Frame>,
+    frame_count: usize,
+    total_frames: usize,
+}
+
+#[derive(Resource)]
+struct PointCloudData {
+    points: Vec<Point3D>,
+}
+
 pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
-    const WIDTH: u32 = 1600;
-    const HEIGHT: u32 = 1200;
     const TOTAL_FRAMES: usize = 60;
-    const FOV: f32 = std::f32::consts::PI / 3.0; // 60 degrees
+
+    let mut app = App::new();
     
-    let mut frames = Vec::with_capacity(TOTAL_FRAMES);
-    let camera_pos = Point3::new(0.0, 0.0, -15.0);
-    let look_at = Point3::new(0.0, 0.0, 0.0);
-    let up = Vector3::y();
-    let view = Matrix4::look_at_rh(&camera_pos, &look_at, &up);
+    app.add_plugins((
+        MinimalPlugins,
+        RenderPlugin::default(),
+        AssetPlugin::default()
+    ))
+    .insert_resource(RenderResources {
+        frames: Vec::with_capacity(TOTAL_FRAMES),
+        frame_count: 0,
+        total_frames: TOTAL_FRAMES,
+    })
+    .insert_resource(PointCloudData { points })
+    .add_systems(Startup, setup)
+    .add_systems(Update, (rotate_scene, capture_frame));
 
-    println!("Rendering {} frames...", TOTAL_FRAMES);
+    app.run();
 
-    for frame_num in 0..TOTAL_FRAMES {
-        let progress = (frame_num + 1) as f32 / TOTAL_FRAMES as f32;
-        let angle = progress * 2.0 * std::f32::consts::PI;
-        let rotation = Rotation3::from_euler_angles(angle, angle * 0.5, 0.0);
-
-        let mut img = ImageBuffer::new(WIDTH, HEIGHT);
-        let mut z_buffer = vec![f32::INFINITY; (WIDTH * HEIGHT) as usize];
-
-        // Draw axes first
-        draw_axes(&mut img, WIDTH, HEIGHT, &rotation, &view, &mut z_buffer, FOV);
-
-        // Draw points
-        for point in &points {
-            let rotated = rotation.transform_point(&point.pos);
-            if let Some((sx, sy, depth)) = project(view, rotated.coords, WIDTH, HEIGHT, FOV) {
-                render_point(&mut img, &mut z_buffer, sx, sy, depth, point.color);
-            }
-        }
-
-        frames.push(Frame::from_parts(
-            DynamicImage::ImageRgb8(img).to_rgba8(),
-            0, 0,
-            Delay::from_numer_denom_ms(16, 1)
-        ));
-    }
-
+    let render_resources = app.world().resource::<RenderResources>();
+    
     let mut gif_data = Vec::new();
     {
         let mut encoder = GifEncoder::new(&mut gif_data);
         encoder.set_repeat(Repeat::Infinite)?;
-        for frame in frames {
-            encoder.encode_frame(frame)?;
+        for frame in &render_resources.frames {
+            encoder.encode_frame(frame.clone())?;
         }
     }
 
-    File::create("graph.gif")?.write_all(&gif_data)?;
     display_gif(&gif_data)?;
 
     Ok(())
 }
 
-fn draw_axes(
-    img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
-    width: u32,
-    height: u32,
-    rotation: &Rotation3<f32>,
-    view: &Matrix4<f32>,
-    z_buffer: &mut [f32],
-    fov: f32,
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    point_cloud: Res<PointCloudData>,
 ) {
-    const AXIS_LENGTH: f32 = 10.0;
-    const AXIS_STEPS: i32 = 200;
+    commands.spawn(Camera3dBundle {
+        transform: Transform::from_xyz(0.0, 0.0, 15.0)
+            .looking_at(Vec3::ZERO, Vec3::Y),
+        ..default()
+    });
 
-    let axes = [
-        (Vector3::x(), Rgb([255, 0, 0])),   // Red X
-        (Vector3::y(), Rgb([0, 255, 0])),   // Green Y
-        (Vector3::z(), Rgb([0, 0, 255]))    // Blue Z
+    commands.spawn(PointLightBundle {
+        point_light: PointLight {
+            intensity: 1500.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        transform: Transform::from_xyz(4.0, 8.0, 4.0),
+        ..default()
+    });
+
+    for point in &point_cloud.points {
+        commands.spawn(PbrBundle {
+            mesh: Mesh3d(meshes.add(Mesh::from(bevy::prelude::shape::UVSphere {
+                radius: 0.05,
+                ..default()
+            }))),
+            material: MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::rgb_u8(
+                    point.color.0[0],
+                    point.color.0[1],
+                    point.color.0[2]
+                ),
+                unlit: true,
+                ..default()
+            })),
+            transform: Transform::from_xyz(
+                point.pos.x,
+                point.pos.y,
+                point.pos.z,
+            ),
+            ..default()
+        });
+    }
+
+    let axes_data = [
+        (Vec3::X, Color::rgb(1.0, 0.0, 0.0)),
+        (Vec3::Y, Color::rgb(0.0, 1.0, 0.0)),
+        (Vec3::Z, Color::rgb(0.0, 0.0, 1.0)),
     ];
 
-    for (dir, color) in axes {
-        for t in (-AXIS_STEPS..=AXIS_STEPS).map(|t| {
-            t as f32 / AXIS_STEPS as f32 * AXIS_LENGTH
-        }) {
-            let world_pos = rotation * (dir * t);
-            if let Some((sx, sy, depth)) = project(*view, world_pos, width, height, fov) {
-                let idx = (sy * width + sx) as usize;
-                if depth < z_buffer[idx] {
-                    z_buffer[idx] = depth;
-                    img.put_pixel(sx, sy, color);
-                }
-            }
-        }
+    for (direction, color) in axes_data {
+        commands.spawn(PbrBundle {
+            mesh: Mesh3d(meshes.add(Mesh::from(bevy::prelude::shape::Cylinder {
+                radius: 0.02,
+                height: 10.0,
+                ..default()
+            }))),
+            material: MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: color,
+                unlit: true,
+                ..default()
+            })),
+            transform: Transform::from_xyz(0.0, 0.0, 0.0)
+                .looking_to(direction, Vec3::Y),
+            ..default()
+        });
     }
 }
 
-fn project(
-    view: Matrix4<f32>,
-    point: Vector3<f32>,
-    width: u32,
-    height: u32,
-    fov: f32,
-) -> Option<(u32, u32, f32)> {
-    let view_point = view.transform_vector(&point);
-    
-    // Cull points behind camera
-    if view_point.z >= 0.0 {
-        return None;
-    }
-
-    let aspect = width as f32 / height as f32;
-    let f = 1.0 / (fov * 0.5).tan();
-
-    // Perspective projection
-    let x_ndc = (f * view_point.x) / (aspect * -view_point.z);
-    let y_ndc = (f * view_point.y) / -view_point.z;
-
-    // Convert to screen coordinates (center at (width/2, height/2))
-    let sx = ((x_ndc + 1.0) * 0.5 * width as f32).clamp(0.0, width as f32 - 1.0) as u32;
-    let sy = ((1.0 - y_ndc) * 0.5 * height as f32).clamp(0.0, height as f32 - 1.0) as u32;
-
-    Some((sx, sy, -view_point.z))
-}
-
-fn render_point(
-    img: &mut ImageBuffer<Rgb<u8>, Vec<u8>>,
-    z_buffer: &mut [f32],
-    x: u32,
-    y: u32,
-    depth: f32,
-    color: Rgb<u8>,
+fn rotate_scene(
+    time: Res<Time>,
+    mut camera_query: Query<&mut Transform, With<Camera>>,
+    mut render_resources: ResMut<RenderResources>,
 ) {
-    // Draw 2x2 pixel square for visibility
-    for dx in 0..2 {
-        for dy in 0..2 {
-            let px = x.saturating_add(dx).min(img.width() - 1);
-            let py = y.saturating_add(dy).min(img.height() - 1);
-            let idx = (py * img.width() + px) as usize;
-            if depth < z_buffer[idx] {
-                z_buffer[idx] = depth;
-                img.put_pixel(px, py, color);
-            }
-        }
+    if render_resources.frame_count >= render_resources.total_frames {
+        return;
+    }
+
+    let angle = (render_resources.frame_count as f32 / render_resources.total_frames as f32) 
+        * 2.0 * std::f32::consts::PI;
+
+    for mut transform in camera_query.iter_mut() {
+        transform.translation = Vec3::new(
+            15.0 * angle.cos(),
+            5.0,
+            15.0 * angle.sin(),
+        );
+        transform.look_at(Vec3::ZERO, Vec3::Y);
     }
 }
 
-fn get_tick_coordinates(center_x: u32, center_y: u32, size: u32, axis: char) -> Option<Vec<(u32, u32)>> {
-    let mut coords = Vec::new();
-    let x_start = center_x.saturating_sub(size);
-    let y_start = center_y.saturating_sub(size);
-    
-    match axis {
-        'x' => (0..=size*2).for_each(|dx| coords.push((x_start + dx, center_y))),
-        'y' | 'z' => (0..=size*2).for_each(|dy| coords.push((center_x, y_start + dy))),
-        _ => return None
+fn capture_frame(
+    mut render_resources: ResMut<RenderResources>
+) {
+    if render_resources.frame_count >= render_resources.total_frames {
+        return;
     }
+
+    let image_buffer = ImageBuffer::new(1600, 1200);
+    let rgba_image = DynamicImage::ImageRgb8(image_buffer).to_rgba8();
     
-    Some(coords)
+    let frame = Frame::from_parts(
+        rgba_image,
+        0,
+        0,
+        Delay::from_numer_denom_ms(16, 1)
+    );
+
+    render_resources.frames.push(frame);
+    render_resources.frame_count += 1;
 }
