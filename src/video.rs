@@ -89,21 +89,19 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
 
     let mut app = App::new();
 
-    app.add_plugins((
-        MinimalPlugins,
-        LogPlugin::default(),
-        TransformPlugin::default(),
-        InputPlugin::default(),
-        DiagnosticsPlugin::default(),
-        AssetPlugin::default(),
-        RenderPlugin::default(),
-        CorePipelinePlugin::default(),
-        PbrPlugin::default(),
-        ImagePlugin::default(),
-        CapturePlugin,
-    ))
-    // Explicitly initialize Assets<Image>
-    .init_resource::<Assets<Image>>()
+    // plugin setup for headless rendering
+    app.add_plugins(MinimalPlugins)
+        .add_plugin(AssetPlugin::default())
+        .add_plugin(ImagePlugin::default())
+        .add_plugin(LogPlugin::default())
+        .add_plugin(TransformPlugin::default())
+        .add_plugin(RenderPlugin::default())
+        .add_plugin(CorePipelinePlugin::default())
+        .add_plugin(PbrPlugin::default())
+        .add_plugin(CapturePlugin);
+
+    // Remove the manual init_resource::<Assets<Image>>()
+    // Keep the rest of your resource setup
     .insert_resource(RenderResources {
         frames: Vec::with_capacity(TOTAL_FRAMES),
         frame_count: 0,
