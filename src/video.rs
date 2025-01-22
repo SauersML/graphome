@@ -18,7 +18,7 @@ use bevy::transform::TransformPlugin;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
 
-use bevy_capture::{Capture, CaptureBundle, CapturePlugin};
+use bevy_capture::{Capture, CaptureBundle, CapturePlugin, CameraTargetHeadless};
 use bevy_capture::encoder::frames::FramesEncoder;
 
 use image::{
