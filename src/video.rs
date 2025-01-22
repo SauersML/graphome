@@ -60,8 +60,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     const FOV: f32 = std::f32::consts::PI / 3.0; // 60 degrees
     
     let mut frames = Vec::with_capacity(TOTAL_FRAMES);
-    let camera_pos = Point3::new(0.0, 0.0, 15.0); // Centered camera
-    let look_at = Point3::origin();
+    let camera_pos = Point3::new(0.0, 0.0, -15.0);
     let up = Vector3::y();
     let view = Matrix4::look_at_rh(&camera_pos, &look_at, &up);
 
@@ -152,7 +151,7 @@ fn project(
     let view_point = view.transform_vector(&point);
     
     // Cull points behind camera
-    if view_point.z <= 0.0 {
+    if view_point.z >= 0.0 {
         return None;
     }
 
