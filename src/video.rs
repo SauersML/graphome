@@ -17,6 +17,7 @@ use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
 use bevy::render::mesh::Indices;
 use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::texture::ImagePlugin;
 
 use bevy_capture::{Capture, CaptureBundle, CapturePlugin, CameraTargetHeadless};
 use bevy_capture::encoder::frames::FramesEncoder;
@@ -98,6 +99,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
         RenderPlugin::default(),
         CorePipelinePlugin::default(),
         PbrPlugin::default(),
+        ImagePlugin::default(),
         CapturePlugin,
     ))
     // Explicitly initialize Assets<Image>
