@@ -39,7 +39,6 @@ bevy_capture = "0.2.0"
 bevy = { version = "0.15.1", default-features = false, features = [
     "png",
     "serialize",
-    "render",
     "subpixel_glyph_atlas"
 ]}
 
