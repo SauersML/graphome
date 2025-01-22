@@ -279,10 +279,10 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             .set_repeat(Repeat::Infinite)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        // 3 hundredths of a second per frame
+        // 1 hundredth of a second per frame
         for mut raw in frame_buffers {
             let mut frame = GifFrame::from_rgba_speed(width as u16, height as u16, &mut raw, 10);
-            frame.delay = 3;
+            frame.delay = 1;
             encoder
                 .write_frame(&frame)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
