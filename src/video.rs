@@ -147,6 +147,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     point_cloud: Res<PointCloudData>,
 ) {
     // Camera with capturing
