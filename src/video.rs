@@ -14,7 +14,7 @@ use bevy::render::render_resource::PrimitiveTopology;
 use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
 use bevy::render::mesh::Indices;
-use bevy::render::render_resource::RenderAssetUsages;
+use bevy::render::render_asset::RenderAssetUsages;
 
 use bevy_capture::{CaptureCamera, CapturePlugin};
 
@@ -112,7 +112,7 @@ pub fn render(points: Vec<Point3D>) -> Result<(), VideoError> {
     // Startup: create camera, lights, geometry
     .add_systems(Startup, setup)
     // Main loop: rotate camera, capture frames, exit if done
-    .add_systems(Update, (rotate_camera, capture_frame, check_finished).chain());
+    .add_systems(Update, (rotate_camera, capture_frame, check_finished));
 
     // Run the Bevy app until we exit (after capturing all frames)
     app.run();
@@ -190,9 +190,9 @@ fn setup(
 
     // Build three colored cylinders for X/Y/Z axes
     let axes = [
-        (Vec3::X, Color::rgb(1.0, 0.0, 0.0)), // red
-        (Vec3::Y, Color::rgb(0.0, 1.0, 0.0)), // green
-        (Vec3::Z, Color::rgb(0.0, 0.0, 1.0)), // blue
+        (Vec3::X, Color::srgb(1.0, 0.0, 0.0)), // red
+        (Vec3::Y, Color::srgb(0.0, 1.0, 0.0)), // green
+        (Vec3::Z, Color::srgb(0.0, 0.0, 1.0)), // blue
     ];
 
     for (direction, color) in axes {
@@ -319,7 +319,7 @@ fn create_sphere_mesh(radius: f32, segments: u32, rings: u32) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Some(Indices::U32(indices)));
+    mesh.insert_indices(Indices::U32(indices));
     mesh
 }
 
@@ -433,6 +433,6 @@ fn create_cylinder_mesh(radius: f32, height: f32, segments: u32) -> Mesh {
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
     mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
-    mesh.insert_indices(Some(Indices::U32(indices)));
+    mesh.insert_indices(Indices::U32(indices));
     mesh
 }
