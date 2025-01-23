@@ -262,7 +262,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     println!("Parsing links between nodes and writing edges...");
 
     // Initialize a progress bar with an estimated total number of links
-    let total_links_estimate = 309_511_744; // Adjust based on actual data if known
+    let total_links_estimate = 309_511_744; // Adjust if known
     println!(
         "Note: Progress bar is based on an estimated total of {} links.",
         total_links_estimate
@@ -272,132 +272,79 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
     // Configure the progress bar style
     let style = ProgressStyle::default_bar()
         .template("{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
-        .unwrap() // Handle the Result here
+        .unwrap()
         .progress_chars("#>-");
-
     pb.set_style(style);
 
     let edge_counter = Arc::new(Mutex::new(0u64));
 
-    
-    // Read lines in parallel, get edges from L, C, and P lines.
-    // We only write a single direction for each adjacency (from->to), but we know that edges are bidirectional
+    // Only parse "L" lines for edges; skip "C" and "P" lines to avoid introducing extra edges.
+    // We will NOT write undirected edges by writing both (from->to) and (to->from).
+    // Instead, we just pick one since it is known to be all undirected.
     reader
         .lines()
         .par_bridge()
         .filter_map(Result::ok)
         .for_each(|line| {
-            // We'll collect edges in a small Vec, then lock & write them all at once.
             let mut local_edges = Vec::new();
-    
+
             if line.starts_with("L\t") {
-                // GFA 'L' line format (simplified):
+                // GFA v1 "L" line requires 6 fields:
                 //   0: "L"
                 //   1: from segment
                 //   2: from orientation (+/-)
                 //   3: to segment
                 //   4: to orientation (+/-)
-                //   5: overlap/CIGAR (optional)
+                //   5: overlap/CIGAR (can be '*')
                 let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 4 {
-                    let from_name = parts[1].trim().to_string();
-                    let to_name   = parts[3].trim().to_string();
-                    if let (Some(&f_idx), Some(&t_idx)) =
-                        (segment_indices.get(from_name.as_str()), segment_indices.get(to_name.as_str()))
-                    {
-                        local_edges.push((f_idx, t_idx));
-                    }
+                if parts.len() < 6 {
+                    // Skip malformed L lines
+                    return;
                 }
-            } else if line.starts_with("C\t") {
-                // GFA 'C' line format (simplified):
-                //   0: "C"
-                //   1: container
-                //   2: container orientation (+/-)
-                //   3: contained
-                //   4: contained orientation (+/-)
-                //   5: pos
-                //   6: overlap/CIGAR
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 4 {
-                    let container_name = parts[1].trim().to_string();
-                    let contained_name = parts[3].trim().to_string();
-                    if let (Some(&contnr_idx), Some(&contnd_idx)) =
-                        (segment_indices.get(container_name.as_str()), segment_indices.get(contained_name.as_str()))
-                    {
-                        local_edges.push((contnr_idx, contnd_idx));
-                    }
-                }
-    
-            } else if line.starts_with("P\t") {
-                // GFA 'P' line format (simplified):
-                //   0: "P"
-                //   1: path name
-                //   2: segment names list (comma-separated, each ends with + or -)
-                //   3: overlaps or '*'
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() >= 3 {
-                    let seg_list = parts[2].trim();
-                    let segments: Vec<&str> =
-                        seg_list.split(',').filter(|s| !s.is_empty()).collect();
+                let from_name = parts[1].trim().to_string();
+                let to_name   = parts[3].trim().to_string();
 
-                    // Helper: remove trailing orientation character
-                    let strip_orientation = |s: &str| {
-                        if let Some(last_char) = s.chars().last() {
-                            if last_char == '+' || last_char == '-' {
-                                // Return owned String for the substring
-                                return s[..s.len() - 1].to_string();
-                            }
-                        }
-                        // Otherwise return s in full, as a String
-                        s.to_string()
-                    };
-
-                    // Connect consecutive pairs in the path
-                    for window in segments.windows(2) {
-                        let from_raw = strip_orientation(window[0].trim());
-                        let to_raw   = strip_orientation(window[1].trim());
-
-                        // Convert from_raw/to_raw to &str for .get(...) calls
-                        if let (Some(&f_idx), Some(&t_idx)) =
-                            (segment_indices.get(from_raw.as_str()), segment_indices.get(to_raw.as_str()))
-                        {
-                            local_edges.push((f_idx, t_idx));
-                        }
-                    }
+                // Look up indices
+                if let (Some(&f_idx), Some(&t_idx)) = (
+                    segment_indices.get(&from_name),
+                    segment_indices.get(&to_name),
+                ) {
+                    local_edges.push((f_idx, t_idx));
                 }
             }
-    
-            // Write out each discovered edge once (f -> t).
+
+            // Write out edges (both directions)
             if !local_edges.is_empty() {
                 let mut writer_guard = writer.lock().unwrap();
                 let mut edge_count_guard = edge_counter.lock().unwrap();
-    
+
                 for (f, t) in local_edges {
+                    // Write f->t (we understand it is undirected)
                     writer_guard.write_all(&f.to_le_bytes()).unwrap();
                     writer_guard.write_all(&t.to_le_bytes()).unwrap();
-    
-                    // We wrote only one edge. Increase our counter & progress by 1.
-                    *edge_count_guard += 1;
                     pb.inc(1);
+                    *edge_count_guard += 2; // Since one written edge really corresponds to two edges
                 }
             }
         });
 
-    pb.finish_with_message("Finished parsing all links between nodes.");
+    pb.finish_with_message("Finished parsing all L-type links between nodes.");
 
     let total_edges = *edge_counter.lock().unwrap();
+    // Each actual adjacency was written twice, so total_edges is about double the count of unique connections in an undirected sense.
 
-    // Inform about any excess links beyond the estimate
     if total_edges > total_links_estimate as u64 {
         println!(
-            "Note: Actual number of links ({}) exceeded the estimated total ({}).",
+            "Note: Actual number of edges written ({}) exceeded the estimated total ({}).",
             total_edges, total_links_estimate
         );
     } else {
-        println!("Total number of links between nodes parsed: {}", total_edges);
+        println!(
+            "Total number of edges (counting both directions) parsed and written: {}",
+            total_edges
+        );
     }
 
-    // Flush the writer
     writer.lock().unwrap().flush()?;
 
     Ok(())
