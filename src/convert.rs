@@ -102,7 +102,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     println!("File has been memory-mapped.");
 
     // --- Parallel newline scanning with chunk boundary safety ---
-    let chunk_size = 16 * 1024 * 1024; // 16MB chunks (perhaps adjust based on L3 cache size)
+    let chunk_size = 16 * 1024 * 1024; // 16MB chunks
     let line_ends: Vec<usize> = (0..mmap.len())
         .into_par_iter()
         .step_by(chunk_size)
@@ -134,13 +134,15 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         &mmap[start..end]
     };
 
-    // --- Parallel sampling with thread-safe RNG ---
+    // --- Parallel sampling with RNG ---
     let samples = 1000.min(total_lines);
     let seed: u64 = rand::thread_rng().gen();
     let sample_count = AtomicU32::new(0);
     
     (0..samples).into_par_iter().for_each(|_| {
-        let mut rng = ChaCha8Rng::seed_from_u64(seed + rayon::current_thread_index().unwrap_or(0) as u64);
+        let mut rng = ChaCha8Rng::seed_from_u64(
+            seed + rayon::current_thread_index().unwrap_or(0) as u64
+        );
         let idx = rng.gen_range(0..total_lines);
         let line_slice = get_line_slice(idx);
         if line_slice.starts_with(b"S\t") {
@@ -166,10 +168,10 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             .progress_chars("▰▰░"),
     );
 
-    // --- Batched parallel processing with fail-safe checks ---
+    // --- Batched parallel processing ---
     let segment_names = (0..total_lines)
         .into_par_iter()
-        .chunks(1024) // Process 1024 lines per batch
+        .chunks(1024) // Process 1024 lines per batch, but make sure we aren't getting partial lines
         .fold(
             || {
                 let mut set = HashSet::new();
@@ -179,17 +181,20 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             |mut local_set, batch| {
                 for i in batch {
                     let line_slice = get_line_slice(i);
-                    
-                    // Fail-safe checks
                     if line_slice.starts_with(b"S\t") {
                         if let Ok(line_str) = std::str::from_utf8(line_slice) {
                             let parts: Vec<&str> = line_str.split('\t').collect();
-                            if parts.len() >= 2 {
-                                let segment_name = parts[1].trim();
-                                if !segment_name.is_empty() {
-                                    local_set.insert(segment_name.to_string());
-                                    pb.inc(1);
-                                }
+                            // GFA v1 requires at least 3 fields for an S line:
+                            //   0: "S"
+                            //   1: segment name
+                            //   2: sequence (or '*')
+                            if parts.len() < 3 {
+                                continue; // skip malformed lines
+                            }
+                            let segment_name = parts[1].trim();
+                            if !segment_name.is_empty() {
+                                local_set.insert(segment_name.to_string());
+                                pb.inc(1);
                             }
                         }
                     }
@@ -209,7 +214,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     // --- Deterministic sorting and indexing ---
     let mut all_names: Vec<String> = segment_names.into_iter().collect();
-    all_names.par_sort(); // Use parallel stable sort
+    all_names.par_sort();
     
     let segment_indices: HashMap<String, u32> = all_names
         .into_iter()
