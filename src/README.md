@@ -13,6 +13,8 @@ This module handles converting GFA files into adjacency matrices in edge list fo
 ./target/release/graphome convert --input hprc-v1.0-pggb.gfa --output edges.gam
 ```
 
+01/23/2025 benchmark 32 core 128 GB: Completed in 1301.39s seconds.
+
 #### Key Functions:
 - `convert_gfa_to_edge_list`: Orchestrates the GFA conversion into an adjacency matrix.
 - `parse_segments`: Parses GFA segments and assigns indices.
