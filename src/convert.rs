@@ -99,7 +99,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let file_size = file.metadata()?.len();
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
 
-    println!("File has been memory-mapped.")
+    println!("File has been memory-mapped.");
 
     // --- Parallel newline scanning with chunk boundary safety ---
     let chunk_size = 16 * 1024 * 1024; // 16MB chunks (perhaps adjust based on L3 cache size)
