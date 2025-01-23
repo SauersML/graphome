@@ -232,7 +232,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
-/// Writes both (from, to) and (to, from) for bidirectional edges.
+/// Writes only one edge because all edges are bidirectional.
 /// Processing is done in parallel for performance.
 ///
 /// # Arguments
