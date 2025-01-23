@@ -106,11 +106,13 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let line_ends: Vec<usize> = (0..mmap.len())
         .into_par_iter()
         .step_by(chunk_size)
-        .flat_map(|start| {
+        .map(|start| {
             let end = (start + chunk_size).min(mmap.len());
             memchr_iter(b'\n', &mmap[start..end])
                 .map(move |pos| start + pos)
+                .collect::<Vec<_>>()
         })
+        .flatten_iter()
         .collect();
 
     // --- Line count calculation ---
