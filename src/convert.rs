@@ -90,20 +90,30 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 ///
 /// Does not explicitly panic.
 fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
-    use rand::Rng;
+    use memchr::memchr_iter;
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
-    // Step 1: Memory-map the file
+    // --- Memory-map the file ---
     let file = File::open(&gfa_path)?;
     let file_size = file.metadata()?.len();
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
 
-    // Step 2: Identify lines
-    let mut line_ends = Vec::new();
-    for (i, &byte) in mmap.iter().enumerate() {
-        if byte == b'\n' {
-            line_ends.push(i);
-        }
-    }
+    println!("File has been memory-mapped.")
+
+    // --- Parallel newline scanning with chunk boundary safety ---
+    let chunk_size = 16 * 1024 * 1024; // 16MB chunks (perhaps adjust based on L3 cache size)
+    let line_ends: Vec<usize> = (0..mmap.len())
+        .into_par_iter()
+        .step_by(chunk_size)
+        .flat_map(|start| {
+            let end = (start + chunk_size).min(mmap.len());
+            memchr_iter(b'\n', &mmap[start..end])
+                .map(move |pos| start + pos)
+        })
+        .collect();
+
+    // --- Line count calculation ---
     let has_final_newline = line_ends.last().map_or(false, |&pos| pos as u64 == file_size - 1);
     let total_lines = if has_final_newline {
         line_ends.len()
@@ -111,30 +121,33 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         line_ends.len() + 1
     };
 
+    // --- Fail-safe line slicing ---
     let get_line_slice = |i: usize| {
         let start = if i == 0 { 0 } else { line_ends[i - 1] + 1 };
-        // Make sure we read through the actual end of the file if there is no trailing newline
         let end = if i < line_ends.len() {
             line_ends[i]
         } else {
             file_size as usize
         };
-        // Use an exclusive end range so we don't risk going out of bounds
         &mmap[start..end]
     };
 
-    // Step 3: Estimate segment count by sampling
+    // --- Parallel sampling with thread-safe RNG ---
     let samples = 1000.min(total_lines);
     let seed: u64 = rand::thread_rng().gen();
-    let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-    let mut sample_count = 0u32;
-    for _ in 0..samples {
+    let sample_count = AtomicU32::new(0);
+    
+    (0..samples).into_par_iter().for_each(|_| {
+        let mut rng = ChaCha8Rng::seed_from_u64(seed + rayon::current_thread_index().unwrap_or(0) as u64);
         let idx = rng.gen_range(0..total_lines);
         let line_slice = get_line_slice(idx);
         if line_slice.starts_with(b"S\t") {
-            sample_count += 1;
+            sample_count.fetch_add(1, Ordering::Relaxed);
         }
-    }
+    });
+
+    // --- Estimation logic ---
+    let sample_count = sample_count.into_inner();
     let density = if samples > 0 {
         sample_count as f64 / samples as f64
     } else {
@@ -151,23 +164,30 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
             .progress_chars("▰▰░"),
     );
 
-    // Step 4: Parallel processing of lines using fold & reduce
-    // fold: Each thread gets an initial empty HashSet, processes some lines, and returns the HashSet.
-    // reduce: Combine all thread-local HashSets into one.
+    // --- Batched parallel processing with fail-safe checks ---
     let segment_names = (0..total_lines)
         .into_par_iter()
+        .chunks(1024) // Process 1024 lines per batch
         .fold(
-            || HashSet::new(),
-            |mut local_set, i| {
-                let line_slice = get_line_slice(i);
-                if let Ok(line_str) = std::str::from_utf8(line_slice) {
-                    if line_str.starts_with("S\t") {
-                        let parts: Vec<&str> = line_str.split('\t').collect();
-                        if parts.len() >= 2 {
-                            let segment_name = parts[1].trim();
-                            if !segment_name.is_empty() {
-                                local_set.insert(segment_name.to_string());
-                                pb.inc(1);
+            || {
+                let mut set = HashSet::new();
+                set.reserve(estimated_segments as usize / rayon::current_num_threads().max(1));
+                set
+            },
+            |mut local_set, batch| {
+                for i in batch {
+                    let line_slice = get_line_slice(i);
+                    
+                    // Fail-safe checks
+                    if line_slice.starts_with(b"S\t") {
+                        if let Ok(line_str) = std::str::from_utf8(line_slice) {
+                            let parts: Vec<&str> = line_str.split('\t').collect();
+                            if parts.len() >= 2 {
+                                let segment_name = parts[1].trim();
+                                if !segment_name.is_empty() {
+                                    local_set.insert(segment_name.to_string());
+                                    pb.inc(1);
+                                }
                             }
                         }
                     }
@@ -185,13 +205,14 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // Sort all segment names (including non-numeric) and assign zero-based indices deterministically
+    // --- Deterministic sorting and indexing ---
     let mut all_names: Vec<String> = segment_names.into_iter().collect();
-    all_names.sort();
+    all_names.par_sort(); // Use parallel stable sort
+    
     let segment_indices: HashMap<String, u32> = all_names
         .into_iter()
         .enumerate()
-        .map(|(i, name)| (name, i as u32)) // GFA is 1-based, will this work?
+        .map(|(i, name)| (name, i as u32))
         .collect();
     
     let segment_counter = segment_indices.len() as u32;
@@ -199,7 +220,6 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 
     Ok((segment_indices, segment_counter))
 }
-
 
 
 
