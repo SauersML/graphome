@@ -38,6 +38,8 @@ This module extracts adjacency submatrices from an edge list and performs subseq
 ./target/release/graphome extract --input edges.gam --start-node 5 --end-node 100 --output output_dir
 ```
 
+Issue: performance depends heavily on the size of the .gam file. Example with large .gam: ⏰ Completed in 193.04s seconds. (Completes in a few seconds for small .gam.)
+
 #### Key Functions:
 - `extract_and_analyze_submatrix`: Extracts a submatrix, computes the Laplacian, and performs eigendecomposition.
 - `load_adjacency_matrix`: Loads an adjacency matrix from a binary edge list file.
