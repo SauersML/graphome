@@ -329,34 +329,110 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
     let file = File::open(&path)?;
     println!("    File opened for fast Laplacian construction: {:?}", path.as_ref());
     let mut reader = BufReader::new(file);
-    let mut buffer = [0u8; 8];
 
-    // Single pass through file
+    // We'll read in larger chunks to reduce overhead
+    const CHUNK_SIZE: usize = 64 * 1024; // 64 KB
+    let mut chunk_buf = vec![0u8; CHUNK_SIZE];
+
+    // We keep leftover bytes (less than 8) between reads here
+    let mut leftover = Vec::with_capacity(8);
+
     println!("    Reading edges and accumulating into Laplacian...");
     let mut edge_count = 0usize;
     let read_start = Instant::now();
-    while let Ok(_) = reader.read_exact(&mut buffer) {
-        edge_count += 1;
-        if edge_count % 100_000_000 == 0 {
-            println!("    ... processed {} edges so far ...", edge_count);
+
+    // Helper to parse 8-byte edges in place
+    fn parse_and_accumulate(
+        buffer: &mut [u8],
+        valid_len: usize,
+        start_node: usize,
+        end_node: usize,
+        laplacian: &mut Array2<f64>,
+        degrees: &mut Array1<f64>,
+        edge_counter: &mut usize,
+    ) -> usize {
+        let mut i = 0;
+        while i + 7 < valid_len {
+            let from = u32::from_le_bytes(buffer[i..i+4].try_into().unwrap()) as usize;
+            let to   = u32::from_le_bytes(buffer[i+4..i+8].try_into().unwrap()) as usize;
+            i += 8;
+
+            *edge_counter += 1;
+            if *edge_counter % 100_000_000 == 0 {
+                println!("    ... processed {} edges so far ...", edge_counter);
+            }
+
+            if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to) {
+                let r = from - start_node;
+                let c = to   - start_node;
+
+                // For an undirected graph with multiple edges possibly between the same nodes,
+                // decrement by 1.0 to accumulate the effect of each edge
+                laplacian[[r, c]] -= 1.0;
+                laplacian[[c, r]] -= 1.0;
+
+                degrees[r] += 1.0;
+                degrees[c] += 1.0;
+            }
+        }
+        i
+    }
+
+    loop {
+        // Read a chunk
+        let bytes_read = reader.read(&mut chunk_buf)?;
+        if bytes_read == 0 {
+            // EOF: parse leftover if any
+            if !leftover.is_empty() {
+                let consumed = parse_and_accumulate(
+                    &mut leftover,
+                    leftover.len(),
+                    start_node,
+                    end_node,
+                    &mut laplacian,
+                    &mut degrees,
+                    &mut edge_count,
+                );
+                leftover.drain(0..consumed);
+            }
+            break;
         }
 
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+        // Combine leftover + chunk, parse
+        if !leftover.is_empty() {
+            let mut temp = Vec::with_capacity(leftover.len() + bytes_read);
+            temp.extend_from_slice(&leftover);
+            temp.extend_from_slice(&chunk_buf[..bytes_read]);
+            leftover.clear();
 
-        if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to) {
-            let i = from - start_node;
-            let j = to - start_node;
-
-            // For an undirected graph with multiple edges possibly between the same nodes,
-            // decrement by 1.0 to accumulate the effect of each edge rather than overwriting.
-            laplacian[[i, j]] -= 1.0;
-            laplacian[[j, i]] -= 1.0;
-
-            degrees[i] += 1.0;
-            degrees[j] += 1.0;
+            let consumed = parse_and_accumulate(
+                &mut temp,
+                temp.len(),
+                start_node,
+                end_node,
+                &mut laplacian,
+                &mut degrees,
+                &mut edge_count,
+            );
+            if consumed < temp.len() {
+                leftover.extend_from_slice(&temp[consumed..]);
+            }
+        } else {
+            let consumed = parse_and_accumulate(
+                &mut chunk_buf,
+                bytes_read,
+                start_node,
+                end_node,
+                &mut laplacian,
+                &mut degrees,
+                &mut edge_count,
+            );
+            if consumed < bytes_read {
+                leftover.extend_from_slice(&chunk_buf[consumed..bytes_read]);
+            }
         }
     }
+
     let read_duration = read_start.elapsed();
     println!("    Finished reading and accumulating edges. Total edges read: {}", edge_count);
     println!("    Single-pass accumulation took {:.4?}", read_duration);
