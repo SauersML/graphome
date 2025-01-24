@@ -51,7 +51,7 @@ fn save_ndarray_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, path: P) -> io::Res
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
-pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
+pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     edge_list_path: P,
     start_node: usize,
     end_node: usize,
@@ -329,7 +329,7 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
     // We'll create a parallel iterator over chunk indices
     // Each chunk returns a partial Laplacian (dim x dim) + partial degrees,
     // which we reduce into a final sum.
-    let (laplacian, degrees) = (0..num_chunks).into_par_iter()
+    let (mut laplacian, degrees) = (0..num_chunks).into_par_iter()
         .map(|chunk_idx| {
             // Allocate partial structures for this chunk
             let mut part_lap = Array2::<f64>::zeros((dim, dim));
@@ -416,7 +416,7 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
 }
 
 /// Extracts and saves just the Laplacian matrix as .npy file
-pub fn extract_and_save_matrices<P: AsRef<Path>>(
+pub fn extract_and_save_matrices<P: AsRef<Path> + Send + Sync>(
     edge_list_path: P,
     start_node: usize,
     end_node: usize,
