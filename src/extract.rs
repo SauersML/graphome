@@ -194,32 +194,115 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
 ) -> io::Result<Vec<(u32, u32)>> {
     println!("    === load_adjacency_matrix BEGIN ===");
     let func_start = Instant::now();
+
+    // Open the file and wrap in a BufReader
     let file = File::open(&path)?;
     println!("    File opened. Using BufReader...");
     let mut reader = BufReader::new(file);
-    let mut buffer = [0u8; 8];
-    let mut edges = Vec::new();
 
-    println!("    Starting to read edges in 8-byte chunks from: {:?}", path.as_ref());
+    // We'll read in larger chunks to reduce overhead
+    const CHUNK_SIZE: usize = 64 * 1024; // 64 KB
+    let mut chunk_buf = vec![0u8; CHUNK_SIZE];
+
+    // We keep leftover bytes (less than 8) between reads here
+    let mut leftover = Vec::with_capacity(8);
+
+    let mut edges = Vec::new();
+    println!("    Starting to read edges in larger chunks from: {:?}", path.as_ref());
+
     let mut edge_count = 0usize;
     let read_start = Instant::now();
-    while let Ok(_) = reader.read_exact(&mut buffer) {
-        edge_count += 1;
-        // For progress every 100 million edges:
-        if edge_count % 100_000_000 == 0 {
-            println!("    ... read {} edges so far ...", edge_count);
+
+    // Function to parse as many 8-byte edges as possible from `buffer`
+    // If there's leftover at the end, we return it for the next iteration.
+    // This makes sure we parse every single 8-byte edge exactly once.
+    fn parse_edges_in_place(
+        buffer: &mut [u8],
+        valid_len: usize, // how many bytes in buffer are valid
+        start_node: usize,
+        end_node: usize,
+        edges_out: &mut Vec<(u32, u32)>,
+        edge_counter: &mut usize,
+    ) -> usize {
+        let mut i = 0;
+        while i + 7 < valid_len {
+            let from = u32::from_le_bytes(buffer[i..i+4].try_into().unwrap());
+            let to   = u32::from_le_bytes(buffer[i+4..i+8].try_into().unwrap());
+            i += 8;
+
+            *edge_counter += 1;
+            if *edge_counter % 100_000_000 == 0 {
+                println!("    ... read {} edges so far ...", edge_counter);
+            }
+
+            // Only store edges between start_node and end_node
+            if (start_node..=end_node).contains(&(from as usize))
+                && (start_node..=end_node).contains(&(to as usize))
+            {
+                edges_out.push((from, to));
+            }
+        }
+        i // number of bytes consumed
+    }
+
+    loop {
+        // Read one chunk
+        let bytes_read = reader.read(&mut chunk_buf)?;
+        if bytes_read == 0 {
+            // EOF: parse leftover (if any) and then break
+            if !leftover.is_empty() {
+                // parse leftover
+                let consumed = parse_edges_in_place(
+                    &mut leftover,
+                    leftover.len(),
+                    start_node,
+                    end_node,
+                    &mut edges,
+                    &mut edge_count,
+                );
+                // consumed should be all leftover if leftover is a multiple of 8
+                leftover.drain(0..consumed);
+            }
+            break;
         }
 
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
+        // If we had leftover from last time, prepend it
+        // so we parse across the leftover boundary
+        if !leftover.is_empty() {
+            let mut temp = Vec::with_capacity(leftover.len() + bytes_read);
+            temp.extend_from_slice(&leftover);
+            temp.extend_from_slice(&chunk_buf[..bytes_read]);
+            leftover.clear();
 
-        // Only store edges between start_node and end_node
-        if (start_node..=end_node).contains(&(from as usize))
-            && (start_node..=end_node).contains(&(to as usize))
-        {
-            edges.push((from, to));
+            // parse as many edges as we can
+            let consumed = parse_edges_in_place(
+                &mut temp,
+                temp.len(),
+                start_node,
+                end_node,
+                &mut edges,
+                &mut edge_count,
+            );
+            // if there's leftover < 8 bytes, store them
+            if consumed < temp.len() {
+                leftover.extend_from_slice(&temp[consumed..]);
+            }
+        } else {
+            // parse directly in chunk_buf
+            let consumed = parse_edges_in_place(
+                &mut chunk_buf,
+                bytes_read,
+                start_node,
+                end_node,
+                &mut edges,
+                &mut edge_count,
+            );
+            if consumed < bytes_read {
+                leftover.extend_from_slice(&chunk_buf[consumed..bytes_read]);
+            }
         }
     }
+
     let read_duration = read_start.elapsed();
     println!("    Finished reading edges. Total edges read: {}", edge_count);
     println!("    Filtering & storing relevant edges took {:.4?}", read_duration);
