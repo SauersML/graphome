@@ -205,8 +205,8 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
     let read_start = Instant::now();
     while let Ok(_) = reader.read_exact(&mut buffer) {
         edge_count += 1;
-        // For progress every 1 million edges, for example:
-        if edge_count % 1_000_000 == 0 {
+        // For progress every 100 million edges:
+        if edge_count % 100_000_000 == 0 {
             println!("    ... read {} edges so far ...", edge_count);
         }
 
