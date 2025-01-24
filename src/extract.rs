@@ -380,9 +380,10 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
         if bytes_read == 0 {
             // EOF: parse leftover if any
             if !leftover.is_empty() {
+                let leftover_len = leftover.len();
                 let consumed = parse_and_accumulate(
                     &mut leftover,
-                    leftover.len(),
+                    leftover_len,
                     start_node,
                     end_node,
                     &mut laplacian,
@@ -394,23 +395,23 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
             break;
         }
 
-        // Combine leftover + chunk, parse
         if !leftover.is_empty() {
             let mut temp = Vec::with_capacity(leftover.len() + bytes_read);
             temp.extend_from_slice(&leftover);
             temp.extend_from_slice(&chunk_buf[..bytes_read]);
             leftover.clear();
 
+            let temp_len = temp.len();
             let consumed = parse_and_accumulate(
                 &mut temp,
-                temp.len(),
+                temp_len,
                 start_node,
                 end_node,
                 &mut laplacian,
                 &mut degrees,
                 &mut edge_count,
             );
-            if consumed < temp.len() {
+            if consumed < temp_len {
                 leftover.extend_from_slice(&temp[consumed..]);
             }
         } else {
