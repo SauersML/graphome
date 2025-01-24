@@ -254,7 +254,7 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
     let read_start = Instant::now();
     while let Ok(_) = reader.read_exact(&mut buffer) {
         edge_count += 1;
-        if edge_count % 1_000_000 == 0 {
+        if edge_count % 100_000_000 == 0 {
             println!("    ... processed {} edges so far ...", edge_count);
         }
 
