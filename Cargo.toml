@@ -7,6 +7,10 @@ edition = "2021"
 name = "graphome"
 path = "src/lib.rs"
 
+[[bin]]
+name = "graphome"
+path = "src/main.rs"
+
 [dependencies]
 clap = { version = "4.0", features = ["derive"] }
 indicatif = "0.17"
