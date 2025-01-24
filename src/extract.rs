@@ -191,7 +191,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
 /// Breaks the file into multiple chunk offsets and processes them concurrently.
 /// 
 /// We know each edge is exactly 8 bytes (4 bytes for `from`, 4 for `to`).
-pub fn load_adjacency_matrix<P: AsRef<Path>>(
+pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
     path: P,
     start_node: usize,
     end_node: usize,
@@ -298,7 +298,7 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
 /// Fast Laplacian construction directly from GAM file, in parallel.
 /// Each chunk accumulates a partial (dim x dim) Laplacian + degrees,
 /// then we merge them in the reduce step.
-pub fn fast_laplacian_from_gam<P: AsRef<Path>>(
+pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
     path: P,
     start_node: usize,
     end_node: usize,
