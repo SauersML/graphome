@@ -4,7 +4,7 @@
 
 use ndarray::prelude::*;
 use std::fs::File;
-use std::io::{self, BufReader, Read};
+use std::io::{self, BufReader, Read, Seek};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
