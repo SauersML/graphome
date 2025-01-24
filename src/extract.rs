@@ -186,125 +186,111 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path>>(
     Ok(())
 }
 
-/// Loads the adjacency matrix from a binary edge list file (.gam)
+/// Loads the adjacency matrix from a binary edge list file (.gam) in parallel.
+/// Breaks the file into multiple chunk offsets and processes them concurrently.
+/// 
+/// We know each edge is exactly 8 bytes (4 bytes for `from`, 4 for `to`).
 pub fn load_adjacency_matrix<P: AsRef<Path>>(
     path: P,
     start_node: usize,
     end_node: usize,
 ) -> io::Result<Vec<(u32, u32)>> {
-    println!("    === load_adjacency_matrix BEGIN ===");
+    println!("    === load_adjacency_matrix BEGIN (PARALLEL) ===");
     let func_start = Instant::now();
 
-    // Open the file and wrap in a BufReader
-    let file = File::open(&path)?;
-    println!("    File opened. Using BufReader...");
-    let mut reader = BufReader::new(file);
+    // 1) Get file size
+    let file_size = std::fs::metadata(&path)?.len();
+    println!("    File size: {} bytes", file_size);
 
-    // We'll read in larger chunks to reduce overhead
-    const CHUNK_SIZE: usize = 64 * 1024; // 64 KB
-    let mut chunk_buf = vec![0u8; CHUNK_SIZE];
-
-    // We keep leftover bytes (less than 8) between reads here
-    let mut leftover = Vec::with_capacity(8);
-
-    let mut edges = Vec::new();
-    println!("    Starting to read edges in larger chunks from: {:?}", path.as_ref());
-
-    let mut edge_count = 0usize;
-    let read_start = Instant::now();
-
-    // Function to parse as many 8-byte edges as possible from `buffer`
-    // If there's leftover at the end, we return how many bytes we consumed.
-    fn parse_edges_in_place(
-        buffer: &mut [u8],
-        valid_len: usize, // how many bytes in buffer are valid
-        start_node: usize,
-        end_node: usize,
-        edges_out: &mut Vec<(u32, u32)>,
-        edge_counter: &mut usize,
-    ) -> usize {
-        let mut i = 0;
-        while i + 7 < valid_len {
-            let from = u32::from_le_bytes(buffer[i..i+4].try_into().unwrap());
-            let to   = u32::from_le_bytes(buffer[i+4..i+8].try_into().unwrap());
-            i += 8;
-
-            *edge_counter += 1;
-            if *edge_counter % 100_000_000 == 0 {
-                println!("    ... read {} edges so far ...", edge_counter);
-            }
-
-            // Only store edges between start_node and end_node
-            if (start_node..=end_node).contains(&(from as usize))
-                && (start_node..=end_node).contains(&(to as usize))
-            {
-                edges_out.push((from, to));
-            }
-        }
-        i // number of bytes consumed
+    // 2) Define chunk size (1 GB for example). Make sure it's multiple of 8:
+    let mut chunk_size = 1_073_741_824u64; // 1 GB
+    if chunk_size % 8 != 0 {
+        chunk_size -= chunk_size % 8; 
     }
+    println!("    Using chunk_size = {} bytes", chunk_size);
 
-    loop {
-        // Read one chunk
-        let bytes_read = reader.read(&mut chunk_buf)?;
-        if bytes_read == 0 {
-            // EOF: parse leftover (if any) and then break
-            if !leftover.is_empty() {
-                let leftover_len = leftover.len();
-                let consumed = parse_edges_in_place(
-                    &mut leftover,
-                    leftover_len,
-                    start_node,
-                    end_node,
-                    &mut edges,
-                    &mut edge_count,
-                );
-                leftover.drain(0..consumed);
+    // 3) Calculate how many chunks
+    let num_chunks = if file_size == 0 {
+        0
+    } else {
+        (file_size + chunk_size - 1) / chunk_size
+    };
+    println!("    Number of chunks to read: {}", num_chunks);
+
+    // 4) We'll collect partial vectors from each chunk in parallel, then combine.
+    // (0..num_chunks) -> ParIter
+    let edges: Vec<(u32, u32)> = (0..num_chunks).into_par_iter()
+        .map(|chunk_idx| {
+            // Each parallel job will read [start_offset..end_offset)
+            let start_offset = chunk_idx * chunk_size;
+            let mut end_offset = start_offset + chunk_size;
+            if end_offset > file_size {
+                end_offset = file_size;
             }
-            break;
-        }
 
-        // If we had leftover from last time, prepend it
-        // so we parse across the leftover boundary
-        if !leftover.is_empty() {
-            let mut temp = Vec::with_capacity(leftover.len() + bytes_read);
-            temp.extend_from_slice(&leftover);
-            temp.extend_from_slice(&chunk_buf[..bytes_read]);
-            leftover.clear();
+            // We'll parse from start_offset up to end_offset, ignoring any
+            // partial edge at the tail if it doesn't align. 
+            // Because chunk_size is multiple of 8, only the last chunk
+            // might have partial leftover if the file_size isn't multiple of 8.
+            let length_to_read = end_offset - start_offset;
+            println!("        Chunk {}: offset=[{}..{}], length={}",
+                chunk_idx, start_offset, end_offset, length_to_read);
 
-            let temp_len = temp.len(); // <--- store length to avoid conflict
-            let consumed = parse_edges_in_place(
-                &mut temp,
-                temp_len,
-                start_node,
-                end_node,
-                &mut edges,
-                &mut edge_count,
-            );
-            if consumed < temp_len {
-                leftover.extend_from_slice(&temp[consumed..]);
+            // Open the file for this chunk, seek to start_offset
+            let file = File::open(&path).expect("Unable to open file in parallel load");
+            let mut reader = BufReader::new(file);
+            reader.seek(io::SeekFrom::Start(start_offset))
+                  .expect("Failed to seek in parallel load");
+
+            // Read the entire chunk into memory
+            let mut buf = vec![0u8; length_to_read as usize];
+            let mut total_read = 0usize;
+            while total_read < buf.len() {
+                let n = reader.read(&mut buf[total_read..])
+                              .expect("Failed to read chunk");
+                if n == 0 {
+                    break; // EOF
+                }
+                total_read += n;
             }
-        } else {
-            let consumed = parse_edges_in_place(
-                &mut chunk_buf,
-                bytes_read,
-                start_node,
-                end_node,
-                &mut edges,
-                &mut edge_count,
-            );
-            if consumed < bytes_read {
-                leftover.extend_from_slice(&chunk_buf[consumed..bytes_read]);
-            }
-        }
-    }
 
-    let read_duration = read_start.elapsed();
-    println!("    Finished reading edges. Total edges read: {}", edge_count);
-    println!("    Filtering & storing relevant edges took {:.4?}", read_duration);
+            // Now parse edges from buf. Only parse multiples of 8 fully contained.
+            let valid_bytes = (total_read / 8) * 8; 
+            let mut local_edges = Vec::new();
+
+            let mut i = 0;
+            let mut edge_count_local = 0usize;
+            while i + 7 < valid_bytes {
+                let from = u32::from_le_bytes(buf[i..i+4].try_into().unwrap());
+                let to   = u32::from_le_bytes(buf[i+4..i+8].try_into().unwrap());
+                i += 8;
+
+                edge_count_local += 1;
+                // Filter by [start_node..end_node]
+                if (start_node..=end_node).contains(&(from as usize))
+                   && (start_node..=end_node).contains(&(to as usize)) {
+                    local_edges.push((from, to));
+                }
+            }
+
+            println!("        Chunk {} done: parsed {} edges, kept {}",
+                chunk_idx, edge_count_local, local_edges.len());
+            local_edges
+        })
+        .reduce(
+            || Vec::new(), // identity
+            |mut acc, mut part| {
+                acc.append(&mut part); // merges partial vectors
+                acc
+            }
+        );
+
+    let total_kept = edges.len();
+    println!("    Parallel parse complete. Total edges in range: {}", total_kept);
 
     let func_duration = func_start.elapsed();
     println!("    === load_adjacency_matrix END (total time: {:.4?}) ===", func_duration);
+
     Ok(edges)
 }
 
