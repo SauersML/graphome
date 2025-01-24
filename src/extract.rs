@@ -214,8 +214,7 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
     let read_start = Instant::now();
 
     // Function to parse as many 8-byte edges as possible from `buffer`
-    // If there's leftover at the end, we return it for the next iteration.
-    // This makes sure we parse every single 8-byte edge exactly once.
+    // If there's leftover at the end, we return how many bytes we consumed.
     fn parse_edges_in_place(
         buffer: &mut [u8],
         valid_len: usize, // how many bytes in buffer are valid
@@ -251,16 +250,15 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
         if bytes_read == 0 {
             // EOF: parse leftover (if any) and then break
             if !leftover.is_empty() {
-                // parse leftover
+                let leftover_len = leftover.len();
                 let consumed = parse_edges_in_place(
                     &mut leftover,
-                    leftover.len(),
+                    leftover_len,
                     start_node,
                     end_node,
                     &mut edges,
                     &mut edge_count,
                 );
-                // consumed should be all leftover if leftover is a multiple of 8
                 leftover.drain(0..consumed);
             }
             break;
@@ -274,21 +272,19 @@ pub fn load_adjacency_matrix<P: AsRef<Path>>(
             temp.extend_from_slice(&chunk_buf[..bytes_read]);
             leftover.clear();
 
-            // parse as many edges as we can
+            let temp_len = temp.len(); // <--- store length to avoid conflict
             let consumed = parse_edges_in_place(
                 &mut temp,
-                temp.len(),
+                temp_len,
                 start_node,
                 end_node,
                 &mut edges,
                 &mut edge_count,
             );
-            // if there's leftover < 8 bytes, store them
-            if consumed < temp.len() {
+            if consumed < temp_len {
                 leftover.extend_from_slice(&temp[consumed..]);
             }
         } else {
-            // parse directly in chunk_buf
             let consumed = parse_edges_in_place(
                 &mut chunk_buf,
                 bytes_read,
