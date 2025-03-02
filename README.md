@@ -32,7 +32,7 @@ Eigendecomposition can be done in windows. Manifold alignment can be used to ali
 Build from source:
 
 ```bash
-git clone https://github.com/ScottSauers/graphome
+git clone https://github.com/SauersML/graphome
 cd graphome
 cargo build --release
 ```
