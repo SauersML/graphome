@@ -109,17 +109,16 @@ impl IntervalTree {
         let mut right_vec = Vec::new();
         let mut center_vec = Vec::new();
 
-        // We can pick a better pivot approach, but let's do a partial approach:
         let pivot = intervals[mid].start;
         for iv in &intervals {
-            // check if iv is definitely left or right or overlapping pivot
-            let mid_center = pivot;
-            if iv.end < mid_center {
+            if iv.end < pivot {
+                // Completely to the left of pivot
                 left_vec.push(iv.clone());
-            } else if iv.start > mid_center {
+            } else if iv.start > pivot {
+                // Completely to the right of pivot
                 right_vec.push(iv.clone());
             } else {
-                // overlaps
+                // Overlaps the pivot point
                 center_vec.push(iv.clone());
             }
         }
