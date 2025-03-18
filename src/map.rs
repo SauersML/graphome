@@ -898,30 +898,24 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                 let diff_start = ov_start - qs;
                 let diff_end   = ov_end   - qs;
         
-            // If the alignment itself is reversed vs. the reference, invert diff_start..diff_end
-            let (rs, re) = if !b.ref_strand {
-                let total_len = b.r_end.saturating_sub(b.r_start);
-                let flipped_start = total_len.saturating_sub(diff_end);
-                let flipped_end   = total_len.saturating_sub(diff_start);
-                (flipped_start, flipped_end)
-            } else {
-                (diff_start, diff_end)
-            };
-            
-            // Now apply the node's orientation in the path
-            if node_or {
-                // Node is forward in path
-                let final_ref_start = b.r_start + rs;
-                let final_ref_end   = b.r_start + re;
-                results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
-            } else {
-                // Node is reversed in path
-                let rev_start = b.r_end.saturating_sub(re);
-                let rev_end   = b.r_end.saturating_sub(rs);
-                let final_ref_start = if rev_start <= rev_end { rev_start } else { rev_end };
-                let final_ref_end   = if rev_start <= rev_end { rev_end } else { rev_start };
-                results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
-            }
+                /// This means whether b.r_start > b.r_end or b.r_end > b.r_start will both work.
+                /// The node orientation is preserved without flipping reference coordinates based on strand.
+                let r_lo = if b.r_start <= b.r_end { b.r_start } else { b.r_end };
+                let r_hi = if b.r_start <= b.r_end { b.r_end } else { b.r_start };
+                let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
+                let larger_offset = if diff_start <= diff_end { diff_end } else { diff_start };
+                if node_or {
+                    let final_ref_start = r_lo.saturating_add(smaller_offset);
+                    let final_ref_end = r_lo.saturating_add(larger_offset);
+                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+                } else {
+                    let total_len = r_hi.saturating_sub(r_lo);
+                    let reverse_start = r_lo.saturating_add(total_len).saturating_sub(larger_offset);
+                    let reverse_end = r_lo.saturating_add(total_len).saturating_sub(smaller_offset);
+                    let final_ref_start = if reverse_start <= reverse_end { reverse_start } else { reverse_end };
+                    let final_ref_end = if reverse_start <= reverse_end { reverse_end } else { reverse_start };
+                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+                }
             }
         }
     }
@@ -966,15 +960,11 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
         let diff_start = ov_s - ab.r_start;
         let diff_end   = ov_e - ab.r_start;
         
-        // If ab.ref_strand == false, we flip diff_start..diff_end
-        let (flip_start, flip_end) = if !ab.ref_strand {
-            let total_len = ab.r_end.saturating_sub(ab.r_start);
-            let fs = total_len.saturating_sub(diff_end);
-            let fe = total_len.saturating_sub(diff_start);
-            (fs, fe)
-        } else {
-            (diff_start, diff_end)
-        };
+        /// This code unifies offsets without assuming ab.r_start is less than ab.r_end or that strand implies flipping the reference side.
+        let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
+        let larger_offset = if diff_start <= diff_end { diff_end } else { diff_start };
+        let path_ov_start = ab.q_start.saturating_add(smaller_offset);
+        let path_ov_end = ab.q_start.saturating_add(larger_offset);
         
         // Now map to path offsets
         let path_ov_start = ab.q_start + flip_start;
