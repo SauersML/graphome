@@ -75,7 +75,7 @@ pub struct AlignmentBlock {
 ///   - the [start..end] range in reference
 ///   - the actual alignment block
 #[derive(Debug, Clone)]
-struct Interval {
+pub struct Interval {
     start: usize,
     end:   usize,
     data:  AlignmentBlock,
@@ -711,7 +711,6 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 let t_name = parts[5].to_string();
                 let t_start = parts[7].parse::<usize>().unwrap_or(0);
                 let t_end = parts[8].parse::<usize>().unwrap_or(0);
-                let strand = (strand_char == '+');
 
                 // Determine if the path is reversed with respect to the reference
                 let ref_strand = (strand_char == '+');
