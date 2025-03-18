@@ -661,88 +661,127 @@ pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
 
 // parse_paf_parallel
 pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
-    use std::io::BufRead;
-
+    // We will parse the PAF in a streaming, chunked manner to avoid storing all lines.
     let file = File::open(paf_path).expect("Cannot open PAF");
     let reader = BufReader::new(file);
 
-    // Collect lines first (you can also stream in chunks, but this is simple):
-    let lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
-    let pb = ProgressBar::new(lines.len() as u64);
-    pb.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7}/{len:7} ({eta}) PAF")
-            .expect("Invalid template for progress style")
-            .progress_chars("##-")
-    );
-
-    // Each thread accumulates local results, no lock until final merge.
     #[derive(Debug)]
     struct PafChunkResult {
         data: HashMap<String, Vec<AlignmentBlock>>,
         count: usize,
     }
 
+    // This merges partial results from a chunk parse into the final collector
+    fn merge_chunk_result(mut src: PafChunkResult, dst: &mut Vec<PafChunkResult>) {
+        dst.push(src);
+    }
+
+    let pb = ProgressBar::new_spinner();
+    pb.set_message("Parsing PAF in streaming chunks");
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7} lines ({eta}) PAF")
+            .expect("Invalid template for progress style")
+            .progress_chars("##-")
+    );
+
     let chunk_size = 10_000;
+    let mut lines_buffer = Vec::with_capacity(chunk_size);
     let mut all_results = Vec::new();
-    lines
-        .par_chunks(chunk_size)
-        .map(|chunk| {
+    let mut total_count = 0;
+
+    // Function to process a batch of lines in parallel
+    fn parse_paf_lines_in_parallel(lines: &[String], pb: &ProgressBar) -> PafChunkResult {
+        lines.par_iter().map(|l| {
             let mut local_res = PafChunkResult {
                 data: HashMap::new(),
                 count: 0,
             };
-            for l in chunk {
-                local_res.count += 1;
-                if l.is_empty() || l.starts_with('#') {
-                    continue;
-                }
-                let parts: Vec<&str> = l.split('\t').collect();
-                if parts.len() < 12 {
-                    continue;
-                }
-                let q_name = parts[0].to_string();
-                let q_len = parts[1].parse::<usize>().unwrap_or(0);
-                let raw_qs = parts[2].parse::<usize>().unwrap_or(0);
-                let raw_qe = parts[3].parse::<usize>().unwrap_or(0);
-                let strand_char = parts[4].chars().next().unwrap_or('+');
-                let t_name = parts[5].to_string();
-                let t_start = parts[7].parse::<usize>().unwrap_or(0);
-                let t_end = parts[8].parse::<usize>().unwrap_or(0);
-
-                // Determine if the path is reversed with respect to the reference
-                let ref_strand = strand_char == '+';
-                
-                // Flip q_start..q_end if it's a negative strand
-                let (q_start, q_end) = if !ref_strand {
-                    let flipped_start = q_len.saturating_sub(raw_qe);
-                    let flipped_end   = q_len.saturating_sub(raw_qs);
-                    (flipped_start, flipped_end)
-                } else {
-                    (raw_qs, raw_qe)
-                };
-                
-                // Build the alignment block with the query offsets
-                let ab = AlignmentBlock {
-                    path_name: q_name.clone(),
-                    q_len,
-                    q_start,
-                    q_end,
-                    ref_chrom: t_name,
-                    r_start: t_start,
-                    r_end: t_end,
-                    ref_strand: ref_strand,
-                };
-                
-                local_res.data.entry(q_name).or_insert_with(Vec::new).push(ab);
+            if l.is_empty() || l.starts_with('#') {
+                return local_res;
             }
-            pb.inc(local_res.count as u64);
+            let parts: Vec<&str> = l.split('\t').collect();
+            if parts.len() < 12 {
+                return local_res;
+            }
+            local_res.count = 1;
+            let q_name = parts[0].to_string();
+            let q_len = parts[1].parse::<usize>().unwrap_or(0);
+            let raw_qs = parts[2].parse::<usize>().unwrap_or(0);
+            let raw_qe = parts[3].parse::<usize>().unwrap_or(0);
+            let strand_char = parts[4].chars().next().unwrap_or('+');
+            let t_name = parts[5].to_string();
+            let t_start = parts[7].parse::<usize>().unwrap_or(0);
+            let t_end = parts[8].parse::<usize>().unwrap_or(0);
+
+            let ref_strand = strand_char == '+';
+
+            let (q_start, q_end) = if !ref_strand {
+                let flipped_start = q_len.saturating_sub(raw_qe);
+                let flipped_end   = q_len.saturating_sub(raw_qs);
+                (flipped_start, flipped_end)
+            } else {
+                (raw_qs, raw_qe)
+            };
+
+            let ab = AlignmentBlock {
+                path_name: q_name.clone(),
+                q_len,
+                q_start,
+                q_end,
+                ref_chrom: t_name,
+                r_start: t_start,
+                r_end: t_end,
+                ref_strand: ref_strand,
+            };
+
+            local_res
+                .data
+                .entry(q_name)
+                .or_insert_with(Vec::new)
+                .push(ab);
+
             local_res
         })
-        .collect_into_vec(&mut all_results);
+        .reduce(
+            || PafChunkResult {
+                data: HashMap::new(),
+                count: 0,
+            },
+            |mut a, mut b| {
+                a.count += b.count;
+                for (k, mut blocks) in b.data.drain() {
+                    a.data.entry(k).or_insert_with(Vec::new).append(&mut blocks);
+                }
+                a
+            },
+        )
+        .tap(|res| {
+            pb.inc(res.count as u64);
+        })
+    }
+
+    for line_res in reader.lines() {
+        if let Ok(line) = line_res {
+            lines_buffer.push(line);
+            if lines_buffer.len() >= chunk_size {
+                let chunk_res = parse_paf_lines_in_parallel(&lines_buffer, &pb);
+                merge_chunk_result(chunk_res, &mut all_results);
+                lines_buffer.clear();
+            }
+            total_count += 1;
+        }
+    }
+
+    // Process leftover lines
+    if !lines_buffer.is_empty() {
+        let chunk_res = parse_paf_lines_in_parallel(&lines_buffer, &pb);
+        merge_chunk_result(chunk_res, &mut all_results);
+        lines_buffer.clear();
+    }
+
     pb.finish_and_clear();
 
-    // Single merge pass:
     let mut merged_map = HashMap::new();
     for mut chunk_res in all_results {
         for (k, mut vec_blocks) in chunk_res.data.drain() {
