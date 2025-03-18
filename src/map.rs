@@ -137,19 +137,26 @@ impl IntervalTree {
         match self {
             IntervalTree::Empty => {},
             IntervalTree::Node{center, left, right, overlaps} => {
+                println!("DEBUG: Visiting node with center={}, overlaps.len={}", center, overlaps.len());
+                
                 // check left if qstart <= center
                 if qstart <= *center {
+                    println!("DEBUG: Searching left subtree (qstart={} <= center={})", qstart, center);
                     left.query(qstart, qend, results);
                 }
                 // check right if qend >= center
                 if qend >= *center {
+                    println!("DEBUG: Searching right subtree (qend={} >= center={})", qend, center);
                     right.query(qstart, qend, results);
                 }
                 // check overlaps
                 for iv in overlaps {
+                    println!("DEBUG: Checking overlap: start={}, end={}, path={}", 
+                             iv.start, iv.end, iv.data.path_name);
                     if iv.end < qstart || iv.start > qend {
-                        // no overlap
+                        println!("DEBUG: No overlap with query region");
                     } else {
+                        println!("DEBUG: Found overlap! Adding to results");
                         results.push(iv);
                     }
                 }
@@ -888,25 +895,34 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
 // coord_to_nodes
 //  given e.g. "grch38#chr1", 100000, 110000
 pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+    println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
 
     let tree = match global.ref_trees.get(chr) {
         Some(t) => t,
-        None => return results,
+        None => {
+            println!("DEBUG: No tree found for chromosome {}", chr);
+            return results;
+        }
     };
     // do an interval query
     let mut ivs = Vec::new();
     tree.query(start, end, &mut ivs);
+    println!("DEBUG: Found {} intervals overlapping {}:{}-{}", ivs.len(), chr, start, end);
 
     // for each interval, we compute overlap in ref space, then convert to path offsets, then find node(s)
     for iv in ivs {
         let ab = &iv.data;
+        println!("DEBUG: Processing interval: {}:{}-{} from path {}", 
+                 ab.ref_chrom, iv.start, iv.end, ab.path_name);
+                 
         // Even if a node only partially overlaps [start..end], we include it. We
         // compute the intersecting segment in reference coordinates, then map
         // that segment back onto the node's path offset range.
         let ov_s = start.max(iv.start);
         let ov_e = end.min(iv.end);
         if ov_s>ov_e {
+            println!("DEBUG: Invalid overlap segment: {}-{}", ov_s, ov_e);
             continue;
         }
         // Compute overlap in reference space
