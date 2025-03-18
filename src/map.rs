@@ -23,9 +23,7 @@
 use std::collections::{HashMap};
 use std::fs::{File};
 use std::io::{BufReader, BufRead};
-use std::sync::{Arc, Mutex};
 
-use clap::{Arg, Command};
 use memmap2::{MmapOptions};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -713,7 +711,7 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 let t_end = parts[8].parse::<usize>().unwrap_or(0);
 
                 // Determine if the path is reversed with respect to the reference
-                let ref_strand = (strand_char == '+');
+                let ref_strand = strand_char == '+';
                 
                 // Flip q_start..q_end if it's a negative strand
                 let (q_start, q_end) = if !ref_strand {
