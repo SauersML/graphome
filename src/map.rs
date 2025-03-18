@@ -151,8 +151,8 @@ impl IntervalTree {
                 }
                 // check overlaps
                 for iv in overlaps {
-                    println!("DEBUG: Checking overlap: start={}, end={}, path={}", 
-                             iv.start, iv.end, iv.data.path_name);
+                    println!("DEBUG: Checking overlap: ref={}:{}-{}, path={}", 
+                             iv.data.ref_chrom, iv.start, iv.end, iv.data.path_name);
                     if iv.end < qstart || iv.start > qend {
                         println!("DEBUG: No overlap with query region");
                     } else {
@@ -270,6 +270,7 @@ pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
 
 /// Run coord2node with printing of intervals, total range, and merging by path
 pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
+    println!("DEBUG: Looking for region: {}", region);
     eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
 
     let mut global = GlobalData {
@@ -764,6 +765,42 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
 // We'll gather all alignment blocks from alignment_by_path, group by refChrom
 // then build an Interval. Then build an IntervalTree for each refChrom.
 pub fn build_ref_trees(global: &mut GlobalData) {
+    // Print some statistics about the path names and references
+    let mut path_samples = std::collections::HashSet::new();
+    for path_name in global.alignment_by_path.keys() {
+        // Extract sample information from path names (format is typically SAMPLE#HAPLOTYPE#CONTIG)
+        if let Some(index) = path_name.find('#') {
+            path_samples.insert(&path_name[0..index]);
+        } else {
+            path_samples.insert(path_name.as_str());
+        }
+    }
+    println!("DEBUG: Found {} unique samples in PAF paths", path_samples.len());
+    
+    // Check reference chromosome formats
+    let mut ref_chroms = std::collections::HashSet::new();
+    for (_, blocks) in &global.alignment_by_path {
+        for block in blocks {
+            ref_chroms.insert(block.ref_chrom.clone());
+        }
+    }
+    println!("DEBUG: Reference chromosomes in PAF: {:?}", ref_chroms);
+    
+    // Check for path availability in both datasets
+    println!("DEBUG: Checking path availability between PAF and GFA");
+    let mut paf_path_count = 0;
+    let mut paths_in_both = 0;
+    
+    for path_name in global.alignment_by_path.keys() {
+        paf_path_count += 1;
+        if global.path_map.contains_key(path_name) {
+            paths_in_both += 1;
+        }
+    }
+    println!("DEBUG: PAF contains {} paths, {} of them found in GFA ({}%)", 
+             paf_path_count, paths_in_both, 
+             if paf_path_count > 0 { paths_in_both * 100 / paf_path_count } else { 0 });
+    
     // gather all intervals
     use rayon::prelude::*;
     let mut by_ref = HashMap::<String, Vec<Interval>>::new();
@@ -946,15 +983,33 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
         // now find which nodes in ab.path_name covers path_ov_start..path_ov_end
         let pd = match global.path_map.get(&ab.path_name) {
             Some(x) => x,
-            None => continue,
+            None => {
+                println!("DEBUG: Path {} not found in path_map (found in PAF but not in GFA)", ab.path_name);
+                continue;
+            }
         };
+        println!("DEBUG: Found path {} in path_map with {} nodes", ab.path_name, pd.nodes.len());
+        
         // do a binary search approach
-        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { // Or remove start_node from here?
-            Ok(i) => (i,i),
-            Err(i) => if i>0 { (i-1,i-1) } else { (0,0) },
+        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { 
+            Ok(i) => {
+                println!("DEBUG: Found exact match at index {} with offset {}", i, pd.prefix_sums[i]);
+                (i,i)
+            },
+            Err(i) => {
+                if i>0 { 
+                    println!("DEBUG: Found closest lower index at {} with offset {}", i-1, pd.prefix_sums[i-1]);
+                    (i-1,i-1) 
+                } else { 
+                    println!("DEBUG: No lower bound found, starting at index 0");
+                    (0,0) 
+                }
+            },
         };
         // we will proceed forward while offset range is in path_ov_end
-        // let's define a function to get node range
+        println!("DEBUG: Looking for nodes covering path offsets {}..{} in path {}", 
+                 path_ov_start, path_ov_end, ab.path_name);
+        
         while i<pd.nodes.len() {
             let noff_start = pd.prefix_sums[i];
             let node_id = &pd.nodes[i].0;
@@ -962,12 +1017,17 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
             let node_len = global.node_map.get(node_id).map(|xx|xx.length).unwrap_or(0);
             let noff_end = noff_start + node_len.saturating_sub(1);
 
+            println!("DEBUG: Checking node {} ({}), offset range: {}..{}", 
+                     node_id, if node_or {'+'}else{'-'}, noff_start, noff_end);
+
             if noff_start>path_ov_end {
+                println!("DEBUG: Node starts after path range end, stopping search");
                 break;
             }
             let o_s = noff_start.max(path_ov_start);
             let o_e = noff_end.min(path_ov_end);
             if o_s <= o_e {
+                println!("DEBUG: Found overlapping node {} with effective range {}..{}", node_id, o_s, o_e);
                 let final_start;
                 let final_end;
                 if node_or {
