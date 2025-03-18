@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, eigen_print, window, entropy, map, viz, embed, video};
+use graphome::{convert, extract, window, entropy, map, viz, embed, video, make_sequence};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -128,6 +128,24 @@ enum Commands {
         #[arg(long)]
         end_node: usize,
     },
+    /// Extract sequence based on coordinates
+    MakeSequence {
+        /// The path to the GFA file
+        #[arg(long)]
+        gfa: String,
+        /// The path to the PAF file
+        #[arg(long)]
+        paf: String,
+        /// The region in hg38, e.g. grch38#chr1:100000-200000
+        #[arg(long)]
+        region: String,
+        /// Sample name to use in the output file
+        #[arg(long)]
+        sample: String,
+        /// Path to output FASTA file (will append _samplename_path_start-end.fa)
+        #[arg(long)]
+        output: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -210,6 +228,9 @@ fn main() -> io::Result<()> {
         } => {
             let points = embed::embed(*start_node, *end_node, input)?;
             video::make_video(&points).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+        }
+        Commands::MakeSequence { gfa, paf, region, sample, output } => {
+            make_sequence::run_make_sequence(gfa, paf, region, sample, output);
         }
     }
     Ok(())
