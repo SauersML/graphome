@@ -898,8 +898,8 @@ pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,u
                 let diff_start = ov_start - qs;
                 let diff_end   = ov_end   - qs;
         
-                /// This means whether b.r_start > b.r_end or b.r_end > b.r_start will both work.
-                /// The node orientation is preserved without flipping reference coordinates based on strand.
+                // This means whether b.r_start > b.r_end or b.r_end > b.r_start will both work.
+                // The node orientation is preserved without flipping reference coordinates based on strand.
                 let r_lo = if b.r_start <= b.r_end { b.r_start } else { b.r_end };
                 let r_hi = if b.r_start <= b.r_end { b.r_end } else { b.r_start };
                 let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
@@ -960,15 +960,16 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
         let diff_start = ov_s - ab.r_start;
         let diff_end   = ov_e - ab.r_start;
         
-        /// This code unifies offsets without assuming ab.r_start is less than ab.r_end or that strand implies flipping the reference side.
+        // This code unifies offsets without assuming ab.r_start is less than ab.r_end or that strand implies flipping the reference side.
         let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
         let larger_offset = if diff_start <= diff_end { diff_end } else { diff_start };
         let path_ov_start = ab.q_start.saturating_add(smaller_offset);
         let path_ov_end = ab.q_start.saturating_add(larger_offset);
         
         // Now map to path offsets
-        let path_ov_start = ab.q_start + flip_start;
-        let path_ov_end   = ab.q_start + flip_end;
+        let path_ov_start = ab.q_start.saturating_add(smaller_offset);
+        let path_ov_end = ab.q_start.saturating_add(larger_offset);
+
 
         // now find which nodes in ab.path_name covers path_ov_start..path_ov_end
         let pd = match global.path_map.get(&ab.path_name) {
