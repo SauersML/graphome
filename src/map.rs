@@ -218,9 +218,14 @@ pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
         let mut global_min = usize::MAX;
         let mut global_max = 0;
         let mut intervals_by_chr = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+        
+        // Deduplicate coordinates for OVERALL mapping
+        let mut unique_coords = std::collections::HashSet::new();
 
         for (chr, st, en) in &results {
             println!("{}:{}-{}", chr, st, en);
+            unique_coords.insert((chr.clone(), *st, *en));
+            
             if *st < global_min {
                 global_min = *st;
             }
@@ -241,6 +246,21 @@ pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
                 println!("  Group range: {}..{}", start_val, end_val);
             }
         }
+        
+        // Print OVERALL coordinate mapping (sample-abstracted)
+        println!("\n============ OVERALL MAPPING ============");
+        println!("NODE: {}", node_id);
+        
+        // Convert unique_coords to a vector and create ranges
+        let unique_coord_vec: Vec<(String, usize, usize)> = unique_coords.into_iter().collect();
+        let coord_ranges = create_coord_ranges(&unique_coord_vec);
+        
+        println!("UNIQUE REFERENCE MAPPINGS:");
+        for (chr, range) in coord_ranges {
+            println!("  {}: {}", chr, range);
+        }
+        println!("TOTAL UNIQUE MAPPINGS: {}", unique_coord_vec.len());
+        println!("================================================");
     }
 }
 
@@ -256,17 +276,17 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
         ref_trees: HashMap::new(),
     };
 
-    // Step 1: parse GFA
+    // Parse GFA
     parse_gfa_memmap(gfa_path, &mut global);
     eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
         global.node_map.len(), global.path_map.len());
 
-    // Step 2: parse PAF
+    // Parse PAF
     parse_paf_parallel(paf_path, &mut global);
     eprintln!("[INFO] PAF parse done. alignment_by_path={} refTrees building...",
         global.alignment_by_path.len());
 
-    // Step 3: build trees
+    // Build trees
     build_ref_trees(&mut global);
     eprintln!("[INFO] IntervalTrees built. Ready for queries.");
 
@@ -280,6 +300,9 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
             let mut global_min = usize::MAX;
             let mut global_max = 0;
             let mut intervals_by_path = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+            
+            // Collect unique node IDs for OVERALL mapping
+            let mut unique_nodes = std::collections::HashSet::new();
 
             for r in &results {
                 println!(
@@ -290,6 +313,11 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
                     r.path_off_start,
                     r.path_off_end
                 );
+
+                // Try to convert node_id to numeric form for range creation
+                if let Ok(node_num) = r.node_id.parse::<usize>() {
+                    unique_nodes.insert(node_num);
+                }
 
                 if r.path_off_start < global_min {
                     global_min = r.path_off_start;
@@ -314,6 +342,18 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
                     println!("  Group range: {}..{}", start_val, end_val);
                 }
             }
+            
+            // Print OVERALL node mapping (sample-abstracted)
+            println!("\n============ OVERALL MAPPING ============");
+            println!("REFERENCE: {}:{}-{}", chr, start, end);
+            
+            // Convert unique_nodes to a vector for range creation
+            let unique_node_vec: Vec<usize> = unique_nodes.into_iter().collect();
+            let node_ranges = create_node_ranges(&unique_node_vec);
+            
+            println!("UNIQUE NODES: {}", node_ranges);
+            println!("TOTAL UNIQUE NODES: {}", unique_node_vec.len());
+            println!("================================================");
         }
     } else {
         eprintln!("Could not parse region format: {}", region);
@@ -967,6 +1007,80 @@ pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
     let start = s.parse::<usize>().ok()?;
     let end   = e.parse::<usize>().ok()?;
     Some((chr_part.to_string(), start, end))
+}
+
+/// Creates a human-readable representation of consecutive node IDs as ranges
+/// For example: [1, 2, 3, 5, 6, 8] becomes "1-3, 5-6, 8"
+fn create_node_ranges(node_ids: &[usize]) -> String {
+    if node_ids.is_empty() {
+        return String::new();
+    }
+    
+    let mut sorted_ids = node_ids.to_vec();
+    sorted_ids.sort();
+    sorted_ids.dedup();
+    
+    let mut ranges = Vec::new();
+    let mut start = sorted_ids[0];
+    let mut end = start;
+    
+    for i in 1..sorted_ids.len() {
+        if sorted_ids[i] == end + 1 {
+            // Continuing a range
+            end = sorted_ids[i];
+        } else {
+            // End of range, start a new one
+            if start == end {
+                ranges.push(format!("{}", start));
+            } else {
+                ranges.push(format!("{}-{}", start, end));
+            }
+            start = sorted_ids[i];
+            end = start;
+        }
+    }
+    
+    // Add the last range
+    if start == end {
+        ranges.push(format!("{}", start));
+    } else {
+        ranges.push(format!("{}-{}", start, end));
+    }
+    
+    ranges.join(", ")
+}
+
+/// Creates a human-readable representation of consecutive coordinate ranges
+fn create_coord_ranges(ranges: &[(String, usize, usize)]) -> Vec<(String, String)> {
+    let mut result = Vec::new();
+    
+    // Group by chromosome
+    let mut by_chr = std::collections::HashMap::<String, Vec<(usize, usize)>>::new();
+    for (chr, start, end) in ranges {
+        by_chr.entry(chr.clone()).or_default().push((*start, *end));
+    }
+    
+    // Process each chromosome
+    for (chr, mut positions) in by_chr {
+        positions.sort_by_key(|p| p.0);
+        positions.dedup();
+        
+        let merged = merge_intervals(positions);
+        let formatted = merged.iter()
+            .map(|(start, end)| {
+                if start == end {
+                    format!("{}", start)
+                } else {
+                    format!("{}-{}", start, end)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        
+        result.push((chr, formatted));
+    }
+    
+    result
 }
 
 /// merge_intervals takes a vector of (start, end) pairs and merges
