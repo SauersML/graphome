@@ -152,7 +152,7 @@ impl IntervalTree {
                 // check overlaps
                 for iv in overlaps {
                     // println!("DEBUG: Checking overlap: ref={}:{}-{}, path={}", 
-                             iv.data.ref_chrom, iv.start, iv.end, iv.data.path_name);
+                    //         iv.data.ref_chrom, iv.start, iv.end, iv.data.path_name);
                     if iv.end < qstart || iv.start > qend {
                         // println!("DEBUG: No overlap with query region");
                     } else {
