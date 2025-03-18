@@ -156,7 +156,7 @@ impl IntervalTree {
                     if iv.end < qstart || iv.start > qend {
                         // println!("DEBUG: No overlap with query region");
                     } else {
-                        println!("DEBUG: Found overlap! Adding to results");
+                        // println!("DEBUG: Found overlap! Adding to results");
                         results.push(iv);
                     }
                 }
