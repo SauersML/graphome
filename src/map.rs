@@ -151,10 +151,10 @@ impl IntervalTree {
                 }
                 // check overlaps
                 for iv in overlaps {
-                    println!("DEBUG: Checking overlap: ref={}:{}-{}, path={}", 
+                    // println!("DEBUG: Checking overlap: ref={}:{}-{}, path={}", 
                              iv.data.ref_chrom, iv.start, iv.end, iv.data.path_name);
                     if iv.end < qstart || iv.start > qend {
-                        println!("DEBUG: No overlap with query region");
+                        // println!("DEBUG: No overlap with query region");
                     } else {
                         println!("DEBUG: Found overlap! Adding to results");
                         results.push(iv);
@@ -950,8 +950,8 @@ pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) 
     // for each interval, we compute overlap in ref space, then convert to path offsets, then find node(s)
     for iv in ivs {
         let ab = &iv.data;
-        println!("DEBUG: Processing interval: {}:{}-{} from path {}", 
-                 ab.ref_chrom, iv.start, iv.end, ab.path_name);
+        // println!("DEBUG: Processing interval: {}:{}-{} from path {}", 
+        //         ab.ref_chrom, iv.start, iv.end, ab.path_name);
                  
         // Even if a node only partially overlaps [start..end], we include it. We
         // compute the intersecting segment in reference coordinates, then map
