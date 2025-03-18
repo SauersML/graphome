@@ -692,7 +692,7 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
 
     // Function to process a batch of lines in parallel
     fn parse_paf_lines_in_parallel(lines: &[String], pb: &ProgressBar) -> PafChunkResult {
-        lines.par_iter().map(|l| {
+        let result = lines.par_iter().map(|l| {
             let mut local_res = PafChunkResult {
                 data: HashMap::new(),
                 count: 0,
@@ -713,9 +713,9 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
             let t_name = parts[5].to_string();
             let t_start = parts[7].parse::<usize>().unwrap_or(0);
             let t_end = parts[8].parse::<usize>().unwrap_or(0);
-
+    
             let ref_strand = strand_char == '+';
-
+    
             let (q_start, q_end) = if !ref_strand {
                 let flipped_start = q_len.saturating_sub(raw_qe);
                 let flipped_end   = q_len.saturating_sub(raw_qs);
@@ -723,7 +723,7 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
             } else {
                 (raw_qs, raw_qe)
             };
-
+    
             let ab = AlignmentBlock {
                 path_name: q_name.clone(),
                 q_len,
@@ -734,13 +734,13 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 r_end: t_end,
                 ref_strand: ref_strand,
             };
-
+    
             local_res
                 .data
                 .entry(q_name)
                 .or_insert_with(Vec::new)
                 .push(ab);
-
+    
             local_res
         })
         .reduce(
@@ -755,10 +755,9 @@ pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
                 }
                 a
             },
-        )
-        .tap(|res| {
-            pb.inc(res.count as u64);
-        })
+        );
+        pb.inc(result.count as u64);
+        result
     }
 
     for line_res in reader.lines() {
