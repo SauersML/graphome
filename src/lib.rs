@@ -8,3 +8,4 @@ pub mod viz;
 pub mod display;
 pub mod video;
 pub mod embed;
+pub mod make_sequence;
