@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, window, entropy, map, viz, embed, video, make_sequence};
+use graphome::{convert, extract, window, entropy, map, viz, embed, video, make_sequence, gfa2gbz};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -146,6 +146,12 @@ enum Commands {
         #[arg(long)]
         output: String,
     },
+    /// Convert GFA file to GBZ format.
+    Gfa2gbz {
+        /// Path to the input GFA file.
+        #[arg(short, long)]
+        input: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -231,6 +237,9 @@ fn main() -> io::Result<()> {
         }
         Commands::MakeSequence { gfa, paf, region, sample, output } => {
             make_sequence::run_make_sequence(gfa, paf, region, sample, output);
+        }
+        Commands::Gfa2gbz { input } => {
+            gfa2gbz::run_gfa2gbz(input)?;
         }
     }
     Ok(())
