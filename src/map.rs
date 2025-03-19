@@ -20,14 +20,17 @@
 
 // The code always treats query offsets as if they run from `q_start` to `q_end` in a forward orientation, even when the PAF record indicates a reverse‐strand alignment. This causes incorrect offset calculations for negative‐strand alignments. To fix it, must handle the case where `strand_char == '-'` (i.e., `b.ref_strand == false`) by inverting the offset calculations to account for the query’s reversed orientation.
 
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::fs::{File};
 use std::io::{BufReader, BufRead};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use memmap2::{MmapOptions};
 use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
-
+use gbwt::{GBZ, Orientation};
+use simple_sds::serialize;
 
 // Data Structures
 
@@ -189,32 +192,35 @@ pub struct GlobalData {
 
 /// Run node2coord with printing of intervals, total range, and merging by chromosome
 pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
-    eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
-
-    let mut global = GlobalData {
-        node_map: HashMap::new(),
-        path_map: HashMap::new(),
-        node_to_paths: HashMap::new(),
-        alignment_by_path: HashMap::new(),
-        ref_trees: HashMap::new(),
+    // Convert node_id to numeric form
+    let node_id_num = match node_id.parse::<usize>() {
+        Ok(num) => num,
+        Err(_) => {
+            println!("No reference coords found for node {} (non-numeric node ID)", node_id);
+            return;
+        }
     };
 
-    // Step 1: parse GFA with memory mapping
-    parse_gfa_memmap(gfa_path, &mut global);
-    eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
-        global.node_map.len(), global.path_map.len());
+    // Get or create GBZ file
+    let gbz_path = make_gbz_exist(gfa_path, paf_path);
+    eprintln!("[INFO] Using GBZ index from '{}'", gbz_path);
 
-    // Step 2: parse PAF in parallel
-    parse_paf_parallel(paf_path, &mut global);
-    eprintln!("[INFO] PAF parse done. alignment_by_path={} refTrees building...",
-        global.alignment_by_path.len());
+    // Load GBZ
+    let gbz: GBZ = match serialize::load_from(&gbz_path) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("Error loading GBZ file: {}", e);
+            return;
+        }
+    };
 
-    // Step 3: build IntervalTrees
-    build_ref_trees(&mut global);
-    eprintln!("[INFO] Interval Trees built. Ready for queries.");
+    if !gbz.has_node(node_id_num) {
+        println!("No reference coords found for node {}", node_id);
+        return;
+    }
 
-    // Actually do node->coord
-    let results = node_to_coords(&global, node_id);
+    // Get node coordinates using GBZ
+    let results = node_to_coords_gbz(&gbz, node_id_num);
     if results.is_empty() {
         println!("No reference coords found for node {}", node_id);
     } else {
@@ -271,33 +277,23 @@ pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
 /// Run coord2node with printing of intervals, total range, and merging by path
 pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
     println!("DEBUG: Looking for region: {}", region);
-    eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
+    
+    // Get or create GBZ file
+    let gbz_path = make_gbz_exist(gfa_path, paf_path);
+    eprintln!("[INFO] Using GBZ index from '{}'", gbz_path);
 
-    let mut global = GlobalData {
-        node_map: HashMap::new(),
-        path_map: HashMap::new(),
-        node_to_paths: HashMap::new(),
-        alignment_by_path: HashMap::new(),
-        ref_trees: HashMap::new(),
+    // Load GBZ
+    let gbz: GBZ = match serialize::load_from(&gbz_path) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("Error loading GBZ file: {}", e);
+            return;
+        }
     };
 
-    // Parse GFA
-    parse_gfa_memmap(gfa_path, &mut global);
-    eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
-        global.node_map.len(), global.path_map.len());
-
-    // Parse PAF
-    parse_paf_parallel(paf_path, &mut global);
-    eprintln!("[INFO] PAF parse done. alignment_by_path={} refTrees building...",
-        global.alignment_by_path.len());
-
-    // Build trees
-    build_ref_trees(&mut global);
-    eprintln!("[INFO] IntervalTrees built. Ready for queries.");
-
-    // parse region
+    // Parse region
     if let Some((chr, start, end)) = parse_region(region) {
-        let results = coord_to_nodes(&global, &chr, start, end);
+        let results = coord_to_nodes_gbz(&gbz, &chr, start, end);
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {
@@ -594,208 +590,191 @@ pub fn build_ref_trees(global: &mut GlobalData) {
 }
 
 
-// node_to_coords
-// using global data structures to do node->coords mapping
-pub fn node_to_coords(global: &GlobalData, node_id: &str) -> Vec<(String,usize,usize)> {
+// node_to_coords_gbz
+// Using GBZ index to find reference coordinates for a node
+pub fn node_to_coords_gbz(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> {
     let mut results = Vec::new();
-
-    let nodeinfo = match global.node_map.get(node_id) {
-        Some(x) => x,
+    
+    // Get node length
+    let node_len = match gbz.sequence_len(node_id) {
+        Some(len) => len,
         None => return results,
     };
-    let len = nodeinfo.length;
-
-    // find all (path,index) from node_to_paths
-    let pathrefs = match global.node_to_paths.get(node_id) {
-        Some(v) => v,
-        None => return results,
-    };
-
-    for (pname, idx) in pathrefs {
-        let pd = match global.path_map.get(pname) {
-            Some(x) => x,
-            None => continue,
+    
+    // Get reference sample IDs
+    let ref_samples = gbz.reference_sample_ids(true);
+    if ref_samples.is_empty() {
+        eprintln!("Warning: No reference samples found in GBZ");
+        return results;
+    }
+    
+    if let Some(metadata) = gbz.metadata() {
+        // Create a search state for the node
+        let forward_state = match gbz.search_state(node_id, Orientation::Forward) {
+            Some(state) => state,
+            None => return results,
         };
-        if *idx >= pd.nodes.len() {
-            continue;
-        }
-        let node_offset_start = pd.prefix_sums[*idx];
-        let node_offset_end   = node_offset_start + len.saturating_sub(1);
-
-        // alignment blocks
-        let blocks = match global.alignment_by_path.get(pname) {
-            Some(b) => b,
-            None => continue,
-        };
-        // retrieve the node orientation from pd.nodes[*idx]
-        let node_or = pd.nodes[*idx].1;
         
-        for b in blocks {
-            let qs = b.q_start;
-            let qe = b.q_end;
-            if qe < node_offset_start || qs > node_offset_end {
-                continue;
-            }
-            let ov_start = node_offset_start.max(qs);
-            let ov_end   = node_offset_end.min(qe);
-            if ov_start <= ov_end {
-                let diff_start = ov_start - qs;
-                let diff_end   = ov_end   - qs;
-        
-                // This means whether b.r_start > b.r_end or b.r_end > b.r_start will both work.
-                // The node orientation is preserved without flipping reference coordinates based on strand.
-                let r_lo = if b.r_start <= b.r_end { b.r_start } else { b.r_end };
-                let r_hi = if b.r_start <= b.r_end { b.r_end } else { b.r_start };
-                let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
-                let larger_offset = if diff_start <= diff_end { diff_end } else { diff_start };
-                if node_or {
-                    let final_ref_start = r_lo.saturating_add(smaller_offset);
-                    let final_ref_end = r_lo.saturating_add(larger_offset);
-                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
-                } else {
-                    let total_len = r_hi.saturating_sub(r_lo);
-                    let reverse_start = r_lo.saturating_add(total_len).saturating_sub(larger_offset);
-                    let reverse_end = r_lo.saturating_add(total_len).saturating_sub(smaller_offset);
-                    let final_ref_start = if reverse_start <= reverse_end { reverse_start } else { reverse_end };
-                    let final_ref_end = if reverse_start <= reverse_end { reverse_end } else { reverse_start };
-                    results.push((b.ref_chrom.clone(), final_ref_start, final_ref_end));
+        // Find all paths that contain this node
+        for ref_sample in &ref_samples {
+            for (path_id, path_name) in metadata.path_iter().enumerate() {
+                if path_name.sample() != *ref_sample {
+                    continue;
+                }
+                
+                let contig_name = metadata.contig_name(path_name.contig());
+                
+                // Check if this path contains the node by looking at all paths
+                if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
+                    let mut position = 0;
+                    let mut found_positions = Vec::new();
+                    
+                    // Scan path to find node positions
+                    while let Some((path_node, orientation)) = path_iter.next() {
+                        if path_node == node_id {
+                            found_positions.push((position, orientation == Orientation::Forward));
+                        }
+                        if let Some(len) = gbz.sequence_len(path_node) {
+                            position += len;
+                        }
+                    }
+                    
+                    // For each occurrence, extract reference coordinates
+                    for (pos, is_forward) in found_positions {
+                        // Get reference positions for this path
+                        let ref_paths = gbz.reference_positions(1000, false);
+                        for ref_path in ref_paths {
+                            if ref_path.id == path_id {
+                                for (path_pos, gbwt_pos) in &ref_path.positions {
+                                    if *path_pos <= pos && *path_pos + node_len >= pos {
+                                        // We found a reference position that contains our node
+                                        let offset = pos - path_pos;
+                                        let ref_start = *path_pos + offset;
+                                        let ref_end = ref_start + node_len - 1;
+                                        
+                                        results.push((contig_name.clone(), ref_start, ref_end));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+    
     results
 }
 
 
-// coord_to_nodes
-//  given e.g. "grch38#chr1", 100000, 110000
-pub fn coord_to_nodes(global: &GlobalData, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
-    println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
+// coord_to_nodes_gbz
+// Using GBZ index to find nodes at a reference position
+pub fn coord_to_nodes_gbz(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
-
-    let tree = match global.ref_trees.get(chr) {
-        Some(t) => t,
-        None => {
-            println!("DEBUG: No tree found for chromosome {}", chr);
-            return results;
-        }
-    };
-    // do an interval query
-    let mut ivs = Vec::new();
-    tree.query(start, end, &mut ivs);
-    println!("DEBUG: Found {} intervals overlapping {}:{}-{}", ivs.len(), chr, start, end);
-
-    // for each interval, we compute overlap in ref space, then convert to path offsets, then find node(s)
-    for iv in ivs {
-        let ab = &iv.data;
-        // println!("DEBUG: Processing interval: {}:{}-{} from path {}", 
-        //         ab.ref_chrom, iv.start, iv.end, ab.path_name);
-                 
-        // Even if a node only partially overlaps [start..end], we include it. We
-        // compute the intersecting segment in reference coordinates, then map
-        // that segment back onto the node's path offset range.
-        let ov_s = start.max(iv.start);
-        let ov_e = end.min(iv.end);
-        if ov_s>ov_e {
-            println!("DEBUG: Invalid overlap segment: {}-{}", ov_s, ov_e);
-            continue;
-        }
-        // Compute overlap in reference space
-        let diff_start = ov_s - ab.r_start;
-        let diff_end   = ov_e - ab.r_start;
-        
-        // This code unifies offsets without assuming ab.r_start is less than ab.r_end or that strand implies flipping the reference side.
-        let smaller_offset = if diff_start <= diff_end { diff_start } else { diff_end };
-        let larger_offset = if diff_start <= diff_end { diff_end } else { diff_start };
-        let path_ov_start = ab.q_start.saturating_add(smaller_offset);
-        let path_ov_end = ab.q_start.saturating_add(larger_offset);
-        
-        // Now map to path offsets
-        let path_ov_start = ab.q_start.saturating_add(smaller_offset);
-        let path_ov_end = ab.q_start.saturating_add(larger_offset);
-
-
-        // now find which nodes in ab.path_name covers path_ov_start..path_ov_end
-        let pd = match global.path_map.get(&ab.path_name) {
-            Some(x) => x,
-            None => {
-                println!("DEBUG: Path {} not found in path_map (found in PAF but not in GFA)", ab.path_name);
+    
+    // Get reference paths and their positions
+    let ref_paths = gbz.reference_positions(1000, true);
+    if ref_paths.is_empty() {
+        println!("DEBUG: No reference paths found in GBZ");
+        return results;
+    }
+    
+    if let Some(metadata) = gbz.metadata() {
+        // Find paths that align to this region
+        for ref_path in &ref_paths {
+            let path_metadata = match metadata.path(ref_path.id) {
+                Some(meta) => meta,
+                None => continue,
+            };
+            
+            let contig_name = metadata.contig_name(path_metadata.contig());
+            if contig_name != chr {
                 continue;
             }
-        };
-        println!("DEBUG: Found path {} in path_map with {} nodes", ab.path_name, pd.nodes.len());
-        
-        // do a binary search approach
-        let (_start_node, mut i) = match pd.prefix_sums.binary_search_by(|&off| off.cmp(&path_ov_start)) { 
-            Ok(i) => {
-                println!("DEBUG: Found exact match at index {} with offset {}", i, pd.prefix_sums[i]);
-                (i,i)
-            },
-            Err(i) => {
-                if i>0 { 
-                    println!("DEBUG: Found closest lower index at {} with offset {}", i-1, pd.prefix_sums[i-1]);
-                    (i-1,i-1) 
-                } else { 
-                    println!("DEBUG: No lower bound found, starting at index 0");
-                    (0,0) 
+            
+            println!("DEBUG: Found path in reference that matches chromosome {}", chr);
+            
+            // Find nodes in this region
+            for (path_pos, pos) in &ref_path.positions {
+                // Skip if position is outside our target region
+                if *path_pos > end || *path_pos + 1000 < start {
+                    continue;
                 }
-            },
-        };
-        // we will proceed forward while offset range is in path_ov_end
-        println!("DEBUG: Looking for nodes covering path offsets {}..{} in path {}", 
-                 path_ov_start, path_ov_end, ab.path_name);
-        
-        while i<pd.nodes.len() {
-            let noff_start = pd.prefix_sums[i];
-            let node_id = &pd.nodes[i].0;
-            let node_or = pd.nodes[i].1;
-            let node_len = global.node_map.get(node_id).map(|xx|xx.length).unwrap_or(0);
-            let noff_end = noff_start + node_len.saturating_sub(1);
-
-            println!("DEBUG: Checking node {} ({}), offset range: {}..{}", 
-                     node_id, if node_or {'+'}else{'-'}, noff_start, noff_end);
-
-            if noff_start>path_ov_end {
-                println!("DEBUG: Node starts after path range end, stopping search");
-                break;
-            }
-            let o_s = noff_start.max(path_ov_start);
-            let o_e = noff_end.min(path_ov_end);
-            if o_s <= o_e {
-                println!("DEBUG: Found overlapping node {} with effective range {}..{}", node_id, o_s, o_e);
-                let final_start;
-                let final_end;
-                if node_or {
-                    // Node is forward in the path
-                    final_start = o_s;
-                    final_end   = o_e;
-                } else {
-                    // Node is reversed in the path
-                    let node_highest_offset = noff_start + node_len - 1;
-                    let flipped_start = node_highest_offset.saturating_sub(o_e - noff_start);
-                    let flipped_end   = node_highest_offset.saturating_sub(o_s - noff_start);
-                    if flipped_start <= flipped_end {
-                        final_start = flipped_start;
-                        final_end   = flipped_end;
-                    } else {
-                        final_start = flipped_end;
-                        final_end   = flipped_start;
+                
+                // Get the node at this position
+                let (node_id, orientation) = gbwt::support::decode_node(pos.node);
+                if let Some(node_len) = gbz.sequence_len(node_id) {
+                    let node_end = *path_pos + node_len;
+                    
+                    // Check if this node overlaps our region
+                    if *path_pos <= end && node_end >= start {
+                        let overlap_start = start.max(*path_pos);
+                        let overlap_end = end.min(node_end);
+                        
+                        if overlap_start <= overlap_end {
+                            println!("DEBUG: Found overlapping node {} with range {}..{}", 
+                                     node_id, overlap_start, overlap_end);
+                            
+                            // Calculate offset within the node
+                            let node_off_start = overlap_start - *path_pos;
+                            let node_off_end = overlap_end - *path_pos;
+                            
+                            results.push(Coord2NodeResult {
+                                path_name: contig_name.clone(),
+                                node_id: node_id.to_string(),
+                                node_orient: orientation == Orientation::Forward,
+                                path_off_start: node_off_start,
+                                path_off_end: node_off_end,
+                            });
+                        }
                     }
                 }
-            
-                results.push(Coord2NodeResult {
-                    path_name: ab.path_name.clone(),
-                    node_id: node_id.clone(),
-                    node_orient: node_or,
-                    path_off_start: final_start,
-                    path_off_end:   final_end,
-                });
             }
-            i+=1;
         }
     }
-
+    
     results
+}
+
+/// So that that a GBZ file exists for the given GFA and PAF files
+/// If the GBZ doesn't exist, it creates it using vg
+pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
+    // Derive GBZ filename from GFA and PAF paths
+    let gfa_base = Path::new(gfa_path).file_stem().unwrap_or_default().to_string_lossy();
+    let paf_base = Path::new(paf_path).file_stem().unwrap_or_default().to_string_lossy();
+    let gbz_path = format!("{}.{}.gbz", gfa_base, paf_base);
+    
+    // Check if GBZ file already exists
+    if !Path::new(&gbz_path).exists() {
+        eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
+        
+        // Make sure vg is installed
+        let vg_check = Command::new("vg")
+            .arg("--version")
+            .output();
+    
+        if vg_check.is_err() || !vg_check.unwrap().status.success() {
+            eprintln!("Error: 'vg' command not found. Please install vg toolkit.");
+            panic!("vg command not found");
+        }
+        
+        // Create GBZ using vg gbwt
+        let status = Command::new("vg")
+            .args(["gbwt", "-G", gfa_path, "--gbz-format", "-g", &gbz_path])
+            .status()
+            .expect("Failed to run vg gbwt");
+            
+        if !status.success() {
+            panic!("GBZ creation failed: vg gbwt command returned non-zero exit status");
+        }
+        
+        eprintln!("[INFO] GBZ index created at {}", gbz_path);
+    } else {
+        eprintln!("[INFO] Using existing GBZ index: {}", gbz_path);
+    }
+    
+    gbz_path
 }
 
 #[derive(Debug)]
