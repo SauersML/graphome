@@ -952,15 +952,12 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
  * We also store an offset for record i in record_offsets[i].
  **************************************************************************************************/
 fn build_bwt_bytes(records: &Vec<Option<GBWTRecord>>) -> (Vec<(usize,usize)>, Vec<u8>) {
-    // Build the BWT data array for each record. The second integer in edges is the partial prefix sum rank.
-    // The run-length BWT references edges by index.
     let mut data = Vec::new();
     let mut offsets = Vec::new();
     for (rid, rec_opt) in records.iter().enumerate() {
         let offset_here = data.len();
         offsets.push((rid, offset_here));
         if let Some(rec) = rec_opt {
-            // Write adjacency header
             let sigma = rec.edges.len();
             encode_varuint(&mut data, sigma as u64);
             let mut prev_id = 0;
@@ -970,21 +967,27 @@ fn build_bwt_bytes(records: &Vec<Option<GBWTRecord>>) -> (Vec<(usize,usize)>, Ve
                 encode_varuint(&mut data, rank_val as u64);
                 prev_id = succ_id;
             }
-            // Then the run-length BWT body
             for r in &rec.runs {
                 if sigma == 0 {
-                    // If no edges, we skip. No runs are valid, but we'll just ignore.
                     continue;
                 }
                 if sigma < 255 {
-                    let thr = if sigma == 0 { 1 } else { 256 / sigma };
-                    if r.len < thr {
-                        let code = r.value + sigma * (r.len - 1);
+                    let mut length = r.len;
+                    while length > 0 {
+                        let max_code = 255usize.saturating_sub(r.value);
+                        if max_code == 0 {
+                            encode_varuint(&mut data, r.value as u64);
+                            encode_varuint(&mut data, (length - 1) as u64);
+                            break;
+                        }
+                        let sub_len = (max_code / sigma) + 1;
+                        let run_len = if sub_len < length { sub_len } else { length };
+                        let code = r.value + sigma * (run_len - 1);
                         encode_byte(&mut data, code as u8);
-                    } else {
-                        let code = r.value + sigma * (thr - 1);
-                        encode_byte(&mut data, code as u8);
-                        encode_varuint(&mut data, (r.len - thr) as u64);
+                        length -= run_len;
+                        if length > 0 {
+                            encode_varuint(&mut data, (run_len - 1) as u64);
+                        }
                     }
                 } else {
                     encode_varuint(&mut data, r.value as u64);
@@ -992,12 +995,12 @@ fn build_bwt_bytes(records: &Vec<Option<GBWTRecord>>) -> (Vec<(usize,usize)>, Ve
                 }
             }
         } else {
-            // No record -> sigma=0
             encode_varuint(&mut data, 0u64);
         }
     }
     (offsets, data)
 }
+
 
 /***************************************************************************************************
  * Write the GBWT metadata
@@ -1085,22 +1088,20 @@ fn write_gbwt_metadata<W: Write>(w: &mut W, meta: &GBWTMetadata) -> Result<(), s
  * Then we must store them in lexicographic order => sorted_ids => an integer vector 
  **************************************************************************************************/
 fn write_dictionary<W: Write>(w: &mut W, items: &Vec<String>) -> Result<(), std::io::Error> {
-    // 1) write the string array in the original order 
-    // 2) then an int vector storing the IDs in lex order
     write_string_array(w, items)?;
-    // build a separate structure to sort them lex and store the index
     let mut sorted: Vec<usize> = (0..items.len()).collect();
     sorted.sort_by(|&a, &b| items[a].cmp(&items[b]));
-    // then we store them as a packed int vector => length= items.len(), width= bit_len(items.len()-1).
     let length = sorted.len() as u64;
-    write_varuint(w, length)?; 
-    // compute bit width
-    let width = if sorted.len() < 2 { 1 } else { (64 - ((sorted.len()-1) as u64).leading_zeros()) as u8 };
+    write_varuint(w, length)?;
+    let width = if length > 1 { 64 - (length - 1).leading_zeros() } else { 1 };
+    let mut iv = IntVector::with_capacity(sorted.len(), width as usize).unwrap();
     for &sid in &sorted {
-        write_varuint(w, sid as u64)?;
+        iv.push(sid as u64);
     }
+    iv.serialize(w)?;
     Ok(())
 }
+
 
 /***************************************************************************************************
  * Write the GBWTGraph:
