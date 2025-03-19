@@ -726,6 +726,84 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     results
 }
 
+/// Validates a GFA file for potential node conflicts that would cause GBWT construction to fail
+pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
+    eprintln!("[INFO] Validating GFA file for duplicate node IDs: {}", gfa_path);
+    
+    let file = match File::open(gfa_path) {
+        Ok(f) => f,
+        Err(e) => return Err(format!("Failed to open GFA file: {}", e)),
+    };
+    
+    let reader = BufReader::new(file);
+    
+    // Track nodes by ID and where they appear
+    let mut node_occurrences: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut path_count = 0;
+    
+    // First pass: collect all node IDs from path lines (P lines)
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(e) => return Err(format!("Error reading GFA file: {}", e)),
+        };
+        
+        if line.is_empty() || !line.starts_with('P') {
+            continue;
+        }
+        
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        
+        // Path line - extract node IDs
+        let path_nodes = parts[2].split(',')
+            .map(|s| s.trim_end_matches('+').trim_end_matches('-').to_string())
+            .collect::<Vec<String>>();
+        
+        // Track where each node appears
+        for node_id in path_nodes {
+            node_occurrences.entry(node_id)
+                .or_insert_with(Vec::new)
+                .push(path_count);
+        }
+        
+        path_count += 1;
+    }
+    
+    // Check for duplicate node IDs that might conflict
+    let mut conflicts = Vec::new();
+    for (node_id, occurrences) in node_occurrences {
+        if occurrences.len() > 1 {            
+            // We'll report the first two occurrences as potential sources of conflict
+            conflicts.push(format!(
+                "GBWT::GBWT(): Sources {} and {} both have node {}", 
+                occurrences[0], occurrences[1], node_id
+            ));
+        }
+    }
+    
+    // Report results
+    if conflicts.is_empty() {
+        eprintln!("[INFO] GFA validation passed: No obvious node conflicts detected");
+        Ok(())
+    } else {
+        let mut error_msg = format!("Found {} potential node conflicts that may cause GBWT construction to fail:\n", conflicts.len());
+        
+        // Show first 10 conflicts
+        for (i, conflict) in conflicts.iter().take(10).enumerate() {
+            error_msg.push_str(&format!("{}) {}\n", i+1, conflict));
+        }
+        
+        if conflicts.len() > 10 {
+            error_msg.push_str(&format!("...and {} more conflicts\n", conflicts.len() - 10));
+        }
+        
+        Err(error_msg)
+    }
+}
+
 /// So that that a GBZ file exists for the given GFA and PAF files
 /// If the GBZ doesn't exist, it creates it using vg
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
@@ -737,6 +815,19 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     // Check if GBZ file already exists
     if !Path::new(&gbz_path).exists() {
         eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
+
+        // Validate the GFA file before attempting to build the GBZ
+        match validate_gfa_for_gbwt(gfa_path) {
+            Ok(_) => {
+                eprintln!("[INFO] GFA validation passed, proceeding with GBWT construction");
+            },
+            Err(msg) => {
+                eprintln!("[ERROR] GFA validation failed:");
+                eprintln!("{}", msg);
+                eprintln!("[INFO] The GFA file contains node conflicts that would cause GBWT construction to fail");
+                panic!("GFA validation failed - cannot create GBZ index");
+            }
+        }
         
         // Determine vg command location by checking PATH, current directory, and parent directory.
         let vg_cmd = if let Ok(output) = Command::new("vg").arg("--version").output() {
