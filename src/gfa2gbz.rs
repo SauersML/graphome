@@ -1232,7 +1232,7 @@ fn write_string_array<W: Write>(w: &mut W, arr: &Vec<String>) -> Result<(), std:
         w.write_all(&[b])?;
     }
     // now build the packed array. width = 
-    let wbits = if sigma<=1 {1} else { (64 - (sigma-1).leading_zeros()) as u8 };
+    let wbits = if sigma <= 1 { 1 } else { (64 - ((sigma - 1) as u64).leading_zeros()) as u8 };
     // write length in varuint => data.len()
     write_varuint(w, data.len() as u64)?;
     write_varuint(w, wbits as u64)?;
