@@ -502,30 +502,40 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
     let mut freq_min = usize::MAX;
     let mut freq_max = 0usize;
 
-    // Inlined closure to process a batch of line numbers for a node.
-    // This checks if there's a duplicate and aggregates frequency stats.
-    let mut handle_node = |node_id: &str, lines: &Vec<usize>| {
+    // Maximum number of duplicates to find before early return
+    let max_duplicates_to_report = 50;
+    let mut duplicate_count = 0;
+
+    // Instead of using a closure that captures variables, we'll inline the logic
+    let mut process_node_and_check_limit = |node_id: &str, lines: &Vec<usize>| -> bool {
         if node_id.is_empty() || lines.is_empty() {
-            return;
+            return false;
         }
+        
         let freq = lines.len();
         total_unique_nodes += 1;
         *freq_map.entry(freq).or_insert(0) += 1;
+        
         if freq < freq_min {
             freq_min = freq;
         }
         if freq > freq_max {
             freq_max = freq;
         }
+        
         if freq > 1 {
             found_conflict = true;
+            duplicate_count += 1;
+            
             conflict_msg.push_str(&format!(
                 "Duplicate: Node ID '{}' appears {} times.\n",
                 node_id, freq
             ));
-            let max_show = 100; 
+            
+            let max_show = 100;
             let truncated = freq > max_show;
             let shown_count = freq.min(max_show);
+            
             conflict_msg.push_str("   Lines: ");
             for (i, &ln) in lines.iter().enumerate().take(shown_count) {
                 conflict_msg.push_str(&ln.to_string());
@@ -533,11 +543,20 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
                     conflict_msg.push_str(", ");
                 }
             }
+            
             if truncated {
                 conflict_msg.push_str(" ... [TRUNCATED]");
             }
-            conflict_msg.push('\n');
+            conflict_msg.push_str("\n");
+            
+            // The key difference: return true if we've hit our limit
+            if duplicate_count >= max_duplicates_to_report {
+                conflict_msg.push_str("\n[EARLY RETURN] Stopping validation after finding significant duplicate nodes.\n");
+                return true;
+            }
         }
+        
+        false
     };
 
     let mut buffer = String::new();
@@ -578,8 +597,12 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
         if node_id == prev_node_id {
             current_line_numbers.push(line_num);
         } else {
-            // finalize old node
-            handle_node(&prev_node_id, &current_line_numbers);
+            // Process old node and check if we should stop
+            if process_node_and_check_limit(&prev_node_id, &current_line_numbers) {
+                break;  // Early return triggered by hitting duplicate limit
+            }
+            
+            // Set up for next node
             prev_node_id.clear();
             prev_node_id.push_str(node_id);
             current_line_numbers.clear();
@@ -588,8 +611,10 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
 
         buffer.clear();
     }
-    // finalize last node
-    handle_node(&prev_node_id, &current_line_numbers);
+    // Process final node (only if we didn't break out early)
+    if !prev_node_id.is_empty() {
+        process_node_and_check_limit(&prev_node_id, &current_line_numbers);
+    }
 
     if total_entries == 0 {
         eprintln!("[INFO] No node IDs found in 'P' lines. This may be an empty GFA or no 'P' lines exist.");
@@ -612,14 +637,21 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
         distribution_str.push_str(&format!("  {:>8} -> {}\n", f, c));
     }
 
+    let early_return_note = if found_conflict && duplicate_count >= max_duplicates_to_report {
+        " (based on processed portion of file)"
+    } else {
+        ""
+    };
+
     let stats_msg = format!(
-        "\nValidation statistics:\n\
-         - Total (node_id,line) entries: {}\n\
-         - Distinct node IDs: {}\n\
+        "\nValidation statistics{}:\n\
+         - Total (node_id,line) entries processed: {}\n\
+         - Distinct node IDs found: {}\n\
          - Min frequency: {}\n\
          - Max frequency: {}\n\
          - Average frequency: {:.2}\n\
          {}",
+        early_return_note,
         total_entries,
         total_unique_nodes,
         if freq_min == usize::MAX { 0 } else { freq_min },
@@ -631,6 +663,9 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
     if found_conflict {
         let mut err_str = String::new();
         err_str.push_str("[ERROR] Duplicate node IDs detected.\n");
+        if duplicate_count >= max_duplicates_to_report {
+            err_str.push_str(&format!("[EARLY RETURN] Showing first {} duplicates.\n", max_duplicates_to_report));
+        }
         err_str.push_str(&conflict_msg);
         err_str.push_str(&stats_msg);
         eprintln!("{}", err_str);
