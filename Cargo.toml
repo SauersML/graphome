@@ -12,6 +12,7 @@ name = "graphome"
 path = "src/main.rs"
 
 [dependencies]
+gbwt = "0.3.1"
 clap = { version = "4.0", features = ["derive"] }
 indicatif = "0.17"
 bitvec = "1.0"
