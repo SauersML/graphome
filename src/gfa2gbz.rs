@@ -1103,7 +1103,7 @@ fn write_dictionary<W: Write>(w: &mut W, items: &Vec<String>) -> Result<(), std:
     let length = sorted.len() as u64;
     write_varuint(w, length)?; 
     // compute bit width
-    let width = if sorted.len()<2 {1} else { (64 - (sorted.len()-1).leading_zeros()) as u8 };
+    let width = if sorted.len() < 2 { 1 } else { (64 - ((sorted.len()-1) as u64).leading_zeros()) as u8 };
     for &sid in &sorted {
         write_varuint(w, sid as u64)?;
     }
