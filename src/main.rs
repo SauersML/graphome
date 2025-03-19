@@ -239,7 +239,7 @@ fn main() -> io::Result<()> {
             make_sequence::run_make_sequence(gfa, paf, region, sample, output);
         }
         Commands::Gfa2gbz { input } => {
-            gfa2gbz::run_gfa2gbz();
+            gfa2gbz::run_gfa2gbz(input);
         }
     }
     Ok(())
