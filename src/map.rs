@@ -220,7 +220,7 @@ pub fn run_node2coord(gfa_path: &str, paf_path: &str, node_id: &str) {
     }
 
     // Get node coordinates using GBZ
-    let results = node_to_coords_gbz(&gbz, node_id_num);
+    let results = node_to_coords(&gbz, node_id_num);
     if results.is_empty() {
         println!("No reference coords found for node {}", node_id);
     } else {
@@ -293,7 +293,7 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
 
     // Parse region
     if let Some((chr, start, end)) = parse_region(region) {
-        let results = coord_to_nodes_gbz(&gbz, &chr, start, end);
+        let results = coord_to_nodes(&gbz, &chr, start, end);
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {
@@ -590,9 +590,9 @@ pub fn build_ref_trees(global: &mut GlobalData) {
 }
 
 
-// node_to_coords_gbz
+// node_to_coords
 // Using GBZ index to find reference coordinates for a node
-pub fn node_to_coords_gbz(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> {
+pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> {
     let mut results = Vec::new();
     
     // Get node length
@@ -667,9 +667,9 @@ pub fn node_to_coords_gbz(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usiz
 }
 
 
-// coord_to_nodes_gbz
+// coord_to_nodes
 // Using GBZ index to find nodes at a reference position
-pub fn coord_to_nodes_gbz(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
 println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
     
