@@ -5,7 +5,7 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use memmap2::{MmapOptions};
 
-use crate::map::{self, GlobalData, Coord2NodeResult};
+use crate::map::{self, Coord2NodeResult};
 use gbwt::GBZ;
 use simple_sds::serialize;
 
@@ -93,27 +93,6 @@ pub fn extract_sequence(
 ) -> Result<(), std::io::Error> {
     eprintln!("[INFO] Building data structures from GFA='{}' PAF='{}'", gfa_path, paf_path);
 
-    // Initialize global data
-    let mut global = GlobalData {
-        node_map: HashMap::new(),
-        path_map: HashMap::new(),
-        node_to_paths: HashMap::new(),
-        alignment_by_path: HashMap::new(),
-        ref_trees: HashMap::new(),
-    };
-
-    // Parse GFA and PAF files
-    map::parse_gfa_memmap(gfa_path, &mut global);
-    eprintln!("[INFO] GFA parse done. node_map={} path_map={}",
-        global.node_map.len(), global.path_map.len());
-
-    map::parse_paf_parallel(paf_path, &mut global);
-    eprintln!("[INFO] PAF parse done. alignment_by_path={}", global.alignment_by_path.len());
-
-    // Build interval trees
-    map::build_ref_trees(&mut global);
-    eprintln!("[INFO] Interval Trees built. Ready for queries.");
-
     // Parse the region
     if let Some((chr, start, end)) = map::parse_region(region) {
         // Convert coordinates to nodes
@@ -161,15 +140,6 @@ pub fn extract_sequence(
         for (path_name, path_nodes) in nodes_by_path {
             let safe_path_name = path_name.replace('#', "_").replace('/', "_");
             
-            // Get the path data
-            let path_data = match global.path_map.get(&path_name) {
-                Some(pd) => pd,
-                None => {
-                    eprintln!("[WARNING] Path data not found for {}, skipping", path_name);
-                    continue;
-                }
-            };
-            
             // Sort nodes by path offset
             let mut sorted_nodes = path_nodes.clone();
             sorted_nodes.sort_by_key(|n| n.path_off_start);
@@ -185,49 +155,22 @@ pub fn extract_sequence(
             
             for node_result in sorted_nodes {
                 if let Some(seq) = node_sequences.get(&node_result.node_id) {
-                    // Find the node in the path
-                    let node_idx_opt = path_data.nodes.iter().position(|(nid, orient)| 
-                        nid == &node_result.node_id && *orient == node_result.node_orient);
-                    
-                    let node_idx = match node_idx_opt {
-                        Some(idx) => idx,
-                        None => {
-                            // Try finding just by node ID, ignoring orientation
-                            match path_data.nodes.iter().position(|(nid, _)| nid == &node_result.node_id) {
-                                Some(idx) => {
-                                    eprintln!("[WARNING] Node {} found in path with different orientation", 
-                                             node_result.node_id);
-                                    idx
-                                },
-                                None => {
-                                    eprintln!("[WARNING] Node {} not found in path {}, skipping", 
-                                             node_result.node_id, path_name);
-                                    continue;
-                                }
-                            }
-                        }
-                    };
-                    
-                    // Get node's path offset and length
-                    let path_offset = path_data.prefix_sums[node_idx];
                     let node_len = seq.len();
-                    
-                    // Get the node's sequence with proper orientation
                     let oriented_seq = if node_result.node_orient {
                         seq.clone()
                     } else {
                         reverse_complement(seq)
                     };
-                    
-                    // Calculate which part of the node's sequence corresponds to path_off_start/end
-                    let start_in_node = node_result.path_off_start.saturating_sub(path_offset);
-                    let end_in_node = (node_result.path_off_end.saturating_sub(path_offset) + 1).min(node_len);
-                    
-                    if start_in_node < node_len && start_in_node < end_in_node {
-                        final_sequence.push_str(&oriented_seq[start_in_node..end_in_node]);
+                    let start_in_node = node_result.path_off_start;
+                    let end_in_node = node_result.path_off_end + 1;
+                    let clipped_start = start_in_node.min(node_len);
+                    let clipped_end = end_in_node.min(node_len);
+
+                    if clipped_start < clipped_end {
+                        final_sequence.push_str(&oriented_seq[clipped_start..clipped_end]);
                     } else {
                         eprintln!("[WARNING] Invalid sequence range for node {}: {}..{} (length {})", 
-                                 node_result.node_id, start_in_node, end_in_node, node_len);
+                                 node_result.node_id, clipped_start, clipped_end, node_len);
                     }
                 } else {
                     eprintln!("[WARNING] No sequence data for node {}", node_result.node_id);
