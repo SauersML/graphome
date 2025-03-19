@@ -6,6 +6,8 @@ use std::path::Path;
 use memmap2::{MmapOptions};
 
 use crate::map::{self, GlobalData, Coord2NodeResult};
+use gbwt::GBZ;
+use simple_sds::serialize;
 
 /// Reverses and complements a DNA sequence
 fn reverse_complement(dna: &str) -> String {
@@ -115,7 +117,9 @@ pub fn extract_sequence(
     // Parse the region
     if let Some((chr, start, end)) = map::parse_region(region) {
         // Convert coordinates to nodes
-        let nodes = map::coord_to_nodes(&global, &chr, start, end);
+        let gbz_path = map::make_gbz_exist(gfa_path, paf_path);
+        let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
+        let nodes = map::coord_to_nodes(&gbz, &chr, start, end);
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());
