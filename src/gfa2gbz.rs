@@ -546,8 +546,8 @@ fn build_paths(
     gfa_paths: &Vec<GFAPathLine>,
     seg_map: &HashMap<String, Vec<usize>>,
 ) -> Vec<PathData> {
-    let mut sample_dict = BTreeMap::new(); // not strictly needed
-    let mut contig_dict = BTreeMap::new(); // not strictly needed
+    let mut sample_dict: BTreeMap<String, usize> = BTreeMap::new(); // not strictly needed
+    let mut contig_dict: BTreeMap<String, usize> = BTreeMap::new(); // not strictly needed
     let mut results = Vec::new();
 
     for p in gfa_paths {
