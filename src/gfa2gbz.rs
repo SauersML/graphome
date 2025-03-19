@@ -36,6 +36,7 @@ use std::{
 use indicatif::{ProgressBar, ProgressStyle};
 
 use simple_sds::sparse_vector::{SparseBuilder, SparseVector};
+use simple_sds::int_vector::IntVector;
 use simple_sds::serialize::Serialize;
 
 /// Maximum length for a single node. If a GFA segment is longer, we chunk it into multiple nodes.
