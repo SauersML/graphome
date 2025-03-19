@@ -398,399 +398,112 @@ fn parse_cigar_overlap(cigar: &str) -> usize {
 // - parse P lines to fill path_map, prefix sums, node_to_paths
 
 pub fn parse_gfa_memmap(gfa_path: &str, global: &mut GlobalData) {
-    // Streaming approach to parse the GFA lines
-    // without storing them all in memory at once. We read in chunks, parse,
-    // and merge intermediate results
+    // This new version writes minimal data to disk, then discards it from memory.
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug)]
     struct TempPathData {
         nodes: Vec<(String, bool)>,
         overlaps: Vec<String>,
     }
 
-    #[derive(Debug)]
-    struct GfaChunkResult {
-        node_map: HashMap<String, NodeInfo>,
-        path_map: HashMap<String, Vec<TempPathData>>,
-        node_to_paths: HashMap<String, Vec<(String, usize)>>,
-        lines_processed: usize,
-    }
+    // We collect node IDs, path names, and skip storing large merges in memory.
+    // Instead, we store minimal node info into global.node_map, and do not fill path_map or node_to_paths.
 
-    // Open the GFA for streaming
     let file = File::open(gfa_path).expect("Cannot open GFA file for streaming");
     let reader = BufReader::new(file);
-
-    // We will parse lines in chunks for parallel processing
-    let chunk_size = 50_000;
-    let mut all_results = Vec::new();
-
-    // This function merges a chunk result into our global accumulator vector
-    // so we can do one big merge at the end.
-    fn accumulate_chunk_result(mut chunk_res: GfaChunkResult, storage: &mut Vec<GfaChunkResult>) {
-        storage.push(chunk_res);
-    }
-
-    // Prepare a progress bar, but we do not know total lines upfront.
-    // We will increment it as we go.
     let pb = ProgressBar::new_spinner();
-    pb.set_message("Parsing GFA in streaming chunks");
+    pb.set_message("Parsing GFA for minimal disk-based approach");
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7} lines ({eta}) {msg}")
+            .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7} lines ({eta}) minimal GFA parse")
             .expect("Invalid progress style template")
             .progress_chars("##-")
     );
 
-    // We store lines in a local buffer until we hit chunk_size.
-    // Then we dispatch them to rayon for parallel parsing.
-    let mut current_chunk = Vec::with_capacity(chunk_size);
-    let mut lines_read = 0;
-
-    // For concurrency, define how to parse a chunk into GfaChunkResult
-    fn parse_gfa_lines_in_parallel(chunk: &[String], pb: &ProgressBar) -> GfaChunkResult {
-        chunk.par_iter().map(|line| {
-            let mut local_res = GfaChunkResult {
-                node_map: HashMap::new(),
-                path_map: HashMap::new(),
-                node_to_paths: HashMap::new(),
-                lines_processed: 0,
-            };
-
-            local_res.lines_processed = 1;
-            if !line.is_empty() {
-                let first_byte = line.as_bytes()[0];
-                match first_byte {
-                    b'S' => {
-                        let parts: Vec<&str> = line.split('\t').collect();
-                        if parts.len() < 3 {
-                            return local_res;
-                        }
-                        let seg_name = parts[1].to_string();
-                        let seq_or_star = parts[2];
-                        let mut length = 0;
-                        if seq_or_star == "*" {
-                            for p in parts.iter().skip(3) {
-                                if p.starts_with("LN:i:") {
-                                    if let Ok(val) = p[5..].parse::<usize>() {
-                                        length = val;
-                                        break;
-                                    }
-                                }
-                            }
-                        } else {
-                            length = seq_or_star.len();
-                        }
-                        local_res.node_map.insert(seg_name, NodeInfo { length });
-                    },
-                    b'P' => {
-                        let parts: Vec<&str> = line.split('\t').collect();
-                        if parts.len() < 3 {
-                            return local_res;
-                        }
-                        let path_name = parts[1].to_string();
-                        let seg_string = parts[2].to_string();
-                        let oriented: Vec<(String, bool)> = seg_string
-                            .split(',')
-                            .filter_map(|x| {
-                                if x.is_empty() {
-                                    return None;
-                                }
-                                let lastch = x.chars().last().unwrap();
-                                let orient = match lastch {
-                                    '+' => true,
-                                    '-' => false,
-                                    _ => return None,
-                                };
-                                let nid = &x[..x.len() - 1];
-                                Some((nid.to_string(), orient))
-                            })
-                            .collect();
-
-                        let mut overlaps = Vec::new();
-                        if parts.len() > 3 {
-                            let overlap_field = parts[3].to_string();
-                            if overlap_field != "*" {
-                                overlaps = overlap_field.split(',').map(|s| s.to_string()).collect();
-                            }
-                        }
-                        if !overlaps.is_empty() && overlaps.len() + 1 != oriented.len() {
-                            eprintln!("Warning: Overlap field count does not match segments for path {}", path_name);
-                        }
-
-                        for (i, (nid, _orient)) in oriented.iter().enumerate() {
-                            local_res
-                                .node_to_paths
-                                .entry(nid.clone())
-                                .or_insert_with(Vec::new)
-                                .push((path_name.clone(), i));
-                        }
-
-                        let temp_pd = TempPathData {
-                            nodes: oriented,
-                            overlaps,
-                        };
-                        local_res
-                            .path_map
-                            .entry(path_name)
-                            .or_insert_with(Vec::new)
-                            .push(temp_pd);
-                    },
-                    _ => {}
-                }
-            }
-            local_res
-        })
-        .reduce(
-            || GfaChunkResult {
-                node_map: HashMap::new(),
-                path_map: HashMap::new(),
-                node_to_paths: HashMap::new(),
-                lines_processed: 0,
-            },
-            |mut a, mut b| {
-                a.lines_processed += b.lines_processed;
-                for (k, v) in b.node_map.drain() {
-                    a.node_map.insert(k, v);
-                }
-                for (path_name, mut vec_temp) in b.path_map.drain() {
-                    a.path_map.entry(path_name).or_insert_with(Vec::new).append(&mut vec_temp);
-                }
-                for (node_id, mut pairs) in b.node_to_paths.drain() {
-                    a.node_to_paths.entry(node_id).or_insert_with(Vec::new).append(&mut pairs);
-                }
-                a
-            },
-        )
-    }
+    use std::io::Write;
+    let mut gfa_index = File::create("gfa_disk_index.txt").expect("Cannot create disk index file");
+    let mut line_count = 0u64;
 
     for line_res in reader.lines() {
         if let Ok(line) = line_res {
-            lines_read += 1;
             pb.inc(1);
-            current_chunk.push(line);
-            if current_chunk.len() >= chunk_size {
-                let chunk_result = parse_gfa_lines_in_parallel(&current_chunk, &pb);
-                accumulate_chunk_result(chunk_result, &mut all_results);
-                current_chunk.clear();
+            line_count += 1;
+            if line.is_empty() {
+                continue;
+            }
+            let first_byte = line.as_bytes()[0];
+            match first_byte {
+                b'S' => {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() < 3 {
+                        continue;
+                    }
+                    let seg_name = parts[1].to_string();
+                    let seq_or_star = parts[2];
+                    let mut length = 0;
+                    if seq_or_star == "*" {
+                        for p in parts.iter().skip(3) {
+                            if p.starts_with("LN:i:") {
+                                if let Ok(val) = p[5..].parse::<usize>() {
+                                    length = val;
+                                    break;
+                                }
+                            }
+                        }
+                    } else {
+                        length = seq_or_star.len();
+                    }
+                    global.node_map.entry(seg_name.clone()).or_insert(NodeInfo{ length });
+                    writeln!(gfa_index, "S\t{}\t{}", seg_name, length).expect("write error");
+                },
+                b'P' => {
+                    writeln!(gfa_index, "{}", line).expect("write error");
+                },
+                _ => {}
             }
         }
-    }
-
-    if !current_chunk.is_empty() {
-        let chunk_result = parse_gfa_lines_in_parallel(&current_chunk, &pb);
-        accumulate_chunk_result(chunk_result, &mut all_results);
-        current_chunk.clear();
     }
 
     pb.finish_and_clear();
+    eprintln!("Minimal GFA parse complete: wrote {} lines to gfa_disk_index.txt", line_count);
 
-    let mut merged_node_map = HashMap::new();
-    let mut merged_path_map = HashMap::new();
-    let mut merged_node_to_paths = HashMap::new();
-
-    let pb_merge = ProgressBar::new(all_results.len() as u64);
-    pb_merge.set_style(
-        ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.green/black} {pos:>7}/{len:7} ({eta}) Merging GFA")
-            .expect("Invalid progress style template")
-            .progress_chars("##-")
-    );
-
-    for mut chunk_res in all_results {
-        pb_merge.inc(1);
-        for (k, v) in chunk_res.node_map.drain() {
-            merged_node_map.insert(k, v);
-        }
-        for (path_name, mut vec_temp) in chunk_res.path_map.drain() {
-            merged_path_map.entry(path_name).or_insert_with(Vec::new).append(&mut vec_temp);
-        }
-        for (node_id, mut pairs) in chunk_res.node_to_paths.drain() {
-            merged_node_to_paths.entry(node_id).or_insert_with(Vec::new).append(&mut pairs);
-        }
-    }
-    pb_merge.finish_and_clear();
-
-    let final_path_map: HashMap<String, PathData> = merged_path_map
-        .into_par_iter()
-        .map(|(pname, temp_vec)| {
-            let mut all_nodes = Vec::new();
-            let mut all_overlaps = Vec::new();
-
-            for tpd in temp_vec {
-                all_nodes.extend(tpd.nodes);
-                all_overlaps.extend(tpd.overlaps);
-            }
-
-            let mut prefix_sums = Vec::with_capacity(all_nodes.len());
-            let mut cum = 0;
-            for i in 0..all_nodes.len() {
-                prefix_sums.push(cum);
-                if i < all_nodes.len() - 1 {
-                    let (ref_nid, _ref_or) = &all_nodes[i];
-                    let node_len = merged_node_map
-                        .get(ref_nid)
-                        .map(|info| info.length)
-                        .unwrap_or(0);
-                    cum += node_len;
-                    if i < all_overlaps.len() {
-                        let overlap_len = parse_cigar_overlap(&all_overlaps[i]);
-                        cum = cum.saturating_sub(overlap_len);
-                    }
-                }
-            }
-            if let Some((last_nid, _)) = all_nodes.last() {
-                if let Some(n_info) = merged_node_map.get(last_nid) {
-                    cum += n_info.length;
-                }
-            }
-
-            let pd = PathData {
-                nodes: all_nodes,
-                prefix_sums,
-                total_length: cum,
-            };
-            (pname, pd)
-        })
-        .collect();
-
-    global.node_map = merged_node_map;
-    global.path_map = final_path_map;
-    global.node_to_paths = merged_node_to_paths;
+    // Clear the large in-memory data structures
+    global.path_map.clear();
+    global.node_to_paths.clear();
 }
-
 
 // parse_paf_parallel
 pub fn parse_paf_parallel(paf_path: &str, global: &mut GlobalData) {
-    // We will parse the PAF in a streaming, chunked manner to avoid storing all lines.
+    // Writes minimal PAF data to disk, then clears from memory.
     let file = File::open(paf_path).expect("Cannot open PAF");
     let reader = BufReader::new(file);
-
-    #[derive(Debug)]
-    struct PafChunkResult {
-        data: HashMap<String, Vec<AlignmentBlock>>,
-        count: usize,
-    }
-
-    // This merges partial results from a chunk parse into the final collector
-    fn merge_chunk_result(mut src: PafChunkResult, dst: &mut Vec<PafChunkResult>) {
-        dst.push(src);
-    }
-
     let pb = ProgressBar::new_spinner();
-    pb.set_message("Parsing PAF in streaming chunks");
+    pb.set_message("Minimal PAF parse to disk");
     pb.set_style(
         ProgressStyle::default_bar()
-            .template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7} lines ({eta}) PAF")
+            .template("[{elapsed_precise}] {bar:40.magenta/black} {pos:>7} lines ({eta}) minimal PAF parse")
             .expect("Invalid template for progress style")
             .progress_chars("##-")
     );
 
-    let chunk_size = 10_000;
-    let mut lines_buffer = Vec::with_capacity(chunk_size);
-    let mut all_results = Vec::new();
-    let mut total_count = 0;
-
-    // Function to process a batch of lines in parallel
-    fn parse_paf_lines_in_parallel(lines: &[String], pb: &ProgressBar) -> PafChunkResult {
-        let result = lines.par_iter().map(|l| {
-            let mut local_res = PafChunkResult {
-                data: HashMap::new(),
-                count: 0,
-            };
-            if l.is_empty() || l.starts_with('#') {
-                return local_res;
-            }
-            let parts: Vec<&str> = l.split('\t').collect();
-            if parts.len() < 12 {
-                return local_res;
-            }
-            local_res.count = 1;
-            let q_name = parts[0].to_string();
-            let q_len = parts[1].parse::<usize>().unwrap_or(0);
-            let raw_qs = parts[2].parse::<usize>().unwrap_or(0);
-            let raw_qe = parts[3].parse::<usize>().unwrap_or(0);
-            let strand_char = parts[4].chars().next().unwrap_or('+');
-            let t_name = parts[5].to_string();
-            let t_start = parts[7].parse::<usize>().unwrap_or(0);
-            let t_end = parts[8].parse::<usize>().unwrap_or(0);
-    
-            let ref_strand = strand_char == '+';
-    
-            let (q_start, q_end) = if !ref_strand {
-                let flipped_start = q_len.saturating_sub(raw_qe);
-                let flipped_end   = q_len.saturating_sub(raw_qs);
-                (flipped_start, flipped_end)
-            } else {
-                (raw_qs, raw_qe)
-            };
-    
-            let ab = AlignmentBlock {
-                path_name: q_name.clone(),
-                q_len,
-                q_start,
-                q_end,
-                ref_chrom: t_name,
-                r_start: t_start,
-                r_end: t_end,
-                ref_strand: ref_strand,
-            };
-    
-            local_res
-                .data
-                .entry(q_name)
-                .or_insert_with(Vec::new)
-                .push(ab);
-    
-            local_res
-        })
-        .reduce(
-            || PafChunkResult {
-                data: HashMap::new(),
-                count: 0,
-            },
-            |mut a, mut b| {
-                a.count += b.count;
-                for (k, mut blocks) in b.data.drain() {
-                    a.data.entry(k).or_insert_with(Vec::new).append(&mut blocks);
-                }
-                a
-            },
-        );
-        pb.inc(result.count as u64);
-        result
-    }
-
+    use std::io::Write;
+    let mut paf_index = File::create("paf_disk_index.txt").expect("Cannot create paf_disk_index.txt");
+    let mut count = 0u64;
     for line_res in reader.lines() {
         if let Ok(line) = line_res {
-            lines_buffer.push(line);
-            if lines_buffer.len() >= chunk_size {
-                let chunk_res = parse_paf_lines_in_parallel(&lines_buffer, &pb);
-                merge_chunk_result(chunk_res, &mut all_results);
-                lines_buffer.clear();
+            pb.inc(1);
+            if !line.is_empty() && !line.starts_with('#') {
+                writeln!(paf_index, "{}", line).expect("write error");
+                count+=1;
             }
-            total_count += 1;
         }
     }
-
-    // Process leftover lines
-    if !lines_buffer.is_empty() {
-        let chunk_res = parse_paf_lines_in_parallel(&lines_buffer, &pb);
-        merge_chunk_result(chunk_res, &mut all_results);
-        lines_buffer.clear();
-    }
-
     pb.finish_and_clear();
+    eprintln!("Minimal PAF parse complete: wrote {} lines to paf_disk_index.txt", count);
 
-    let mut merged_map = HashMap::new();
-    for mut chunk_res in all_results {
-        for (k, mut vec_blocks) in chunk_res.data.drain() {
-            merged_map.entry(k).or_insert_with(Vec::new).append(&mut vec_blocks);
-        }
-    }
-
-    global.alignment_by_path = merged_map;
+    // We do not fill alignment_by_path with the entire dataset. We keep it empty.
+    global.alignment_by_path.clear();
 }
-
 
 // build_ref_trees
 // We'll gather all alignment blocks from alignment_by_path, group by refChrom
