@@ -20,7 +20,7 @@
  *      store them. If P-lines have string path names, we store them in the "generic sample" style.
  *
  *  COMPILATION & USAGE:
- *    - cargo run --release -- <path_to_gfa>
+ *    - ./target/release/graphome gfa2gbz --input ../hprc-v1.0-pggb.gfa
  *    - This will create "<path_to_gfa>.gbz"
  ***************************************************************************************************/
 
