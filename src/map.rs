@@ -353,7 +353,7 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
 /// It prints detailed statistics on node frequencies, duplicates, and line numbers where duplicates appear.
 /// If no duplicates are found, the function returns `Ok(())`. Otherwise, returns `Err(...)`.
 pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
-    eprintln!("[INFO] Validating GFA file in a streaming manner: {}", gfa_path);
+    eprintln!("[INFO] Validating GFA file: {}", gfa_path);
 
     // Open and memory-map the GFA for efficient large-file reading.
     let file = File::open(gfa_path)
