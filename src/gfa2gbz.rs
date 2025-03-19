@@ -211,13 +211,9 @@ struct GFAPathLine {
 /***************************************************************************************************
  * GFA -> Data
  **************************************************************************************************/
-pub fn run_gfa2gbz() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <graph.gfa>", args[0]);
-        process::exit(1);
-    }
-    let infile = &args[1];
+pub fn run_gfa2gbz(input: &str) {
+    let infile = input;
+
     let outfile = format!("{}.gbz", infile);
 
     let start_t = Instant::now();
