@@ -728,79 +728,111 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
 
 /// Validates a GFA file for potential node conflicts that would cause GBWT construction to fail
 pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
-    eprintln!("[INFO] Validating GFA file for duplicate node IDs: {}", gfa_path);
-    
+    use std::io::{BufReader, BufWriter, Write};
+    use std::process::Command;
+    use std::fs::{File, OpenOptions};
+    use tempfile::NamedTempFile;
+
+    eprintln!("[INFO] Validating GFA file in a streaming manner: {}", gfa_path);
+
+    // Open GFA
     let file = match File::open(gfa_path) {
         Ok(f) => f,
         Err(e) => return Err(format!("Failed to open GFA file: {}", e)),
     };
-    
     let reader = BufReader::new(file);
-    
-    // Track nodes by ID and where they appear
-    let mut node_occurrences: HashMap<String, Vec<usize>> = HashMap::new();
-    let mut path_count = 0;
-    
-    // First pass: collect all node IDs from path lines (P lines)
-    for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(l) => l,
-            Err(e) => return Err(format!("Error reading GFA file: {}", e)),
-        };
-        
-        if line.is_empty() || !line.starts_with('P') {
-            continue;
+
+    // Create a temporary file for node IDs
+    let mut tmp_file = NamedTempFile::new()
+        .map_err(|e| format!("Could not create temp file for node IDs: {}", e))?;
+    {
+        // Write each node ID from P lines to temp
+        let mut writer = BufWriter::new(&mut tmp_file);
+
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(e) => return Err(format!("Error reading GFA file: {}", e)),
+            };
+
+            if line.is_empty() || !line.starts_with('P') {
+                continue;
+            }
+
+            let parts: Vec<&str> = line.split('\t').collect();
+            if parts.len() < 3 {
+                continue;
+            }
+
+            // Extract node IDs from the path line
+            let path_nodes = parts[2].split(',')
+                .map(|s| s.trim_end_matches('+').trim_end_matches('-').to_string());
+
+            // Write each node ID to temp
+            for node_id in path_nodes {
+                // Each line is "node_id\n"
+                writeln!(writer, "{}", node_id)
+                    .map_err(|e| format!("Error writing temp node list: {}", e))?;
+            }
         }
-        
-        let parts: Vec<&str> = line.split('\t').collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        
-        // Path line - extract node IDs
-        let path_nodes = parts[2].split(',')
-            .map(|s| s.trim_end_matches('+').trim_end_matches('-').to_string())
-            .collect::<Vec<String>>();
-        
-        // Track where each node appears
-        for node_id in path_nodes {
-            node_occurrences.entry(node_id)
-                .or_insert_with(Vec::new)
-                .push(path_count);
-        }
-        
-        path_count += 1;
+        writer.flush().map_err(|e| format!("Error flushing temp file: {}", e))?;
     }
-    
-    // Check for duplicate node IDs that might conflict
-    let mut conflicts = Vec::new();
-    for (node_id, occurrences) in node_occurrences {
-        if occurrences.len() > 1 {            
-            // We'll report the first two occurrences as potential sources of conflict
-            conflicts.push(format!(
-                "GBWT::GBWT(): Sources {} and {} both have node {}", 
-                occurrences[0], occurrences[1], node_id
-            ));
-        }
+
+    // Sort the temporary file externally
+    // We'll create another tmp file for the sorted output
+    let sorted_tmp_file = NamedTempFile::new()
+        .map_err(|e| format!("Could not create temp file for sorted node IDs: {}", e))?;
+    let sort_status = Command::new("sort")
+        .args(["-T", "/tmp", tmp_file.path().to_str().unwrap(), "-o", sorted_tmp_file.path().to_str().unwrap()])
+        .status()
+        .map_err(|e| format!("Failed to run external `sort`: {}", e))?;
+
+    if !sort_status.success() {
+        return Err("External sort command failed with non-zero exit status".to_string());
     }
-    
-    // Report results
-    if conflicts.is_empty() {
-        eprintln!("[INFO] GFA validation passed: No obvious node conflicts detected");
-        Ok(())
+
+    // Scan the sorted file to detect duplicates
+    let sorted_file = File::open(sorted_tmp_file.path())
+        .map_err(|e| format!("Failed to open sorted node ID file: {}", e))?;
+    let mut sorted_reader = BufReader::new(sorted_file);
+
+    let mut prev_node = String::new();
+    let mut current_node = String::new();
+    let mut found_conflict = false;
+    let mut conflict_msg = String::new();
+
+    // Read first line
+    use std::io::BufRead;
+    if sorted_reader.read_line(&mut prev_node).is_ok() {
+        prev_node = prev_node.trim_end().to_string();
+    }
+
+    loop {
+        current_node.clear();
+        if sorted_reader.read_line(&mut current_node).unwrap_or(0) == 0 {
+            // no more lines
+            break;
+        }
+        current_node = current_node.trim_end().to_string();
+
+        // Compare with prev
+        if !prev_node.is_empty() && current_node == prev_node {
+            found_conflict = true;
+            conflict_msg.push_str(&format!("Duplicate node ID detected: {}\n", current_node));
+            // If we want to keep scanning for more duplicates, do so
+            // else break if we want to stop after the first.
+        }
+        prev_node = current_node.clone();
+    }
+
+    if found_conflict {
+        Err(format!(
+            "[ERROR] Found duplicate node IDs in GFA path lines.\n{}",
+            conflict_msg
+        ))
     } else {
-        let mut error_msg = format!("Found {} potential node conflicts that may cause GBWT construction to fail:\n", conflicts.len());
-        
-        // Show first 10 conflicts
-        for (i, conflict) in conflicts.iter().take(10).enumerate() {
-            error_msg.push_str(&format!("{}) {}\n", i+1, conflict));
-        }
-        
-        if conflicts.len() > 10 {
-            error_msg.push_str(&format!("...and {} more conflicts\n", conflicts.len() - 10));
-        }
-        
-        Err(error_msg)
+        eprintln!("[INFO] GFA validation passed: No duplicate node IDs found in path lines");
+        Ok(())
     }
 }
 
