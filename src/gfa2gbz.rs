@@ -35,6 +35,9 @@ use std::{
 
 use indicatif::{ProgressBar, ProgressStyle};
 
+use simple_sds_sbwt::sparse_vector::{SparseBuilder, SparseVector};
+use simple_sds_sbwt::serialize::Serialize;
+
 /// Maximum length for a single node. If a GFA segment is longer, we chunk it into multiple nodes.
 const CHUNK_LIMIT: usize = 1024;
 
@@ -598,50 +601,88 @@ fn build_gbwt(
     node_count: usize,
     path_data: &Vec<PathData>,
 ) -> GBWTIndex {
-    // we have 2*node_count "encoded nodes" for real data, plus node 0 for endmarker => total_count = 2*node_count + 1
-    let total_count = (node_count << 1) + 1; 
-    // we'll store records in [0.. total_count], where 0 is special endmarker
-    let mut records: Vec<Option<GBWTRecord>> = vec![None; total_count];
+    // We will store usage counts for (from, to) pairs to compute rank(v, w).
+    // Then we build final adjacency with partial prefix sums.
 
-    // build adjacency records for 1..2*node_count - ignoring 0
-    // but let's also store for node 0 => it has adjacency to nothing, or edges = []
-    records[0] = Some(GBWTRecord { edges: Vec::new(), runs: Vec::new()});
-    for enc in 1..total_count {
-        let i = enc as usize;
-        if i >= adjacency.len() {
-            // means it's out of range => no adjacency
-            records[i] = Some(GBWTRecord { edges: Vec::new(), runs: Vec::new()});
-        } else {
-            let successors = &adjacency[i];
-            let mut edges = Vec::with_capacity(successors.len());
-            let mut prev = 0;
-            for &succ in successors {
-                // ???
-                edges.push((succ, 0));
-                prev = succ;
-            }
-            edges.sort_by_key(|x| x.0);
-            let rec = GBWTRecord { edges, runs: Vec::new() };
-            records[i] = Some(rec);
+    // Prepare all records.
+    let total_count = (node_count << 1) + 1;
+    let mut records: Vec<Option<GBWTRecord>> = vec![None; total_count];
+    for i in 0..total_count {
+        records[i] = Some(GBWTRecord {
+            edges: Vec::new(),
+            runs: Vec::new(),
+        });
+    }
+
+    // This map will track how many times (v, w) is used in the BWT of node v.
+    // We only fill it during add_transition calls.
+    use std::collections::HashMap;
+    let mut usage_count: HashMap<(usize, usize), usize> = HashMap::new();
+
+    // Helper function for incrementing usage_count and for adding runs to the record.
+    fn add_transition(
+        records: &mut [Option<GBWTRecord>],
+        usage_map: &mut HashMap<(usize, usize), usize>,
+        from: usize,
+        to: usize,
+    ) {
+        // Look up record for 'from'
+        let record = records[from].as_mut().unwrap();
+        // Binary search in adjacency edges
+        match record.edges.binary_search_by_key(&to, |&(s, _)| s) {
+            Ok(edge_index) => {
+                // Add run-length for BWT
+                if let Some(last_run) = record.runs.last_mut() {
+                    if last_run.value == edge_index {
+                        last_run.len += 1;
+                    } else {
+                        record.runs.push(Run::new(edge_index, 1));
+                    }
+                } else {
+                    record.runs.push(Run::new(edge_index, 1));
+                }
+                // Increase usage counter
+                let cnt = usage_map.entry((from, to)).or_insert(0);
+                *cnt += 1;
+            },
+            Err(_) => {
+                // We skip if there's no adjacency entry
+            },
         }
     }
 
-    // We'll implement the approach: each path P => (0) => P => (0). 
-    // So the path starts from node 0, then transitions to the first node in the path, etc., 
-    // and ends at 0. We do that for forward path and reversed path.
-    // Then we do run-length encoding for each record's BWT body.
+    // Initialize adjacency edges for real usage. We copy adjacency but store (succ, rank=0) for now.
+    // We'll fill the correct rank later with partial prefix sums from usage_count.
+    for enc in 1..total_count {
+        if enc < adjacency.len() {
+            let successors = &adjacency[enc];
+            let mut edge_list = Vec::with_capacity(successors.len());
+            let mut prev_id = 0;
+            for &succ_id in successors {
+                edge_list.push((succ_id, 0));
+                prev_id = succ_id;
+            }
+            edge_list.sort_by_key(|x| x.0);
+            let r = records[enc].as_mut().unwrap();
+            r.edges = edge_list;
+        }
+    }
 
     let mut total_size = 0usize;
     let mut seq_count = 0usize;
-    // We also need real metadata => store sample names, contig names, path names
-    let mut sample_map = BTreeMap::new();
-    let mut contig_map = BTreeMap::new();
+
+    // For metadata
+    let mut sample_map = std::collections::BTreeMap::new();
+    let mut contig_map = std::collections::BTreeMap::new();
     let mut sample_vec = Vec::new();
     let mut contig_vec = Vec::new();
     let mut path_names = Vec::new();
 
-    // We'll define a function to find or create a sample name in sample_map
-    fn get_or_insert(map: &mut BTreeMap<String, usize>, vec: &mut Vec<String>, key: &str) -> usize {
+    fn get_or_insert(
+        map: &mut std::collections::BTreeMap<String, usize>,
+        vec: &mut Vec<String>,
+        key: &str,
+    ) -> usize {
         if let Some(&id) = map.get(key) {
             id
         } else {
@@ -652,108 +693,86 @@ fn build_gbwt(
         }
     }
 
-    // a helper for adding transitions to the BWT 
-    fn add_transition(records: &mut [Option<GBWTRecord>], from: usize, to: usize) {
-        // we do run-length encoding: find edge index in from's adjacency, then append run in BWT
-        let record = records[from].as_mut().unwrap();
-        let idx = match record.edges.binary_search_by_key(&to, |&(s, _)| s) {
-            Ok(r) => r,
-            Err(_) => {
-                // no adjacency => maybe skip
-                return;
-            }
-        };
-        if let Some(last_run) = record.runs.last_mut() {
-            if last_run.value == idx {
-                last_run.len += 1;
-            } else {
-                record.runs.push(Run::new(idx, 1));
-            }
-        } else {
-            record.runs.push(Run::new(idx, 1));
-        }
-    }
-
+    // Insert the paths into the BWT by enumerating transitions.
     for p in path_data {
         let sample_id = get_or_insert(&mut sample_map, &mut sample_vec, &p.sample);
         let contig_id = get_or_insert(&mut contig_map, &mut contig_vec, &p.contig);
-        let phase_id = p.hap as u32; 
+        let phase_id = p.hap as u32;
         let frag_id = p.fragment as u32;
 
-        // forward path => 0 => (p nodes) => 0
-        // each node is (n, or). We do transitions from 0->(n0, or0), (n0,or0)->(n1,or1), ... ->0
-        let path_len = p.nodes.len();
-        if path_len == 0 {
-            // still store an empty path => 0 => 0
-            add_transition(&mut records, 0, 0);
-            total_size += 2; 
-        } else {
-            let seq_id = path_names.len();
-            path_names.push(PathName {
-                sample: sample_id as u32, 
-                contig: contig_id as u32,
-                phase: phase_id,
-                fragment: frag_id,
-            });
-
-            seq_count += 1;
-            // Start
-            add_transition(&mut records, 0, encode_node(p.nodes[0].0, p.nodes[0].1));
-            total_size += 1;
-            // middle
-            for w in 0..(path_len - 1) {
-                let from = encode_node(p.nodes[w].0, p.nodes[w].1);
-                let to = encode_node(p.nodes[w+1].0, p.nodes[w+1].1);
-                add_transition(&mut records, from, to);
-                total_size += 1;
-            }
-            // end
-            let last_node = encode_node(p.nodes[path_len - 1].0, p.nodes[path_len - 1].1);
-            add_transition(&mut records, last_node, 0);
-            total_size += 1;
-        }
-
-        // reverse path => same sample, contig, etc., but it is the "reverse sequence". 
-        // The metadata does not store separate path_name for reverse. It's 2 * seq_count total sequences, 
-        // with path i => forward seq=2*i, reverse=2*i+1 in the final. 
-        // We'll just do the BWT transitions. 
-        // Reverse the node list => flip orientation
+        // Create a pathName for forward orientation
+        path_names.push(PathName {
+            sample: sample_id as u32,
+            contig: contig_id as u32,
+            phase: phase_id,
+            fragment: frag_id,
+        });
+        // Insert forward path
         if p.nodes.is_empty() {
-            // 0 => 0 again
-            add_transition(&mut records, 0, 0);
+            add_transition(&mut records, &mut usage_count, 0, 0);
             total_size += 2;
             seq_count += 1;
         } else {
             seq_count += 1;
+            add_transition(&mut records, &mut usage_count, 0, encode_node(p.nodes[0].0, p.nodes[0].1));
+            total_size += 1;
+            for w in 0..(p.nodes.len() - 1) {
+                let from = encode_node(p.nodes[w].0, p.nodes[w].1);
+                let to = encode_node(p.nodes[w+1].0, p.nodes[w+1].1);
+                add_transition(&mut records, &mut usage_count, from, to);
+                total_size += 1;
+            }
+            let last_node = encode_node(p.nodes[p.nodes.len() - 1].0, p.nodes[p.nodes.len() - 1].1);
+            add_transition(&mut records, &mut usage_count, last_node, 0);
+            total_size += 1;
+        }
+
+        // Insert reverse path
+        seq_count += 1;
+        if p.nodes.is_empty() {
+            add_transition(&mut records, &mut usage_count, 0, 0);
+            total_size += 2;
+        } else {
             let mut rev_nodes = Vec::with_capacity(p.nodes.len());
             for &nd in p.nodes.iter().rev() {
                 rev_nodes.push((nd.0, nd.1.flip()));
             }
-            // 0 => rev_nodes[0], middle, last => 0
-            add_transition(&mut records, 0, encode_node(rev_nodes[0].0, rev_nodes[0].1));
+            add_transition(&mut records, &mut usage_count, 0, encode_node(rev_nodes[0].0, rev_nodes[0].1));
             total_size += 1;
             for w in 0..(rev_nodes.len() - 1) {
-                let from = encode_node(rev_nodes[w].0, rev_nodes[w].1);
-                let to = encode_node(rev_nodes[w+1].0, rev_nodes[w+1].1);
-                add_transition(&mut records, from, to);
+                let f = encode_node(rev_nodes[w].0, rev_nodes[w].1);
+                let t = encode_node(rev_nodes[w+1].0, rev_nodes[w+1].1);
+                add_transition(&mut records, &mut usage_count, f, t);
                 total_size += 1;
             }
             let last_rev = encode_node(rev_nodes[rev_nodes.len() - 1].0, rev_nodes[rev_nodes.len() - 1].1);
-            add_transition(&mut records, last_rev, 0);
+            add_transition(&mut records, &mut usage_count, last_rev, 0);
             total_size += 1;
         }
     }
 
-    // Build a final metadata structure 
+    // Construct the final adjacency with partial prefix sums. This sets rank(v, w).
+    for node_id in 0..total_count {
+        if let Some(rec) = records[node_id].as_mut() {
+            if rec.edges.is_empty() {
+                continue;
+            }
+            let mut running_sum = 0;
+            for edge_idx in 0..rec.edges.len() {
+                let succ_id = rec.edges[edge_idx].0;
+                let usage = usage_count.get(&(node_id, succ_id)).unwrap_or(&0);
+                rec.edges[edge_idx].1 = running_sum;
+                running_sum += *usage;
+            }
+        }
+    }
+
     let sample_count = sample_vec.len();
-    // haplotypes => we guess total path_data as full-length? We'll do an approximate. 
-    let mut hap_set = BTreeSet::new();
+    let mut hap_set = std::collections::BTreeSet::new();
     for p in path_data {
-        let s = (p.sample.clone(), p.hap);
-        hap_set.insert(s);
+        hap_set.insert((p.sample.clone(), p.hap));
     }
     let haplotype_count = hap_set.len();
-
     let contig_count = contig_vec.len();
 
     let metadata = GBWTMetadata {
@@ -762,10 +781,9 @@ fn build_gbwt(
         contig_count,
         sample_names: sample_vec,
         contig_names: contig_vec,
-        path_names: path_names,
+        path_names,
     };
 
-    // Return 
     GBWTIndex {
         records,
         sequences: seq_count,
@@ -797,32 +815,45 @@ fn build_gbwt_graph(
  *  3) GBWTGraph (with 24-byte header, node labels, translation)
  **************************************************************************************************/
 fn write_gbz(gbwt: &GBWTIndex, graph: &GBWTGraph, outfile: &str) -> Result<(), std::io::Error> {
+    // This writes the final GBZ container, ensuring 8-byte alignment after each major section.
+    use std::io::Seek;
     let f = OpenOptions::new().write(true).create(true).truncate(true).open(outfile)?;
     let mut w = BufWriter::new(f);
 
-    // 1) GBZ header: 16 bytes => (tag:4, version:4, flags:8)
-    //    tag=0x205A4247 ('GBZ '), version=1, flags=0
-    let tag: u32 = 0x205A4247;
+    // Helper function to pad up to next multiple of 8.
+    fn pad_to_8<W: Write + Seek>(writer: &mut BufWriter<W>) -> std::io::Result<()> {
+        let pos = writer.stream_position()? as usize;
+        let remainder = pos % 8;
+        if remainder != 0 {
+            let pad = 8 - remainder;
+            let zeros = vec![0u8; pad];
+            writer.write_all(&zeros)?;
+        }
+        Ok(())
+    }
+
+    // Write the 16-byte GBZ header
+    let tag: u32 = 0x205A4247; // 'GBZ '
     let version: u32 = 1;
     let flags: u64 = 0;
     w.write_all(&tag.to_le_bytes())?;
     w.write_all(&version.to_le_bytes())?;
     w.write_all(&flags.to_le_bytes())?;
+    pad_to_8(&mut w)?;
 
-    // 2) Tags for GBZ. Let's store them properly as a "Tags" structure. Possibly empty. 
-    // We do "source" -> "gfa2gbz" 
-    // The format is a string array of [key, value, key, value, ...], 
-    // so let's do 2 items => 1 tag => "source", "gfa2gbz"
+    // Write the GBZ-level tags
     let mut tags = Vec::new();
     tags.push(("source".to_string(), "gfa2gbz".to_string()));
-    // Now we write them as a single string array: [key0, val0, key1, val1, ...]
     write_tags(&mut w, &tags)?;
+    pad_to_8(&mut w)?;
 
-    // Now 3) The GBWT 
+    // Write the GBWT index
     write_gbwt_index(&mut w, gbwt)?;
+    pad_to_8(&mut w)?;
 
-    // 4) The GBWTGraph
+    // Write the GBWTGraph
     write_gbwt_graph_data(&mut w, graph)?;
+    pad_to_8(&mut w)?;
 
     w.flush()?;
     Ok(())
@@ -865,19 +896,16 @@ fn write_tags<W: Write>(w: &mut W, tags: &[(String, String)]) -> Result<(), std:
  *   - metadata => optional
  **************************************************************************************************/
 fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io::Error> {
-    // 48 bytes
-    let tag: u32 = 0x6B376B37; // 'k7k7'
+    // Write the 48-byte header
+    let tag: u32 = 0x6B376B37;
     let version: u32 = 5;
     let sequences = gbwt.sequences as u64;
-    let size = gbwt.total_size as u64; 
-    let offset = gbwt.offset as u64; 
+    let size = gbwt.total_size as u64;
+    let offset = gbwt.offset as u64;
     let alph = gbwt.alphabet_size as u64;
-    // flags => 0x0004 => simple-sds
-    // So the sum => 0x0001 + 0x0002 + 0x0004 => 0x0007 => 7
-    let mut flags = 0x0004u64; // simple-sds
-    // we are bidirectional
-    flags |= 0x0001;
-    // we have metadata
+    // Flags for simple-sds, bidirectional, metadata
+    let mut flags = 0x0004u64; 
+    flags |= 0x0001; 
     flags |= 0x0002;
     w.write_all(&tag.to_le_bytes())?;
     w.write_all(&version.to_le_bytes())?;
@@ -887,59 +915,32 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
     w.write_all(&alph.to_le_bytes())?;
     w.write_all(&flags.to_le_bytes())?;
 
-    // GBWT-level tags => let's do an empty set or maybe "source=..." ???
+    // Write any GBWT-level tags
     let gtags = Vec::new();
     write_tags(w, &gtags)?;
 
-    // Now the BWT => we do "index" (sparse vector of record offsets) plus "data"
+    // Build the BWT data array and record start offsets
     let (record_offsets, data_bytes) = build_bwt_bytes(&gbwt.records);
-    // We'll store them in the official "sparse vector" style from the "simple-sds" spec:
-    //   - 1) A plain bitvector "index" with length = data_bytes.len() 
-    //   - 2) That bitvector has set bits for each record start
 
-    // 1) write the "index" as a "sparse vector" 
-    // length = data_bytes.len(), #ones = #records
-    let mut ones_positions: Vec<usize> = Vec::new();
-    for &(rid, offset) in &record_offsets {
-      // ?
+    // Use a SparseBuilder from simple-sds to store these offsets as a proper Elias-Fano index
+    let n = data_bytes.len();
+    let m = record_offsets.len();
+    let mut builder = SparseBuilder::new(n, m).unwrap();
+    for &(_, offset_in_data) in &record_offsets {
+        builder.set(offset_in_data);
     }
-    let mut sorted = record_offsets.clone();
-    sorted.sort_by_key(|(rid, _)| *rid);
-    let mut bit_len = data_bytes.len();
-    if bit_len == 0 { bit_len = 1; } // can't have 0-length, or "no records"? We do 0?
-    let mut last_offset = 0;
-    let mut max_offset = 0;
-    for &(rid, off) in &sorted {
-        if off>max_offset { max_offset=off; }
-    }
-    if max_offset >= bit_len { bit_len = max_offset+1; }
-    // "sparse vector" approach => we store a plain bitvector of length=bit_len with #records set bits
-    // then we store it.
-    // ???
-    let mut bits = vec![0u8; (bit_len+7)/8];
-    for &(_, off) in &sorted {
-        if off < bit_len {
-            bits[off>>3] |= 1 << (off & 7);
-        }
-    }
-    // 2) write the plain bitvector
-    //   - first: length of the bitvector as 8 bytes (the #bits), 
-    //   - then the data as ((bit_len+7)/8)*8 bits.
-    let bit_len_u64 = bit_len as u64;
-    w.write_all(&bit_len_u64.to_le_bytes())?;
-    // then write bits
-    w.write_all(&bits)?;
+    let index_sv = SparseVector::try_from(builder).unwrap();
+    // Now we serialize the sparse vector. Then we write the raw data bytes next.
+    index_sv.serialize(w)?;
 
-    let data_len_u64 = data_bytes.len() as u64;
-    w.write_all(&data_len_u64.to_le_bytes())?;
+    // Append the BWT data (no extra data_len written).
     w.write_all(&data_bytes)?;
 
-    // doc array samples => we skip or do "absent." Let's do absent => we write "size=0" 
-    // ?
+    // Then we skip doc array samples by writing a length=0
     let zero: u64 = 0;
     w.write_all(&zero.to_le_bytes())?;
 
-    // metadata => we do real
+    // Finally, the metadata
     write_gbwt_metadata(w, &gbwt.metadata)?;
 
     Ok(())
@@ -951,52 +952,47 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
  * We also store an offset for record i in record_offsets[i].
  **************************************************************************************************/
 fn build_bwt_bytes(records: &Vec<Option<GBWTRecord>>) -> (Vec<(usize,usize)>, Vec<u8>) {
+    // Build the BWT data array for each record. The second integer in edges is the partial prefix sum rank.
+    // The run-length BWT references edges by index.
     let mut data = Vec::new();
     let mut offsets = Vec::new();
     for (rid, rec_opt) in records.iter().enumerate() {
         let offset_here = data.len();
         offsets.push((rid, offset_here));
         if let Some(rec) = rec_opt {
-            // 1) adjacency header: we store "sigma" as a varint
+            // Write adjacency header
             let sigma = rec.edges.len();
             encode_varuint(&mut data, sigma as u64);
-            // then each edge => store delta + offset as varint
-            let mut prev = 0usize;
-            for &(succ, off) in &rec.edges {
-                let delta = succ - prev;
+            let mut prev_id = 0;
+            for &(succ_id, rank_val) in &rec.edges {
+                let delta = succ_id - prev_id;
                 encode_varuint(&mut data, delta as u64);
-                encode_varuint(&mut data, off as u64);
-                prev = succ;
+                encode_varuint(&mut data, rank_val as u64);
+                prev_id = succ_id;
             }
-            // 2) store the run-length BWT
-            //   - if sigma<255 => single-byte runs if run.len < threshold, else ...
-            //   - We'll do the "run-length approach" used in standard code. 
-            // For each run => we do a short encoding if sigma<255, else a big encoding
+            // Then the run-length BWT body
             for r in &rec.runs {
-                // Let's define threshold= (256 / sigma). If run.len < threshold => single byte. else => partial. 
-                let sigma_u64 = sigma as u64;
+                if sigma == 0 {
+                    // If no edges, we skip. No runs are valid, but we'll just ignore.
+                    continue;
+                }
                 if sigma < 255 {
-                    // threshold= 256/sigma
-                    let thr = 256 / sigma;
+                    let thr = if sigma == 0 { 1 } else { 256 / sigma };
                     if r.len < thr {
-                        let code = r.value + sigma*(r.len-1);
+                        let code = r.value + sigma * (r.len - 1);
                         encode_byte(&mut data, code as u8);
                     } else {
-                        let code = r.value + sigma*(thr-1);
+                        let code = r.value + sigma * (thr - 1);
                         encode_byte(&mut data, code as u8);
-                        // store len - thr as varuint
                         encode_varuint(&mut data, (r.len - thr) as u64);
                     }
                 } else {
-                    // store value as varuint, len-1 as varuint
                     encode_varuint(&mut data, r.value as u64);
-                    encode_varuint(&mut data, (r.len-1) as u64);
+                    encode_varuint(&mut data, (r.len - 1) as u64);
                 }
             }
         } else {
-            // store 0 for edges => empty => won't store? 
-            // Let's store "sigma=0"
-            // ?
+            // No record -> sigma=0
             encode_varuint(&mut data, 0u64);
         }
     }
