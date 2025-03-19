@@ -903,7 +903,7 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
 
     // 1) write the "index" as a "sparse vector" 
     // length = data_bytes.len(), #ones = #records
-    let mut ones_positions = Vec::new();
+    let mut ones_positions: Vec<usize> = Vec::new();
     for &(rid, offset) in &record_offsets {
       // ?
     }
