@@ -8,17 +8,6 @@
 //         node2coord <nodeID>
 //         coord2node <chr>:<start>-<end>
 //      which do node->hg38 or hg38->node queries.
-//
-// Key features / crates:
-//   - clap (for CLI)
-//   - memmap2 (for memory mapping the GFA file)
-//   - rayon (for parallel data processing)
-//   - indicatif (for progress bars)
-//   - IntervalTree (we show a custom robust approach to store alignment blocks)
-//   - Efficient data structures and concurrency considerations
-
-
-// The code always treats query offsets as if they run from `q_start` to `q_end` in a forward orientation, even when the PAF record indicates a reverse‐strand alignment. This causes incorrect offset calculations for negative‐strand alignments. To fix it, must handle the case where `strand_char == '-'` (i.e., `b.ref_strand == false`) by inverting the offset calculations to account for the query’s reversed orientation.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{File};
@@ -749,18 +738,29 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     if !Path::new(&gbz_path).exists() {
         eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
         
-        // Make sure vg is installed
-        let vg_check = Command::new("vg")
-            .arg("--version")
-            .output();
-    
-        if vg_check.is_err() || !vg_check.unwrap().status.success() {
-            eprintln!("Error: 'vg' command not found. Please install vg toolkit.");
+        // Determine vg command location by checking PATH, current directory, and parent directory.
+        let vg_cmd = if let Ok(output) = Command::new("vg").arg("--version").output() {
+            if output.status.success() {
+                "vg".to_string()
+            } else if Path::new("./vg").exists() {
+                "./vg".to_string()
+            } else if Path::new("../vg").exists() {
+                "../vg".to_string()
+            } else {
+                eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory. Please install vg toolkit.");
+                panic!("vg command not found");
+            }
+        } else if Path::new("./vg").exists() {
+            "./vg".to_string()
+        } else if Path::new("../vg").exists() {
+            "../vg".to_string()
+        } else {
+            eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory. Please install vg toolkit.");
             panic!("vg command not found");
-        }
+        };
         
         // Create GBZ using vg gbwt
-        let status = Command::new("vg")
+        let status = Command::new(&vg_cmd)
             .args(["gbwt", "-G", gfa_path, "--gbz-format", "-g", &gbz_path])
             .status()
             .expect("Failed to run vg gbwt");
