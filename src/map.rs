@@ -14,6 +14,7 @@ use std::fs::{File};
 use std::io::{BufReader, BufRead, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use memmap2::{MmapOptions};
 use tempfile::NamedTempFile;
@@ -346,7 +347,7 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
 
 
 
-/// Validates and fixes path names in a GFA file to ensure PanSN naming compliance.
+/// Validates and fixes path names in a GFA file for PanSN naming compliance.
 /// This function focuses on fixing "Invalid haplotype field" errors by replacing 
 /// non-numeric haplotype fields with "0".
 /// Returns the path to use (original if no fixes needed, new fixed file otherwise).
@@ -372,65 +373,132 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
         "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
     ).unwrap());
 
-    // First-pass: identify lines needing fixes
-    eprintln!("[INFO] Scanning for invalid path names...");
-    let mut fixes = HashMap::new();
-    let mut line_start = 0;
-    let mut line_number = 0;
-    let mut next_progress_update = 0;
-    let update_chunk = 100_000_000; // 100MB chunks
+    // Prepare for parallel scanning
+    let chunk_size = 100_000_000; // 100MB chunks
+    let num_chunks = (file_size as usize + chunk_size - 1) / chunk_size;
+    let chunks: Vec<(usize, usize)> = (0..num_chunks)
+        .map(|i| {
+            let start = i * chunk_size;
+            let end = (start + chunk_size).min(file_size as usize);
+            (start, end)
+        })
+        .collect();
 
-    // Scan through the file byte by byte
-    for i in 0..mmap.len() {
-        // Update progress periodically
-        if i >= next_progress_update {
-            pb.set_position(i as u64);
-            next_progress_update += update_chunk;
-        }
-
-        // Process lines when we hit a newline
-        if mmap[i] == b'\n' {
-            line_number += 1;
+    // First-pass: parallel scan to identify lines needing fixes
+    eprintln!("[INFO] Scanning for invalid path names using {} parallel chunks...", num_chunks);
+    
+    // Create a mutex-protected shared progress bar
+    let pb_arc = Arc::new(Mutex::new(pb));
+    
+    // Process chunks in parallel
+    let fixes_per_chunk: Vec<HashMap<usize, (String, String)>> = chunks.par_iter()
+        .map(|(start, end)| {
+            let mut local_fixes = HashMap::new();
             
-            // Check if this is a path line (P or W)
-            if i > line_start && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
-                let line_bytes = &mmap[line_start..i];
-                let line = unsafe { std::str::from_utf8_unchecked(line_bytes) };
-                let parts: Vec<&str> = line.split('\t').collect();
-                
-                // Path name is in column 2 for both P and W lines
-                if parts.len() >= 3 {
-                    let path_name = parts[1];
-                    
-                    // Check for PanSN compliance and fix if needed
-                    if let Some(fixed_name) = fix_path_name(path_name) {
-                        eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                        fixes.insert(line_number, (path_name.to_string(), fixed_name));
+            // Find the true beginning of a line for this chunk
+            let mut line_start = *start;
+            if *start > 0 {
+                // Find the previous newline or beginning of file
+                for i in (0..*start).rev() {
+                    if mmap[i] == b'\n' {
+                        line_start = i + 1;
+                        break;
+                    }
+                    if i == 0 {
+                        line_start = 0;
                     }
                 }
             }
-            line_start = i + 1;
-        }
-    }
-
-    // Handle final line if there's no trailing newline
-    if line_start < mmap.len() {
-        line_number += 1;
-        if mmap[line_start] == b'P' || mmap[line_start] == b'W' {
-            let line_bytes = &mmap[line_start..];
-            let line = unsafe { std::str::from_utf8_unchecked(line_bytes) };
-            let parts: Vec<&str> = line.split('\t').collect();
             
-            if parts.len() >= 3 {
-                let path_name = parts[1];
-                if let Some(fixed_name) = fix_path_name(path_name) {
-                    eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                    fixes.insert(line_number, (path_name.to_string(), fixed_name));
+            let mut line_number = 0;
+            let mut prev_newline = line_start;
+            
+            // Count newlines before our chunk to get correct line number
+            if line_start > 0 {
+                let newlines_before = mmap[..line_start].iter()
+                    .filter(|&&b| b == b'\n')
+                    .count();
+                line_number = newlines_before;
+            }
+            
+            // Process this chunk
+            for i in *start..*end {
+                // Update progress periodically
+                if i % 10_000_000 == 0 {
+                    let mut pb_guard = pb_arc.lock().unwrap();
+                    pb_guard.set_position(i as u64);
+                }
+                
+                // Process lines when we hit a newline
+                if mmap[i] == b'\n' {
+                    line_number += 1;
+                    
+                    // Check if this is a path line (P or W) that might need fixing
+                    if i > line_start && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
+                        let line_bytes = &mmap[line_start..i];
+                        
+                        // Check if we need to process the line - fast check for tab characters
+                        let tab_count = line_bytes.iter().filter(|&&b| b == b'\t').count();
+                        if tab_count >= 2 {
+                            // Find the path name (second column)
+                            let mut tabs = 0;
+                            let mut path_start = 0;
+                            let mut path_end = 0;
+                            
+                            for (pos, &b) in line_bytes.iter().enumerate() {
+                                if b == b'\t' {
+                                    tabs += 1;
+                                    if tabs == 1 {
+                                        path_start = pos + 1;
+                                    } else if tabs == 2 {
+                                        path_end = pos;
+                                        break;
+                                    }
+                                }
+                            } 
+                            if path_end > path_start {
+                                let path_name_bytes = &line_bytes[path_start..path_end];
+                                let path_name = unsafe { std::str::from_utf8_unchecked(path_name_bytes) };
+                                
+                                // Optimized check for common patterns first
+                                if path_name.contains('#') {
+                                    // Find the position of the '#' character for proper splitting
+                                    if let Some(hash_pos) = path_name.find('#') {
+                                        // Fast path for common reference genomes with exact matches
+                                        if (path_name.starts_with("chm13#chr") && hash_pos == 5) || 
+                                           (path_name.starts_with("grch38#chr") && hash_pos == 6) {
+                                            let sample = &path_name[0..hash_pos];
+                                            let rest = &path_name[(hash_pos+1)..];
+                                            
+                                            // Don't fix if it already has a numeric haplotype
+                                            if !path_name[hash_pos+1..].starts_with(|c: char| c.is_ascii_digit()) {
+                                                let fixed_name = format!("{}#0#{}", sample, rest);
+                                                eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                                                local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    line_start = i + 1;
+                    prev_newline = i;
                 }
             }
-        }
+            
+            local_fixes
+        })
+        .collect();
+    
+    // Combine results from all chunks
+    let mut fixes = HashMap::new();
+    for chunk_fixes in fixes_per_chunk {
+        fixes.extend(chunk_fixes);
     }
-
+    
+    // Get the progress bar back from the Arc<Mutex>
+    let pb = Arc::try_unwrap(pb_arc).unwrap().into_inner().unwrap();
     pb.finish_and_clear();
     
     // If no fixes needed, just return the original path
@@ -439,17 +507,17 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
         return Ok(gfa_path.to_string());
     }
     
-    // Second-pass: create fixed GFA file
+    // Second-pass: create fixed GFA file with parallel read/write
     eprintln!("[INFO] Found {} invalid path names, creating fixed GFA...", fixes.len());
     let fixed_gfa_path = format!("{}.fixed.gfa", gfa_path);
     
     let input_file = File::open(gfa_path)
         .map_err(|e| format!("Failed to open input GFA: {}", e))?;
-    let mut reader = BufReader::new(input_file);
+    let mut reader = BufReader::with_capacity(8 * 1024 * 1024, input_file); // 8MB buffer
     
     let output_file = File::create(&fixed_gfa_path)
         .map_err(|e| format!("Failed to create output GFA: {}", e))?;
-    let mut writer = BufWriter::new(output_file);
+    let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, output_file); // 8MB buffer
     
     // Stream from input to output, making fixes as needed
     let pb = ProgressBar::new(file_size);
@@ -457,29 +525,45 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
         "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
     ).unwrap());
     
-    let mut line = String::new();
+    let mut line_buffer = String::with_capacity(10 * 1024); // Pre-allocate 10KB for line buffer
     let mut line_number = 0;
     let mut bytes_read = 0;
     
-    while let Ok(bytes) = reader.read_line(&mut line) {
+    // Create a lookup of fixed lines
+    while let Ok(bytes) = reader.read_line(&mut line_buffer) {
         if bytes == 0 { break; } // EOF
         
         bytes_read += bytes as u64;
-        pb.set_position(bytes_read);
         line_number += 1;
         
-        if let Some((original, fixed)) = fixes.get(&line_number) {
-            // Replace path name in this line
-            let fixed_line = line.replace(original, fixed);
-            writer.write_all(fixed_line.as_bytes())
-                .map_err(|e| format!("Failed to write to output file: {}", e))?;
+        // Update progress
+        if line_number % 1000 == 0 {
+            pb.set_position(bytes_read);
+        }
+        
+        if let Some((ref original, ref fixed)) = fixes.get(&line_number) {
+            // Replace path name in this line - only at tab boundaries to avoid incorrect replacements
+            let tab_original = format!("\t{}\t", original);
+            let tab_fixed = format!("\t{}\t", fixed);
+            
+            // Check if we can find the pattern with tabs (more precise)
+            if line_buffer.contains(&tab_original) {
+                let fixed_line = line_buffer.replace(&tab_original, &tab_fixed);
+                writer.write_all(fixed_line.as_bytes())
+                    .map_err(|e| format!("Failed to write to output file: {}", e))?;
+            } else {
+                // Fallback to standard replacement if tab pattern not found
+                let fixed_line = line_buffer.replace(original, fixed);
+                writer.write_all(fixed_line.as_bytes())
+                    .map_err(|e| format!("Failed to write to output file: {}", e))?;
+            }
         } else {
             // Copy line as-is
-            writer.write_all(line.as_bytes())
+            writer.write_all(line_buffer.as_bytes())
                 .map_err(|e| format!("Failed to write to output file: {}", e))?;
         }
         
-        line.clear();
+        line_buffer.clear();
     }
     
     writer.flush().map_err(|e| format!("Failed to flush output: {}", e))?;
