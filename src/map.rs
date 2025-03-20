@@ -346,16 +346,14 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
 
 
 
-/// Validates a GFA file for potential node conflicts that would cause GBWT construction to fail.
-/// This function reads the GFA in a streaming manner (using memory mapping).
-/// It extracts node IDs from lines that begin with 'P', writing each (node_id,line_number) to a temporary file.
-/// Then it externally sorts that file by node_id to detect duplicates.
-/// It prints detailed statistics on node frequencies, duplicates, and line numbers where duplicates appear.
-/// If no duplicates are found, the function returns `Ok(())`. Otherwise, returns `Err(...)`.
-pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
-    eprintln!("[INFO] Validating GFA file: {}", gfa_path);
+/// Validates and fixes path names in a GFA file to ensure PanSN naming compliance.
+/// This function focuses on fixing "Invalid haplotype field" errors by replacing 
+/// non-numeric haplotype fields with "0".
+/// Returns the path to use (original if no fixes needed, new fixed file otherwise).
+pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
+    eprintln!("[INFO] Validating and fixing GFA path names: {}", gfa_path);
 
-    // Open and memory-map the GFA for efficient large-file reading.
+    // Open and memory-map the GFA for efficient processing
     let file = File::open(gfa_path)
         .map_err(|e| format!("Failed to open GFA file: {}", e))?;
     let metadata = file.metadata()
@@ -368,318 +366,154 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<(), String> {
             .map_err(|e| format!("Could not memory-map GFA file: {}", e))?
     };
 
-    // Create a progress bar to show how much of the file we've processed.
+    // Setup progress tracking
     let pb = ProgressBar::new(file_size);
-    pb.set_style(
-        ProgressStyle::with_template("[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)")
-            .unwrap()
-    );
+    pb.set_style(ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
+    ).unwrap());
 
-    // Create a temporary file for (node_id, line_number).
-    // Store its path so we can reference it after writing is complete.
-    let tmp_file = NamedTempFile::new()
-        .map_err(|e| format!("Could not create temp file for node IDs: {}", e))?;
-    let tmp_file_path = tmp_file.path().to_path_buf();
+    // First-pass: identify lines needing fixes
+    eprintln!("[INFO] Scanning for invalid path names...");
+    let mut fixes = HashMap::new();
+    let mut line_start = 0;
+    let mut line_number = 0;
+    let mut next_progress_update = 0;
+    let update_chunk = 100_000_000; // 100MB chunks
 
-    {
-        // Use a scoped block so that `writer` is dropped before we call external sort.
-        let file_mut = tmp_file
-            .as_file()
-            .try_clone()
-            .map_err(|e| format!("Could not clone temp file: {}", e))?;
-        let mut writer = BufWriter::new(file_mut);
-
-        // We scan the memory map for newlines, building lines. If a line starts with 'P', parse it.
-        let mut line_start: usize = 0;
-        let mut line_number: usize = 0;
-        let update_chunk = 100_000_000usize; // update progress every 100MB
-        let mut next_progress_update = 0usize;
-
-        for i in 0..mmap.len() {
-            // Periodically update the progress bar
-            if i >= next_progress_update {
-                pb.set_position(i as u64);
-                next_progress_update += update_chunk;
-            }
-
-            // Check for newline
-            if mmap[i] == b'\n' {
-                line_number += 1;
-                if i > line_start {
-                    // If this line begins with 'P', process it
-                    if mmap[line_start] == b'P' {
-                        let line_bytes = &mmap[line_start..i];
-                        // Safe if GFA is valid UTF-8; if uncertain, handle potential errors or do a lossy conversion
-                        let line_str = unsafe { std::str::from_utf8_unchecked(line_bytes) };
-
-                        let parts: Vec<&str> = line_str.split('\t').collect();
-                        if parts.len() >= 3 {
-                            // The third column typically has "segmentIDs" separated by commas,
-                            // each possibly followed by + or -.
-                            let path_nodes = parts[2]
-                                .split(',')
-                                .map(|s| s.trim_end_matches('+').trim_end_matches('-'));
-                            for node_id in path_nodes {
-                                if !node_id.is_empty() {
-                                    // Write "nodeID\tline_number\n"
-                                    if let Err(e) = writeln!(writer, "{}\t{}", node_id, line_number) {
-                                        return Err(format!("Error writing node list: {}", e));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                line_start = i + 1;
-            }
+    // Scan through the file byte by byte
+    for i in 0..mmap.len() {
+        // Update progress periodically
+        if i >= next_progress_update {
+            pb.set_position(i as u64);
+            next_progress_update += update_chunk;
         }
 
-        // Handle final line if no trailing newline
-        if line_start < mmap.len() {
+        // Process lines when we hit a newline
+        if mmap[i] == b'\n' {
             line_number += 1;
-            if mmap[line_start] == b'P' {
-                let line_bytes = &mmap[line_start..];
-                let line_str = unsafe { std::str::from_utf8_unchecked(line_bytes) };
-
-                let parts: Vec<&str> = line_str.split('\t').collect();
+            
+            // Check if this is a path line (P or W)
+            if i > line_start && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
+                let line_bytes = &mmap[line_start..i];
+                let line = unsafe { std::str::from_utf8_unchecked(line_bytes) };
+                let parts: Vec<&str> = line.split('\t').collect();
+                
+                // Path name is in column 2 for both P and W lines
                 if parts.len() >= 3 {
-                    let path_nodes = parts[2]
-                        .split(',')
-                        .map(|s| s.trim_end_matches('+').trim_end_matches('-'));
-                    for node_id in path_nodes {
-                        if !node_id.is_empty() {
-                            if let Err(e) = writeln!(writer, "{}\t{}", node_id, line_number) {
-                                return Err(format!("Error writing node list: {}", e));
-                            }
-                        }
+                    let path_name = parts[1];
+                    
+                    // Check for PanSN compliance and fix if needed
+                    if let Some(fixed_name) = fix_path_name(path_name) {
+                        eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                        fixes.insert(line_number, (path_name.to_string(), fixed_name));
                     }
                 }
             }
+            line_start = i + 1;
         }
-
-        writer.flush()
-            .map_err(|e| format!("Error flushing temp file: {}", e))?;
     }
 
-    // Finish progress bar for reading
-    pb.finish_and_clear();
-    eprintln!("[INFO] Finished scanning GFA ({} bytes). Now sorting node IDs...", file_size);
-
-    // Create another temp file for sorted output
-    let sorted_tmp_file = NamedTempFile::new()
-        .map_err(|e| format!("Could not create temp file for sorted node IDs: {}", e))?;
-    let sorted_tmp_file_path = sorted_tmp_file.path().to_path_buf();
-
-    // Sort the (node_id, line_number) file by node_id (the first column).
-    let sort_status = Command::new("sort")
-        .args([
-            "-T", "/tmp",
-            "-k1,1", // sort by the first field (node_id)
-            tmp_file_path.to_str().unwrap(),
-            "-o", sorted_tmp_file_path.to_str().unwrap(),
-        ])
-        .status()
-        .map_err(|e| format!("Failed to run external `sort`: {}", e))?;
-
-    if !sort_status.success() {
-        return Err("External sort command failed with non-zero exit status".to_string());
-    }
-
-    // Read sorted file to detect duplicates and gather stats. 
-    // Each line is "node_id\tline_number".
-    let sorted_file = File::open(&sorted_tmp_file_path)
-        .map_err(|e| format!("Failed to open sorted node file: {}", e))?;
-    let mut sorted_reader = BufReader::new(sorted_file);
-
-    let mut prev_node_id = String::new();
-    let mut current_line_numbers: Vec<usize> = Vec::new();
-    let mut found_conflict = false;
-    let mut conflict_msg = String::new();
-
-    let mut total_entries: usize = 0;     
-    let mut total_unique_nodes: usize = 0; 
-    let mut freq_map: HashMap<usize, usize> = HashMap::new();
-    let mut freq_min = usize::MAX;
-    let mut freq_max = 0usize;
-
-    // Maximum number of duplicates to find before early return
-    let max_duplicates_to_report = 50;
-    let mut duplicate_count = 0;
-
-    // Instead of using a closure that captures variables, we'll inline the logic
-    let mut process_node_and_check_limit = |node_id: &str, lines: &Vec<usize>| -> bool {
-        if node_id.is_empty() || lines.is_empty() {
-            return false;
-        }
-        
-        let freq = lines.len();
-        total_unique_nodes += 1;
-        *freq_map.entry(freq).or_insert(0) += 1;
-        
-        if freq < freq_min {
-            freq_min = freq;
-        }
-        if freq > freq_max {
-            freq_max = freq;
-        }
-        
-        if freq > 1 {
-            found_conflict = true;
-            duplicate_count += 1;
+    // Handle final line if there's no trailing newline
+    if line_start < mmap.len() {
+        line_number += 1;
+        if mmap[line_start] == b'P' || mmap[line_start] == b'W' {
+            let line_bytes = &mmap[line_start..];
+            let line = unsafe { std::str::from_utf8_unchecked(line_bytes) };
+            let parts: Vec<&str> = line.split('\t').collect();
             
-            conflict_msg.push_str(&format!(
-                "Duplicate: Node ID '{}' appears {} times.\n",
-                node_id, freq
-            ));
-            
-            let max_show = 100;
-            let truncated = freq > max_show;
-            let shown_count = freq.min(max_show);
-            
-            conflict_msg.push_str("   Lines: ");
-            for (i, &ln) in lines.iter().enumerate().take(shown_count) {
-                conflict_msg.push_str(&ln.to_string());
-                if i < shown_count - 1 {
-                    conflict_msg.push_str(", ");
+            if parts.len() >= 3 {
+                let path_name = parts[1];
+                if let Some(fixed_name) = fix_path_name(path_name) {
+                    eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                    fixes.insert(line_number, (path_name.to_string(), fixed_name));
                 }
             }
-            
-            if truncated {
-                conflict_msg.push_str(" ... [TRUNCATED]");
-            }
-            conflict_msg.push_str("\n");
-            
-            // The key difference: return true if we've hit our limit
-            if duplicate_count >= max_duplicates_to_report {
-                conflict_msg.push_str("\n[EARLY RETURN] Stopping validation after finding significant duplicate nodes.\n");
-                return true;
-            }
+        }
+    }
+
+    pb.finish_and_clear();
+    
+    // If no fixes needed, just return the original path
+    if fixes.is_empty() {
+        eprintln!("[INFO] No invalid path names found, GFA is compliant");
+        return Ok(gfa_path.to_string());
+    }
+    
+    // Second-pass: create fixed GFA file
+    eprintln!("[INFO] Found {} invalid path names, creating fixed GFA...", fixes.len());
+    let fixed_gfa_path = format!("{}.fixed.gfa", gfa_path);
+    
+    let input_file = File::open(gfa_path)
+        .map_err(|e| format!("Failed to open input GFA: {}", e))?;
+    let mut reader = BufReader::new(input_file);
+    
+    let output_file = File::create(&fixed_gfa_path)
+        .map_err(|e| format!("Failed to create output GFA: {}", e))?;
+    let mut writer = BufWriter::new(output_file);
+    
+    // Stream from input to output, making fixes as needed
+    let pb = ProgressBar::new(file_size);
+    pb.set_style(ProgressStyle::with_template(
+        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
+    ).unwrap());
+    
+    let mut line = String::new();
+    let mut line_number = 0;
+    let mut bytes_read = 0;
+    
+    while let Ok(bytes) = reader.read_line(&mut line) {
+        if bytes == 0 { break; } // EOF
+        
+        bytes_read += bytes as u64;
+        pb.set_position(bytes_read);
+        line_number += 1;
+        
+        if let Some((original, fixed)) = fixes.get(&line_number) {
+            // Replace path name in this line
+            let fixed_line = line.replace(original, fixed);
+            writer.write_all(fixed_line.as_bytes())
+                .map_err(|e| format!("Failed to write to output file: {}", e))?;
+        } else {
+            // Copy line as-is
+            writer.write_all(line.as_bytes())
+                .map_err(|e| format!("Failed to write to output file: {}", e))?;
         }
         
-        false
-    };
-
-    let mut buffer = String::new();
-    while sorted_reader.read_line(&mut buffer)
-        .map_err(|e| format!("Failed to read from sorted node file: {}", e))? > 0
-    {
-        let line = buffer.trim_end();
-        if line.is_empty() {
-            buffer.clear();
-            continue;
-        }
-        total_entries += 1;
-
-        let mut tab_split = line.splitn(2, '\t');
-        let node_id = match tab_split.next() {
-            Some(x) => x,
-            None => {
-                buffer.clear();
-                continue;
-            }
-        };
-        let line_num_str = match tab_split.next() {
-            Some(x) => x,
-            None => {
-                buffer.clear();
-                continue;
-            }
-        };
-
-        let line_num = match line_num_str.parse::<usize>() {
-            Ok(n) => n,
-            Err(_) => {
-                buffer.clear();
-                continue;
-            }
-        };
-
-        if node_id == prev_node_id {
-            current_line_numbers.push(line_num);
-        } else {
-            // Process old node and check if we should stop
-            if process_node_and_check_limit(&prev_node_id, &current_line_numbers) {
-                break;  // Early return triggered by hitting duplicate limit
-            }
-            
-            // Set up for next node
-            prev_node_id.clear();
-            prev_node_id.push_str(node_id);
-            current_line_numbers.clear();
-            current_line_numbers.push(line_num);
-        }
-
-        buffer.clear();
+        line.clear();
     }
-    // Process final node (only if we didn't break out early)
-    if !prev_node_id.is_empty() {
-        process_node_and_check_limit(&prev_node_id, &current_line_numbers);
-    }
-
-    if total_entries == 0 {
-        eprintln!("[INFO] No node IDs found in 'P' lines. This may be an empty GFA or no 'P' lines exist.");
-        // Considered successful since no duplicates found if there's nothing to compare.
-        return Ok(());
-    }
-
-    let avg_freq = if total_unique_nodes > 0 {
-        total_entries as f64 / total_unique_nodes as f64
-    } else {
-        0.0
-    };
-
-    let mut freq_pairs: Vec<(usize, usize)> = freq_map.into_iter().collect();
-    freq_pairs.sort_by_key(|&(freq, _)| freq);
-
-    let mut distribution_str = String::new();
-    distribution_str.push_str("\nFrequency distribution (freq -> count_of_nodes_with_that_freq):\n");
-    for (f, c) in &freq_pairs {
-        distribution_str.push_str(&format!("  {:>8} -> {}\n", f, c));
-    }
-
-    let early_return_note = if found_conflict && duplicate_count >= max_duplicates_to_report {
-        " (based on processed portion of file)"
-    } else {
-        ""
-    };
-
-    let stats_msg = format!(
-        "\nValidation statistics{}:\n\
-         - Total (node_id,line) entries processed: {}\n\
-         - Distinct node IDs found: {}\n\
-         - Min frequency: {}\n\
-         - Max frequency: {}\n\
-         - Average frequency: {:.2}\n\
-         {}",
-        early_return_note,
-        total_entries,
-        total_unique_nodes,
-        if freq_min == usize::MAX { 0 } else { freq_min },
-        freq_max,
-        avg_freq,
-        distribution_str
-    );
-
-    if found_conflict {
-        let mut err_str = String::new();
-        err_str.push_str("[ERROR] Duplicate node IDs detected.\n");
-        if duplicate_count >= max_duplicates_to_report {
-            err_str.push_str(&format!("[EARLY RETURN] Showing first {} duplicates.\n", max_duplicates_to_report));
-        }
-        err_str.push_str(&conflict_msg);
-        err_str.push_str(&stats_msg);
-        eprintln!("{}", err_str);
-        Err(err_str)
-    } else {
-        eprintln!("[INFO] No duplicate node IDs found in path lines.");
-        eprintln!("{}", stats_msg);
-        Ok(())
-    }
+    
+    writer.flush().map_err(|e| format!("Failed to flush output: {}", e))?;
+    pb.finish_and_clear();
+    
+    eprintln!("[SUCCESS] Fixed GFA written to: {}", fixed_gfa_path);
+    Ok(fixed_gfa_path)
 }
 
+/// Checks if a path name needs fixing and returns the fixed name if needed.
+/// Specifically addresses the "Invalid haplotype field" error by ensuring
+/// the haplotype part of the name is numeric.
+fn fix_path_name(name: &str) -> Option<String> {
+    let parts: Vec<&str> = name.split('#').collect();
+    
+    if parts.len() >= 3 {
+        // Check if haplotype field (parts[1]) is numeric
+        if parts[1].parse::<u32>().is_err() {
+            // Replace non-numeric haplotype with "0"
+            let mut fixed_parts = parts.clone();
+            fixed_parts[1] = "0";
+            return Some(fixed_parts.join("#"));
+        }
+    } else if parts.len() == 2 {
+        // Missing haplotype field - insert "0"
+        return Some(format!("{}#0#{}", parts[0], parts[1]));
+    }
+    
+    // No fix needed
+    None
+}
 
-/// So that that a GBZ file exists for the given GFA and PAF files
-/// If the GBZ doesn't exist, it creates it using vg
+/// Ensures a GBZ file exists for given GFA and PAF files.
+/// If the GBZ doesn't exist, validates and fixes the GFA, then creates the GBZ.
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     // Derive GBZ filename from GFA and PAF paths
     let gfa_base = Path::new(gfa_path).file_stem().unwrap_or_default().to_string_lossy();
@@ -690,20 +524,17 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     if !Path::new(&gbz_path).exists() {
         eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
 
-        // Validate the GFA file before attempting to build the GBZ
-        match validate_gfa_for_gbwt(gfa_path) {
-            Ok(_) => {
-                eprintln!("[INFO] GFA validation passed, proceeding with GBWT construction");
-            },
+        // Validate and fix path names in the GFA file
+        let fixed_gfa_path = match validate_gfa_for_gbwt(gfa_path) {
+            Ok(path) => path,
             Err(msg) => {
-                eprintln!("[ERROR] GFA validation failed:");
+                eprintln!("[ERROR] GFA validation and fixing failed:");
                 eprintln!("{}", msg);
-                eprintln!("[INFO] The GFA file contains node conflicts that would cause GBWT construction to fail");
                 panic!("GFA validation failed - cannot create GBZ index");
             }
-        }
+        };
         
-        // Determine vg command location by checking PATH, current directory, and parent directory.
+        // Locate vg command
         let vg_cmd = if let Ok(output) = Command::new("vg").arg("--version").output() {
             if output.status.success() {
                 "vg".to_string()
@@ -712,7 +543,7 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
             } else if Path::new("../vg").exists() {
                 "../vg".to_string()
             } else {
-                eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory. Please install vg toolkit.");
+                eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory.");
                 panic!("vg command not found");
             }
         } else if Path::new("./vg").exists() {
@@ -720,13 +551,13 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
         } else if Path::new("../vg").exists() {
             "../vg".to_string()
         } else {
-            eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory. Please install vg toolkit.");
+            eprintln!("Error: 'vg' command not found in PATH, current directory, or parent directory.");
             panic!("vg command not found");
         };
         
-        // Create GBZ using vg gbwt
+        // Create GBZ using vg gbwt with the potentially fixed GFA
         let status = Command::new(&vg_cmd)
-            .args(["gbwt", "-G", gfa_path, "--gbz-format", "-g", &gbz_path])
+            .args(["gbwt", "-G", &fixed_gfa_path, "--gbz-format", "-g", &gbz_path])
             .status()
             .expect("Failed to run vg gbwt");
             
@@ -741,6 +572,7 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     
     gbz_path
 }
+
 
 #[derive(Debug)]
 pub struct Coord2NodeResult {
