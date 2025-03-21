@@ -511,22 +511,42 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
                                     let parts: Vec<&str> = path_name.split('#').collect();
                                     let parts_len = parts.len();
                                     
-                                    // Handle complex cases (more than 3 parts or unusual patterns)
+                                    // Handle complex cases with multiple '#' symbols
                                     if parts_len > 2 {
-                                        // Always check the haplotype field (position 1) for all complex paths
-                                        if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
-                                            // Fix the haplotype while preserving all other fields
-                                            let mut fixed_parts = parts.clone();
-                                            fixed_parts[1] = "0";
+                                        let needs_fixing = if parts_len > 3 {
+                                            // More than 2 '#' symbols - very likely to cause parsing issues
+                                            true
+                                        } else if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
+                                            // Standard case where haplotype field isn't numeric
+                                            true
+                                        } else {
+                                            false
+                                        };
+                                        
+                                        if needs_fixing {
+                                            // Handle problematic cases like "HG00438#2#JAHBCA010000258.1#MT"
+                                            // where GBWT parser sees "JAHBCA010000258.1" as the haplotype field
+                                            let mut fixed_name = String::new();
                                             
-                                            // Make sure no empty parts
-                                            for i in 0..fixed_parts.len() {
-                                                if fixed_parts[i].is_empty() && i != 1 { // We already fixed position 1
-                                                    fixed_parts[i] = if i == 0 { "unknown" } else if i == 2 { "unknown" } else { "0" };
+                                            if parts_len > 3 {
+                                                // For paths with 3+ '#' symbols, completely restructure the name
+                                                let sample = parts[0].to_string();
+                                                let contig = parts[2..].join("_"); // Join remaining parts with underscore
+                                                fixed_name = format!("{}#0#{}", sample, contig);
+                                            } else {
+                                                // For standard 3-part names with non-numeric haplotype
+                                                let mut fixed_parts = parts.clone();
+                                                fixed_parts[1] = "0";
+                                                
+                                                // Make sure no empty parts
+                                                for i in 0..fixed_parts.len() {
+                                                    if fixed_parts[i].is_empty() && i != 1 { // We already fixed position 1
+                                                        fixed_parts[i] = if i == 0 { "unknown" } else if i == 2 { "unknown" } else { "0" };
+                                                    }
                                                 }
+                                                fixed_name = fixed_parts.join("#");
                                             }
                                             
-                                            let fixed_name = fixed_parts.join("#");
                                             eprintln!("[FIX:complex] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
                                             local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
                                         }
