@@ -455,27 +455,80 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
                                         break;
                                     }
                                 }
-                            } 
+                            }
                             if path_end > path_start {
                                 let path_name_bytes = &line_bytes[path_start..path_end];
                                 let path_name = unsafe { std::str::from_utf8_unchecked(path_name_bytes) };
                                 
-                                // Optimized check for common patterns first
+                                // PanSN path name validation and fixing
                                 if path_name.contains('#') {
-                                    // Find the position of the '#' character for proper splitting
+                                    // Fast-path for the most common reference genome patterns
+                                    // This avoids full splitting for most cases in typical pangenomes
                                     if let Some(hash_pos) = path_name.find('#') {
-                                        // Fast path for common reference genomes with exact matches
                                         if (path_name.starts_with("chm13#chr") && hash_pos == 5) || 
                                            (path_name.starts_with("grch38#chr") && hash_pos == 6) {
-                                            let sample = &path_name[0..hash_pos];
-                                            let rest = &path_name[(hash_pos+1)..];
-                                            
-                                            // Don't fix if it already has a numeric haplotype
-                                            if !path_name[hash_pos+1..].starts_with(|c: char| c.is_ascii_digit()) {
+                                            if !path_name[(hash_pos+1)..].starts_with(|c: char| c.is_ascii_digit()) {
+                                                // Quick fix for common reference paths
+                                                let sample = &path_name[0..hash_pos];
+                                                let rest = &path_name[(hash_pos+1)..];
                                                 let fixed_name = format!("{}#0#{}", sample, rest);
-                                                eprintln!("[FIX] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                                                eprintln!("[FIX:ref] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
                                                 local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
+                                                continue; // Skip to next line after handling common case
                                             }
+                                        }
+                                        
+                                        // Count '#' symbols without full splitting
+                                        let hash_count = path_name.as_bytes().iter().filter(|&&b| b == b'#').count();
+                                        
+                                        // Handle the by-far most common case (sample#haplotype#contig)
+                                        if hash_count == 2 {
+                                            // Split only once to check second part (haplotype field)
+                                            let parts: Vec<&str> = path_name.splitn(3, '#').collect();
+                                            // Check if haplotype field is numeric with zero-copy if possible
+                                            if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
+                                                // Pre-allocate result string for better performance
+                                                let fixed_name = format!("{}#0#{}", parts[0], parts[2]);
+                                                eprintln!("[FIX:hap] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                                                local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
+                                                continue; // Skip to next line
+                                            }
+                                        }
+                                        
+                                        // Handle missing haplotype case (only one '#' symbol)
+                                        if hash_count == 1 {
+                                            let parts: Vec<&str> = path_name.split('#').collect();
+                                            let sample = if parts[0].is_empty() { "unknown" } else { parts[0] };
+                                            let contig = if parts.len() > 1 && !parts[1].is_empty() { parts[1] } else { "unknown" };
+                                            let fixed_name = format!("{}#0#{}", sample, contig);
+                                            eprintln!("[FIX:miss] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                                            local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
+                                            continue; // Skip to next line
+                                        }
+                                    }
+                                    
+                                    // For complex or uncommon cases, fall back to robust comprehensive parsing
+                                    let parts: Vec<&str> = path_name.split('#').collect();
+                                    let parts_len = parts.len();
+                                    
+                                    // Handle complex cases (more than 3 parts or unusual patterns)
+                                    if parts_len > 2 {
+                                        // Always check the haplotype field (position 1) for all complex paths
+                                        if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
+                                            // Fix the haplotype while preserving all other fields
+                                            let mut fixed_parts = parts.clone();
+                                            fixed_parts[1] = "0";
+                                            
+                                            // Make sure no empty parts
+                                            for i in 0..fixed_parts.len() {
+                                                if fixed_parts[i].is_empty() && i != 1 { // We already fixed position 1
+                                                    fixed_parts[i] = if i == 0 { "unknown" } else if i == 2 { "unknown" } else { "0" };
+                                                }
+                                            }
+                                            
+                                            let fixed_name = fixed_parts.join("#");
+                                            eprintln!("[FIX:complex] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
+                                            local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
                                         }
                                     }
                                 }
