@@ -345,328 +345,239 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     results
 }
 
-
-
 /// Validates and fixes path names in a GFA file for PanSN naming compliance.
-/// This function focuses on fixing "Invalid haplotype field" errors by replacing 
-/// non-numeric haplotype fields with "0".
+/// This function fixes "Invalid haplotype field" errors in a single pass
+/// using chunk-based processing.
 /// Returns the path to use (original if no fixes needed, new fixed file otherwise).
 pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
-    eprintln!("[INFO] Validating and fixing GFA path names: {}", gfa_path);
+    eprintln!("[INFO] Fast validating and fixing GFA path names: {}", gfa_path);
 
-    // Open and memory-map the GFA for efficient processing
+    // Open and memory-map input file
     let file = File::open(gfa_path)
         .map_err(|e| format!("Failed to open GFA file: {}", e))?;
     let metadata = file.metadata()
-        .map_err(|e| format!("Failed to get metadata for GFA file: {}", e))?;
+        .map_err(|e| format!("Failed to get metadata: {}", e))?;
     let file_size = metadata.len();
-
+    
+    // Create output file path
+    let fixed_gfa_path = format!("{}.fixed.gfa", gfa_path);
+    
+    // Create memory map for fast reading
     let mmap = unsafe {
         MmapOptions::new()
             .map(&file)
-            .map_err(|e| format!("Could not memory-map GFA file: {}", e))?
+            .map_err(|e| format!("Could not memory-map file: {}", e))?
     };
-
-    // Setup progress tracking
-    let pb = ProgressBar::new(file_size);
-    pb.set_style(ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
-    ).unwrap());
-
-    // Prepare for parallel scanning
-    let chunk_size = 100_000_000; // 100MB chunks
-    let num_chunks = (file_size as usize + chunk_size - 1) / chunk_size;
-    let chunks: Vec<(usize, usize)> = (0..num_chunks)
-        .map(|i| {
-            let start = i * chunk_size;
-            let end = (start + chunk_size).min(file_size as usize);
-            (start, end)
-        })
-        .collect();
-
-    // First-pass: parallel scan to identify lines needing fixes
-    eprintln!("[INFO] Scanning for invalid path names using {} parallel chunks...", num_chunks);
     
-    // Create a mutex-protected shared progress bar
-    let pb_arc = Arc::new(Mutex::new(pb));
-    
-    // Process chunks in parallel
-    let fixes_per_chunk: Vec<HashMap<usize, (String, String)>> = chunks.par_iter()
-        .map(|(start, end)| {
-            let mut local_fixes = HashMap::new();
-            
-            // Find the true beginning of a line for this chunk
-            let mut line_start = *start;
-            if *start > 0 {
-                // Find the previous newline or beginning of file
-                for i in (0..*start).rev() {
-                    if mmap[i] == b'\n' {
-                        line_start = i + 1;
-                        break;
-                    }
-                    if i == 0 {
-                        line_start = 0;
-                    }
-                }
-            }
-            
-            let mut line_number = 0;
-            let mut prev_newline = line_start;
-            
-            // Count newlines before our chunk to get correct line number
-            if line_start > 0 {
-                let newlines_before = mmap[..line_start].iter()
-                    .filter(|&&b| b == b'\n')
-                    .count();
-                line_number = newlines_before;
-            }
-            
-            // Process this chunk
-            for i in *start..*end {
-                // Update progress periodically
-                if i % 10_000_000 == 0 {
-                    let mut pb_guard = pb_arc.lock().unwrap();
-                    pb_guard.set_position(i as u64);
-                }
-                
-                // Process lines when we hit a newline
-                if mmap[i] == b'\n' {
-                    line_number += 1;
-                    
-                    // Check if this is a path line (P or W) that might need fixing
-                    if i > line_start && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
-                        let line_bytes = &mmap[line_start..i];
-                        
-                        // Check if we need to process the line - fast check for tab characters
-                        let tab_count = line_bytes.iter().filter(|&&b| b == b'\t').count();
-                        if tab_count >= 2 {
-                            // Find the path name (second column)
-                            let mut tabs = 0;
-                            let mut path_start = 0;
-                            let mut path_end = 0;
-                            
-                            for (pos, &b) in line_bytes.iter().enumerate() {
-                                if b == b'\t' {
-                                    tabs += 1;
-                                    if tabs == 1 {
-                                        path_start = pos + 1;
-                                    } else if tabs == 2 {
-                                        path_end = pos;
-                                        break;
-                                    }
-                                }
-                            }
-                            if path_end > path_start {
-                                let path_name_bytes = &line_bytes[path_start..path_end];
-                                let path_name = unsafe { std::str::from_utf8_unchecked(path_name_bytes) };
-                                
-                                // PanSN path name validation and fixing
-                                if path_name.contains('#') {
-                                    // Fast-path for the most common reference genome patterns
-                                    // This avoids full splitting for most cases in typical pangenomes
-                                    if let Some(hash_pos) = path_name.find('#') {
-                                        if (path_name.starts_with("chm13#chr") && hash_pos == 5) || 
-                                           (path_name.starts_with("grch38#chr") && hash_pos == 6) {
-                                            if !path_name[(hash_pos+1)..].starts_with(|c: char| c.is_ascii_digit()) {
-                                                // Quick fix for common reference paths
-                                                let sample = &path_name[0..hash_pos];
-                                                let rest = &path_name[(hash_pos+1)..];
-                                                let fixed_name = format!("{}#0#{}", sample, rest);
-                                                eprintln!("[FIX:ref] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                                                local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
-                                                continue; // Skip to next line after handling common case
-                                            }
-                                        }
-                                        
-                                        // Count '#' symbols without full splitting
-                                        let hash_count = path_name.as_bytes().iter().filter(|&&b| b == b'#').count();
-                                        
-                                        // Handle the by-far most common case (sample#haplotype#contig)
-                                        if hash_count == 2 {
-                                            // Split only once to check second part (haplotype field)
-                                            let parts: Vec<&str> = path_name.splitn(3, '#').collect();
-                                            // Check if haplotype field is numeric with zero-copy if possible
-                                            if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
-                                                // Pre-allocate result string for better performance
-                                                let fixed_name = format!("{}#0#{}", parts[0], parts[2]);
-                                                eprintln!("[FIX:hap] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                                                local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
-                                                continue; // Skip to next line
-                                            }
-                                        }
-                                        
-                                        // Handle missing haplotype case (only one '#' symbol)
-                                        if hash_count == 1 {
-                                            let parts: Vec<&str> = path_name.split('#').collect();
-                                            let sample = if parts[0].is_empty() { "unknown" } else { parts[0] };
-                                            let contig = if parts.len() > 1 && !parts[1].is_empty() { parts[1] } else { "unknown" };
-                                            let fixed_name = format!("{}#0#{}", sample, contig);
-                                            eprintln!("[FIX:miss] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                                            local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
-                                            continue; // Skip to next line
-                                        }
-                                    }
-                                    
-                                    // For complex or uncommon cases, fall back to robust comprehensive parsing
-                                    let parts: Vec<&str> = path_name.split('#').collect();
-                                    let parts_len = parts.len();
-                                    
-                                    // Handle complex cases with multiple '#' symbols
-                                    if parts_len > 2 {
-                                        let needs_fixing = if parts_len > 3 {
-                                            // More than 2 '#' symbols - very likely to cause parsing issues
-                                            true
-                                        } else if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
-                                            // Standard case where haplotype field isn't numeric
-                                            true
-                                        } else {
-                                            false
-                                        };
-                                        
-                                        if needs_fixing {
-                                            // Handle problematic cases like "HG00438#2#JAHBCA010000258.1#MT"
-                                            // where GBWT parser sees "JAHBCA010000258.1" as the haplotype field
-                                            let mut fixed_name = String::new();
-                                            
-                                            if parts_len > 3 {
-                                                // For paths with 3+ '#' symbols, completely restructure the name
-                                                let sample = parts[0].to_string();
-                                                let contig = parts[2..].join("_"); // Join remaining parts with underscore
-                                                fixed_name = format!("{}#0#{}", sample, contig);
-                                            } else {
-                                                // For standard 3-part names with non-numeric haplotype
-                                                let mut fixed_parts = parts.clone();
-                                                fixed_parts[1] = "0";
-                                                
-                                                // Make sure no empty parts
-                                                for i in 0..fixed_parts.len() {
-                                                    if fixed_parts[i].is_empty() && i != 1 { // We already fixed position 1
-                                                        fixed_parts[i] = if i == 0 { "unknown" } else if i == 2 { "unknown" } else { "0" };
-                                                    }
-                                                }
-                                                fixed_name = fixed_parts.join("#");
-                                            }
-                                            
-                                            eprintln!("[FIX:complex] Line {}: '{}' → '{}'", line_number, path_name, fixed_name);
-                                            local_fixes.insert(line_number, (path_name.to_string(), fixed_name));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    line_start = i + 1;
-                    prev_newline = i;
-                }
-            }
-            
-            local_fixes
-        })
-        .collect();
-    
-    // Combine results from all chunks
-    let mut fixes = HashMap::new();
-    for chunk_fixes in fixes_per_chunk {
-        fixes.extend(chunk_fixes);
+    // Stats tracking for different fix types
+    #[derive(Default)]
+    struct FixStats {
+        reference_paths: usize,   // Reference paths with missing haplotype (e.g., chm13#chr1)
+        haplotype_fixes: usize,   // Standard haplotype fixes for non-numeric haplotype
+        missing_haplotype: usize, // Missing haplotype field (only one # symbol)
+        complex_paths: usize,     // Complex cases with 3+ hash symbols (e.g., MT paths)
+        total_processed: usize,   // Total path lines processed
     }
+    let mut stats = FixStats::default();
     
-    // Get the progress bar back from the Arc<Mutex>
-    let pb = Arc::try_unwrap(pb_arc).unwrap().into_inner().unwrap();
-    pb.finish_and_clear();
-    
-    // If no fixes needed, just return the original path
-    if fixes.is_empty() {
-        eprintln!("[INFO] No invalid path names found, GFA is compliant");
-        return Ok(gfa_path.to_string());
-    }
-    
-    // Second-pass: create fixed GFA file with parallel read/write
-    eprintln!("[INFO] Found {} invalid path names, creating fixed GFA...", fixes.len());
-    let fixed_gfa_path = format!("{}.fixed.gfa", gfa_path);
-    
-    let input_file = File::open(gfa_path)
-        .map_err(|e| format!("Failed to open input GFA: {}", e))?;
-    let mut reader = BufReader::with_capacity(8 * 1024 * 1024, input_file); // 8MB buffer
-    
+    // Create output file with large buffer
     let output_file = File::create(&fixed_gfa_path)
-        .map_err(|e| format!("Failed to create output GFA: {}", e))?;
-    let mut writer = BufWriter::with_capacity(8 * 1024 * 1024, output_file); // 8MB buffer
+        .map_err(|e| format!("Failed to create output file: {}", e))?;
+    let mut writer = BufWriter::with_capacity(128 * 1024 * 1024, output_file); // 128MB buffer
     
-    // Stream from input to output, making fixes as needed
+    // Setup progress bar with accurate estimation
     let pb = ProgressBar::new(file_size);
     pb.set_style(ProgressStyle::with_template(
-        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta} remaining)"
+        "[{elapsed_precise}] {bar:40.cyan/blue} {percent}% ({eta_precise} remaining)"
     ).unwrap());
+    pb.set_position(0);
     
-    let mut line_buffer = String::with_capacity(10 * 1024); // Pre-allocate 10KB for line buffer
-    let mut line_number = 0;
-    let mut bytes_read = 0;
+    // Initialize variables for chunk processing
+    let chunk_size = 64 * 1024 * 1024; // 64MB chunks
+    let mut position = 0;
+    let mut fix_count = 0;
     
-    // Create a lookup of fixed lines
-    while let Ok(bytes) = reader.read_line(&mut line_buffer) {
-        if bytes == 0 { break; } // EOF
-        
-        bytes_read += bytes as u64;
-        line_number += 1;
-        
-        // Update progress
-        if line_number % 1000 == 0 {
-            pb.set_position(bytes_read);
-        }
-        
-        if let Some((ref original, ref fixed)) = fixes.get(&line_number) {
-            // Replace path name in this line - only at tab boundaries to avoid incorrect replacements
-            let tab_original = format!("\t{}\t", original);
-            let tab_fixed = format!("\t{}\t", fixed);
-            
-            // Check if we can find the pattern with tabs (more precise)
-            if line_buffer.contains(&tab_original) {
-                let fixed_line = line_buffer.replace(&tab_original, &tab_fixed);
-                writer.write_all(fixed_line.as_bytes())
-                    .map_err(|e| format!("Failed to write to output file: {}", e))?;
-            } else {
-                // Fallback to standard replacement if tab pattern not found
-                let fixed_line = line_buffer.replace(original, fixed);
-                writer.write_all(fixed_line.as_bytes())
-                    .map_err(|e| format!("Failed to write to output file: {}", e))?;
+    // Process file in chunks
+    while position < mmap.len() {
+        // Calculate chunk boundaries with proper line handling
+        let end_pos = std::cmp::min(position + chunk_size, mmap.len());
+        // Find next complete line boundary
+        let true_end = if end_pos < mmap.len() {
+            match memchr::memchr(b'\n', &mmap[end_pos..std::cmp::min(end_pos + 1024, mmap.len())]) {
+                Some(pos) => end_pos + pos + 1,
+                None => end_pos,
             }
         } else {
-            // Copy line as-is
-            writer.write_all(line_buffer.as_bytes())
-                .map_err(|e| format!("Failed to write to output file: {}", e))?;
+            end_pos
+        };
+        
+        // Create buffer for output chunk with extra space
+        let mut output_buffer = Vec::with_capacity(true_end - position + 1024 * 1024);
+        
+        // Process this chunk line by line
+        let mut line_start = position;
+        while line_start < true_end {
+            // Find end of current line
+            let line_end = match memchr::memchr(b'\n', &mmap[line_start..true_end]) {
+                Some(pos) => line_start + pos,
+                None => true_end
+            };
+            
+            // Check if this is a path line (P or W)
+            if line_start < line_end && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
+                // Process path line
+                stats.total_processed += 1;
+                
+                // Find tabs to locate path name
+                if let Some(first_tab) = memchr::memchr(b'\t', &mmap[line_start..line_end]) {
+                    let path_start = line_start + first_tab + 1;
+                    if let Some(second_tab) = memchr::memchr(b'\t', &mmap[path_start..line_end]) {
+                        let path_end = path_start + second_tab;
+                        
+                        // Fast check if this path has a # character
+                        if memchr::memchr(b'#', &mmap[path_start..path_end]).is_some() {
+                            // Extract the path name for processing
+                            let path_name = unsafe { std::str::from_utf8_unchecked(&mmap[path_start..path_end]) };
+                            
+                            // Check if fix is needed
+                            let maybe_fixed_name = fix_path_name(path_name, &mut stats);
+                            
+                            if let Some(fixed_name) = maybe_fixed_name {
+                                // Path needed fixing
+                                fix_count += 1;
+                                
+                                // Write fixed line: first part + fixed name + rest of line
+                                output_buffer.extend_from_slice(&mmap[line_start..path_start]);
+                                output_buffer.extend_from_slice(fixed_name.as_bytes());
+                                output_buffer.extend_from_slice(&mmap[path_end..line_end]);
+                                
+                                // Log occasional progress
+                                if fix_count % 100_000 == 0 {
+                                    eprintln!("[INFO] Fixed {} paths so far ({} ref, {} hap, {} miss, {} complex)",
+                                             fix_count, stats.reference_paths, stats.haplotype_fixes,
+                                             stats.missing_haplotype, stats.complex_paths);
+                                }
+                            } else {
+                                // No fix needed, copy line as-is
+                                output_buffer.extend_from_slice(&mmap[line_start..line_end]);
+                            }
+                        } else {
+                            // No # in path name, copy line as-is
+                            output_buffer.extend_from_slice(&mmap[line_start..line_end]);
+                        }
+                    } else {
+                        // No second tab, copy line as-is
+                        output_buffer.extend_from_slice(&mmap[line_start..line_end]);
+                    }
+                } else {
+                    // No first tab, copy line as-is
+                    output_buffer.extend_from_slice(&mmap[line_start..line_end]);
+                }
+            } else {
+                // Not a path line, copy as-is
+                output_buffer.extend_from_slice(&mmap[line_start..line_end]);
+            }
+            
+            // Add newline if not at end of file
+            if line_end < mmap.len() {
+                output_buffer.push(b'\n');
+            }
+            
+            // Move to next line
+            line_start = line_end + 1;
         }
         
-        line_buffer.clear();
+        // Write entire processed chunk at once
+        writer.write_all(&output_buffer)
+            .map_err(|e| format!("Failed to write chunk to output file: {}", e))?;
+        
+        // Update progress
+        position = true_end;
+        pb.set_position(position as u64);
     }
     
+    // Finish writing and flush buffers
     writer.flush().map_err(|e| format!("Failed to flush output: {}", e))?;
     pb.finish_and_clear();
     
-    eprintln!("[SUCCESS] Fixed GFA written to: {}", fixed_gfa_path);
-    Ok(fixed_gfa_path)
+    // Show summary
+    if fix_count > 0 {
+        eprintln!("[SUCCESS] Fixed {} path names:", fix_count);
+        eprintln!("  - Reference paths (e.g., chm13#chr1): {}", stats.reference_paths);
+        eprintln!("  - Non-numeric haplotype fields: {}", stats.haplotype_fixes);
+        eprintln!("  - Missing haplotype fields: {}", stats.missing_haplotype);
+        eprintln!("  - Complex paths (e.g., MT paths): {}", stats.complex_paths);
+        eprintln!("[SUCCESS] Fixed GFA written to: {}", fixed_gfa_path);
+        Ok(fixed_gfa_path)
+    } else {
+        eprintln!("[INFO] No invalid path names found, using original file");
+        Ok(gfa_path.to_string())
+    }
 }
 
-/// Checks if a path name needs fixing and returns the fixed name if needed.
-/// Specifically addresses the "Invalid haplotype field" error by ensuring
-/// the haplotype part of the name is numeric.
-fn fix_path_name(name: &str) -> Option<String> {
-    let parts: Vec<&str> = name.split('#').collect();
-    
-    if parts.len() >= 3 {
-        // Check if haplotype field (parts[1]) is numeric
-        if parts[1].parse::<u32>().is_err() {
-            // Replace non-numeric haplotype with "0"
-            let mut fixed_parts = parts.clone();
-            fixed_parts[1] = "0";
-            return Some(fixed_parts.join("#"));
+/// Fast path name fix function that efficiently handles all cases without unnecessary allocations.
+/// Returns Some(fixed_name) if a fix is needed, None otherwise.
+fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
+    // Special fast-path for reference genomes (extremely common)
+    if name.starts_with("chm13#chr") || name.starts_with("grch38#chr") {
+        let hash_pos = name.find('#').unwrap();
+        if !name[hash_pos+1..].contains('#') {
+            // Reference path with one # - fix format to sample#0#contig
+            stats.reference_paths += 1;
+            return Some(format!("{}#0#{}", &name[0..hash_pos], &name[hash_pos+1..]));
         }
-    } else if parts.len() == 2 {
-        // Missing haplotype field - insert "0"
-        return Some(format!("{}#0#{}", parts[0], parts[1]));
     }
     
-    // No fix needed
-    None
+    // Count # symbols for categorization
+    let hash_count = memchr::memchr_iter(b'#', name.as_bytes()).count();
+    
+    match hash_count {
+        1 => {
+            // Missing haplotype field (sample#contig) - add #0#
+            let parts: Vec<&str> = name.split('#').collect();
+            let sample = if parts[0].is_empty() { "unknown" } else { parts[0] };
+            let contig = if parts.len() > 1 && !parts[1].is_empty() { parts[1] } else { "unknown" };
+            stats.missing_haplotype += 1;
+            Some(format!("{}#0#{}", sample, contig))
+        },
+        2 => {
+            // Standard PanSN (sample#haplotype#contig) - check if haplotype is numeric
+            let parts: Vec<&str> = name.split('#').collect();
+            if parts[1].parse::<u32>().is_err() || parts[1].is_empty() {
+                // Non-numeric haplotype - replace with "0"
+                let sample = if parts[0].is_empty() { "unknown" } else { parts[0] };
+                let contig = if parts[2].is_empty() { "unknown" } else { parts[2] };
+                stats.haplotype_fixes += 1;
+                Some(format!("{}#0#{}", sample, contig))
+            } else {
+                // Already valid - no fix needed
+                None
+            }
+        },
+        _ if hash_count >= 3 => {
+            // Complex case like "HG00438#2#JAHBCA010000258.1#MT"
+            let parts: Vec<&str> = name.split('#').collect();
+            
+            let sample = if parts[0].is_empty() { "unknown" } else { parts[0] };
+            let haplotype = parts[1];
+            
+            stats.complex_paths += 1;
+            
+            // Check if haplotype part is numeric
+            if haplotype.parse::<u32>().is_ok() && !haplotype.is_empty() {
+                // Fix the MT case - combine all extra parts with underscores
+                let contig_parts = &parts[2..];
+                let joined_contig = contig_parts.join("_");
+                Some(format!("{}#{}#{}", sample, haplotype, joined_contig))
+            } else {
+                // Non-numeric haplotype field with multiple # symbols
+                let contig_parts = &parts[2..];
+                let joined_contig = contig_parts.join("_");
+                Some(format!("{}#0#{}", sample, joined_contig))
+            }
+        },
+        _ => None // No # symbols - no fix needed
+    }
 }
 
 /// Ensures a GBZ file exists for given GFA and PAF files.
