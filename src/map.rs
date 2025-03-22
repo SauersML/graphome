@@ -25,6 +25,16 @@ use simple_sds::serialize;
 
 // Data Structures
 
+// Stats tracking for different fix types
+#[derive(Default)]
+struct FixStats {
+    reference_paths: usize,   // Reference paths with missing haplotype (e.g., chm13#chr1)
+    haplotype_fixes: usize,   // Standard haplotype fixes for non-numeric haplotype
+    missing_haplotype: usize, // Missing haplotype field (only one # symbol)
+    complex_paths: usize,     // Complex cases with 3+ hash symbols (e.g., MT paths)
+    total_processed: usize,   // Total path lines processed
+}
+
 // We'll keep these big data structures in memory for queries.
 
 /// Run node2coord with printing of intervals, total range, and merging by chromosome
@@ -369,15 +379,6 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
             .map_err(|e| format!("Could not memory-map file: {}", e))?
     };
     
-    // Stats tracking for different fix types
-    #[derive(Default)]
-    struct FixStats {
-        reference_paths: usize,   // Reference paths with missing haplotype (e.g., chm13#chr1)
-        haplotype_fixes: usize,   // Standard haplotype fixes for non-numeric haplotype
-        missing_haplotype: usize, // Missing haplotype field (only one # symbol)
-        complex_paths: usize,     // Complex cases with 3+ hash symbols (e.g., MT paths)
-        total_processed: usize,   // Total path lines processed
-    }
     let mut stats = FixStats::default();
     
     // Create output file with large buffer
