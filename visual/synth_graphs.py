@@ -195,9 +195,9 @@ def generate_and_save_graphs():
     graph_counter = 0
     total_start_time = time.time()
 
-    num_graphs_per_model_base = 2000
+    num_graphs_per_model_base = 10000
     num_graphs_communities_model = num_graphs_per_model_base * 2
-    num_graphs_composite_model = 2000
+    num_graphs_composite_model = 10000
 
     # 1. Bipartite Model
     print(f"\n--- Generating {num_graphs_per_model_base} Approximate Bipartite Graphs ---")
