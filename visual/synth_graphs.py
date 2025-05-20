@@ -188,7 +188,7 @@ def _format_composite_params_for_filename(params_dict, cns_desc_str, csps_desc_s
 
 # --- Main Data Generation Logic ---
 def generate_and_save_graphs():
-    base_output_dir = "/content/g_data_FNFIX_NO_TRY" 
+    base_output_dir = "/content/g_data" 
     os.makedirs(base_output_dir, exist_ok=True)
     print(f"Saving generated graphs to: {os.path.abspath(base_output_dir)}")
 
@@ -286,13 +286,13 @@ def generate_and_save_graphs():
     CNS_MIN_CFG, CNS_MAX_CFG, CNS_BIAS_CFG, CNS_SMAX_CFG = 5, 60, 0.8, 40
     CSPS_LOW_CFG, CSPS_HIGH_CFG = 0.001, 0.4
     
-    # Create descriptive strings for these fixed lambda configurations
+    # Create descriptive strings for these lambda configurations
     cns_desc_str_for_fn = f"M{CNS_MIN_CFG}X{CNS_MAX_CFG}B{CNS_BIAS_CFG:.1f}S{CNS_SMAX_CFG}"
     csps_desc_str_for_fn = f"L{CSPS_LOW_CFG:.2f}H{CSPS_HIGH_CFG:.1f}" # .2f for low prob, .1f for high
     
     # Define the sampler functions using these configurations
-    comp_node_sampler_fixed = lambda: sample_n_nodes_for_component(CNS_MIN_CFG, CNS_MAX_CFG, CNS_BIAS_CFG, CNS_SMAX_CFG)
-    comp_stitch_prob_sampler_fixed = lambda: sample_probability_for_component(CSPS_LOW_CFG, CSPS_HIGH_CFG) # Uses default biases in sample_probability_for_component
+    comp_node_sampler = lambda: sample_n_nodes_for_component(CNS_MIN_CFG, CNS_MAX_CFG, CNS_BIAS_CFG, CNS_SMAX_CFG)
+    comp_stitch_prob_sampler = lambda: sample_probability_for_component(CSPS_LOW_CFG, CSPS_HIGH_CFG) # Uses default biases in sample_probability_for_component
 
     for i in range(num_graphs_composite_model):
         # These ranges are sampled per graph instance for variety
@@ -305,9 +305,9 @@ def generate_and_save_graphs():
         G_comp, instance_gen_params = generate_composite_graph_with_details(
             base_model_generators=available_base_generators_comp,
             num_base_components_range=(num_components_min_inst, num_components_max_inst),
-            node_count_per_component_func=comp_node_sampler_fixed, # Uses the globally configured sampler
+            node_count_per_component_func=comp_node_sampler, # Uses the globally configured sampler
             connection_attempts_factor_range=(conn_attempts_min_factor_inst, conn_attempts_max_factor_inst),
-            connection_probability_func=comp_stitch_prob_sampler_fixed # Uses the globally configured sampler
+            connection_probability_func=comp_stitch_prob_sampler # Uses the globally configured sampler
         )
 
         if G_comp.number_of_nodes() == 0:
