@@ -37,11 +37,12 @@ def generate_composite_graph_with_details(
     connection_probability_func=lambda: sample_probability_for_component(0.005, 0.3)
 ):
     """
-    Generates a composite graph and returns the graph along with detailed generation parameters.
+    Generates a composite graph and returns the graph along with selected generation parameters.
     """
     instance_params = {
-        'num_base_components_range_cfg': num_base_components_range, # Cfg suffix for configured range
-        'components_details': [],
+        'num_base_components_range_cfg': num_base_components_range,
+        'components_types_summary': [], # Will store abbreviated types for filename
+        # 'full_components_details': [], # If you need full details for other purposes, not filename
         'conn_attempts_factor_range_cfg': connection_attempts_factor_range,
     }
 
@@ -49,22 +50,23 @@ def generate_composite_graph_with_details(
         return nx.Graph(), instance_params
 
     num_components_actual = random.randint(num_base_components_range[0], num_base_components_range[1])
-    instance_params['num_components_actual_val'] = num_components_actual # Val suffix for actual value
+    instance_params['num_components_actual_val'] = num_components_actual
     components_graph_list = [] 
+    
+    component_type_names_used = []
 
     for i in range(num_components_actual):
         model_generator_func = random.choice(base_model_generators)
+        component_type_names_used.append(model_generator_func.__name__) # Store full name for summary logic
+        
         n_component_requested_val = node_count_per_component_func()
         component_graph_obj = nx.Graph() 
-        # Store parameters used for *this specific component's generation*
-        comp_gen_params = {'type_str': model_generator_func.__name__, 'n_requested_val': n_component_requested_val}
 
         if model_generator_func.__name__ == "generate_approx_bipartite_graph":
             n_bp_for_gen = n_component_requested_val if n_component_requested_val % 2 == 0 else n_component_requested_val + 1
             if n_bp_for_gen < 2: n_bp_for_gen = 2
             perturb_p_for_gen = sample_probability_for_component(0.0, 0.35)
             component_graph_obj = model_generator_func(n_bp_for_gen, perturb_p_for_gen)
-            comp_gen_params.update({'perturb_p_val': perturb_p_for_gen}) # Store only specific params
 
         elif model_generator_func.__name__ == "generate_path_community_graph":
             n_pc_target = n_component_requested_val
@@ -74,7 +76,6 @@ def generate_composite_graph_with_details(
             if n_pc_for_gen == 0: n_pc_for_gen = num_c_pc_for_gen if num_c_pc_for_gen > 0 else 1
             inter_p_pc_for_gen = sample_probability_for_component(0.0, 0.5)
             component_graph_obj = model_generator_func(n_pc_for_gen, num_c_pc_for_gen, inter_p_pc_for_gen)
-            comp_gen_params.update({'num_c_val': num_c_pc_for_gen, 'inter_p_val': inter_p_pc_for_gen})
 
         elif model_generator_func.__name__ == "generate_community_graph":
             n_gc_target = n_component_requested_val
@@ -90,22 +91,19 @@ def generate_composite_graph_with_details(
             inter_p_gc_for_gen = sample_probability_for_component(0.0, 0.3)
             intra_p_gc_for_gen = sample_probability_for_component(0.0, 0.4)
             component_graph_obj = model_generator_func(n_gc_for_gen, num_c_gc_for_gen, k_gc_for_gen, inter_p_gc_for_gen, intra_p_gc_for_gen)
-            comp_gen_params.update({'num_c_val': num_c_gc_for_gen, 'k_val': k_gc_for_gen, 'inter_p_val': inter_p_gc_for_gen, 'intra_p_val': intra_p_gc_for_gen})
         
-        # Store the actual number of nodes of the generated sub-component
-        comp_gen_params['n_nodes_final_val'] = component_graph_obj.number_of_nodes()
-        instance_params['components_details'].append(comp_gen_params)
-
         if component_graph_obj.number_of_nodes() > 0:
             components_graph_list.append(component_graph_obj)
-        elif num_components_actual == 1: # Only one component requested and it was empty
+        elif num_components_actual == 1: 
             return nx.Graph(), instance_params
+    
+    instance_params['components_types_summary'] = component_type_names_used
 
-    if not components_graph_list: # All components were empty
+
+    if not components_graph_list: 
         return nx.Graph(), instance_params
 
     composite_graph = nx.disjoint_union_all(components_graph_list)
-    # instance_params['nodes_after_disjoint_union_val'] = composite_graph.number_of_nodes() # Removed as redundant
 
     if composite_graph.number_of_nodes() == 0:
         return composite_graph, instance_params
@@ -118,7 +116,7 @@ def generate_composite_graph_with_details(
     num_conn_attempts_actual_val = max(min_attempts, min(num_conn_attempts_calculated, max_sensible_attempts))
 
     instance_params['conn_attempts_factor_actual_val'] = conn_attempts_factor_actual_val
-    instance_params['num_conn_attempts_actual_val'] = num_conn_attempts_actual_val
+    # instance_params['num_conn_attempts_actual_val'] = num_conn_attempts_actual_val # Not adding to filename
 
     edges_added_stitching_val = 0
     for _ in range(num_conn_attempts_actual_val):
@@ -131,7 +129,7 @@ def generate_composite_graph_with_details(
         if not component1_nodes or not component2_nodes: continue
         node_from_c1 = random.choice(component1_nodes)
         node_from_c2 = random.choice(component2_nodes)
-        p_connect_val = connection_probability_func() # This is sampled per attempt
+        p_connect_val = connection_probability_func() 
         if random.random() < p_connect_val:
             if not composite_graph.has_edge(node_from_c1, node_from_c2):
                 composite_graph.add_edge(node_from_c1, node_from_c2)
@@ -140,48 +138,25 @@ def generate_composite_graph_with_details(
 
     return composite_graph, instance_params
 
-# --- Helper function to format composite parameters for filename (ultra-abbreviated) ---
+# --- Helper function to format composite parameters for filename (significantly shorter) ---
 def _format_composite_params_for_filename(params_dict, cns_desc_str, csps_desc_str):
     parts = []
-    parts.append(f"CS({cns_desc_str})") # CNS = Component Node Sampler
-    parts.append(f"CP({csps_desc_str})") # CPS = Component Stitching Probability Sampler
-    
-    ncr_cfg = params_dict.get('num_base_components_range_cfg', ('?','?'))
-    parts.append(f"CR({ncr_cfg[0]}-{ncr_cfg[1]})") # CR = Components Range
-    parts.append(f"CA{params_dict.get('num_components_actual_val', 0)}") # CA = Components Actual
-    
-    comp_fn_strs = []
-    for i, comp_data in enumerate(params_dict.get('components_details', [])):
-        type_name_full = comp_data.get('type_str','uk')
-        # Abbreviate type: generate_approx_bipartite_graph -> ab, path_community_graph -> pc, community_graph -> cg
-        type_abbrev = "".join(word[0] for word in type_name_full.replace("generate_","").replace("_graph","").split("_")).lower()
-        
-        s = f"{i}{type_abbrev}" # Index and type
-        s += f"nr{comp_data.get('n_requested_val',0)}" # nr = n_requested
-        
-        # Type-specific parameters (use single letter keys if possible)
-        if type_name_full == "generate_approx_bipartite_graph":
-            s += f"p{comp_data.get('perturb_p_val',0):.2f}" # p = perturb_p
-        elif type_name_full == "generate_path_community_graph":
-            s += f"c{comp_data.get('num_c_val',0)}" # c = num_communities
-            s += f"i{comp_data.get('inter_p_val',0):.2f}" # i = inter_p
-        elif type_name_full == "generate_community_graph":
-            s += f"c{comp_data.get('num_c_val',0)}"
-            s += f"k{comp_data.get('k_val',0)}" # k = k_value
-            s += f"i{comp_data.get('inter_p_val',0):.2f}"
-            s += f"t{comp_data.get('intra_p_val',0):.2f}" # t = intra_p (t for inTra)
-        
-        s += f"NF{comp_data.get('n_nodes_final_val',0)}" # NF = Nodes Final (for this component)
-        comp_fn_strs.append(s)
-    
-    if comp_fn_strs:
-        parts.append('Cmps[' + '_'.join(comp_fn_strs) + ']') # Cmps = Components List
+    parts.append(f"ca{params_dict.get('num_components_actual_val', 0)}") # Components Actual
 
-    caf_cfg = params_dict.get('conn_attempts_factor_range_cfg', ('?','?'))
-    parts.append(f"AR({caf_cfg[0]:.1f}-{caf_cfg[1]:.1f})") # AR = Attempts Range (factor)
-    parts.append(f"AA{params_dict.get('conn_attempts_factor_actual_val', 0.0):.2f}") # AA = Attempts Actual (factor)
-    parts.append(f"NA{params_dict.get('num_conn_attempts_actual_val', 0)}") # NA = Num Attempts (actual count)
-    parts.append(f"ES{params_dict.get('edges_added_stitching_val',0)}") # ES = Edges Stitched
+    # Summarized component types
+    comp_types_abbrev_list = []
+    for type_name_full in params_dict.get('components_types_summary', []):
+        # ab for approx_bipartite, pc for path_community, cg for community_graph
+        abbrev = "".join(word[0] for word in type_name_full.replace("generate_","").replace("_graph","").split("_")).lower()
+        comp_types_abbrev_list.append(abbrev)
+    if comp_types_abbrev_list:
+         parts.append('ct[' + '-'.join(comp_types_abbrev_list) + ']') # ct = component types
+
+    # Stitching parameters
+    # caf_cfg = params_dict.get('conn_attempts_factor_range_cfg', ('?','?')) # Configured range
+    # parts.append(f"ar{caf_cfg[0]:.1f}-{caf_cfg[1]:.1f}")
+    parts.append(f"aa{params_dict.get('conn_attempts_factor_actual_val', 0.0):.2f}") # aa = attempts actual (factor)
+    parts.append(f"es{params_dict.get('edges_added_stitching_val',0)}") # es = edges stitched
     
     return "_" + "_".join(filter(None, parts))
 
@@ -276,26 +251,22 @@ def generate_and_save_graphs():
         generate_approx_bipartite_graph,
         generate_path_community_graph
     ]
-    print(f"\n--- Generating {num_graphs_composite_model} Composite Graphs (Ultra-Abbreviated Detailed Filenames) ---")
+    print(f"\n--- Generating {num_graphs_composite_model} Composite Graphs (Simplified Filenames) ---")
     model_name_comp = "composite"
     model_output_dir_comp = os.path.join(base_output_dir, model_name_comp)
     os.makedirs(model_output_dir_comp, exist_ok=True)
     print_interval_comp = max(1, num_graphs_composite_model // 20)
 
-    # Parameters for the lambda functions, to be included in filename descriptions
+    # These describe the fixed configuration of the lambda samplers for this run.
     CNS_MIN_CFG, CNS_MAX_CFG, CNS_BIAS_CFG, CNS_SMAX_CFG = 5, 60, 0.8, 40
     CSPS_LOW_CFG, CSPS_HIGH_CFG = 0.001, 0.4
+    cns_desc_str_for_fn = f"M{CNS_MIN_CFG}X{CNS_MAX_CFG}B{CNS_BIAS_CFG:.1f}S{CNS_SMAX_CFG}" # Not used in filename by default
+    csps_desc_str_for_fn = f"L{CSPS_LOW_CFG:.2f}H{CSPS_HIGH_CFG:.1f}" # Not used in filename by default
     
-    # Create descriptive strings for these lambda configurations
-    cns_desc_str_for_fn = f"M{CNS_MIN_CFG}X{CNS_MAX_CFG}B{CNS_BIAS_CFG:.1f}S{CNS_SMAX_CFG}"
-    csps_desc_str_for_fn = f"L{CSPS_LOW_CFG:.2f}H{CSPS_HIGH_CFG:.1f}" # .2f for low prob, .1f for high
-    
-    # Define the sampler functions using these configurations
     comp_node_sampler = lambda: sample_n_nodes_for_component(CNS_MIN_CFG, CNS_MAX_CFG, CNS_BIAS_CFG, CNS_SMAX_CFG)
-    comp_stitch_prob_sampler = lambda: sample_probability_for_component(CSPS_LOW_CFG, CSPS_HIGH_CFG) # Uses default biases in sample_probability_for_component
+    comp_stitch_prob_sampler = lambda: sample_probability_for_component(CSPS_LOW_CFG, CSPS_HIGH_CFG)
 
     for i in range(num_graphs_composite_model):
-        # These ranges are sampled per graph instance for variety
         num_components_min_inst = random.randint(2, 3)
         num_components_max_inst = random.randint(num_components_min_inst, 6)
         
@@ -305,31 +276,33 @@ def generate_and_save_graphs():
         G_comp, instance_gen_params = generate_composite_graph_with_details(
             base_model_generators=available_base_generators_comp,
             num_base_components_range=(num_components_min_inst, num_components_max_inst),
-            node_count_per_component_func=comp_node_sampler, # Uses the globally configured sampler
+            node_count_per_component_func=comp_node_sampler, 
             connection_attempts_factor_range=(conn_attempts_min_factor_inst, conn_attempts_max_factor_inst),
-            connection_probability_func=comp_stitch_prob_sampler # Uses the globally configured sampler
+            connection_probability_func=comp_stitch_prob_sampler
         )
 
         if G_comp.number_of_nodes() == 0:
             print(f"Skipped saving empty composite graph id {i:04d}")
             continue
-
-        # Pass the descriptive strings of the *configurations* of the samplers
-        detailed_param_string = _format_composite_params_for_filename(
+        
+        # Pass empty strings for cns_desc and csps_desc if they are not to be included in the filename
+        # to make it even shorter. The function is set up to handle this.
+        simplified_param_string = _format_composite_params_for_filename(
             instance_gen_params, 
-            cns_desc_str_for_fn, 
-            csps_desc_str_for_fn
+            "",
+            ""
         )
         
-        filename_comp = f"{model_name_comp}_id{i:04d}_N{G_comp.number_of_nodes()}{detailed_param_string}.pkl" # N instead of nodes
+        filename_comp = f"{model_name_comp}_id{i:04d}_N{G_comp.number_of_nodes()}{simplified_param_string}.pkl"
         filepath_comp = os.path.join(model_output_dir_comp, filename_comp)
 
         with open(filepath_comp, 'wb') as f:
             pickle.dump(G_comp, f, pickle.HIGHEST_PROTOCOL)
         graph_counter += 1
         if (i + 1) % print_interval_comp == 0 or i == num_graphs_composite_model - 1:
-            # Display a portion of the filename for console readability
-            short_fn_display = filename_comp[:150] + "..." if len(filename_comp) > 150 else filename_comp
+            short_fn_display = filename_comp # Display full name if it's short enough now
+            if len(filename_comp) > 100: # Only abbreviate for display if still very long
+                 short_fn_display = filename_comp[:100] + "..."
             print(f"Generated {model_name_comp} ({i+1}/{num_graphs_composite_model}): {short_fn_display} (N: {G_comp.number_of_nodes()}, E: {G_comp.number_of_edges()})")
 
     total_end_time = time.time()
