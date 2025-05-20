@@ -3,7 +3,7 @@ import networkx as nx
 import numpy as np
 import time
 import random
-import pickle # Added for direct pickling
+import pickle
 
 # Imports from sibling modules.
 from communities_model import generate_community_graph
@@ -45,121 +45,133 @@ def generate_and_save_graphs():
     Generates a diverse set of synthetic graphs using the imported models
     and saves them using Python's pickle.
     """
-    base_output_dir = "synthetic_graph_outputs_pickle" # Changed suffix
+    base_output_dir = "synthetic_graph_outputs_pickle_10k" 
     os.makedirs(base_output_dir, exist_ok=True)
     print(f"Saving generated graphs to: {os.path.abspath(base_output_dir)}")
 
     graph_counter = 0
     total_start_time = time.time()
-    num_graphs_per_model_type = 80 # Number of graphs to generate for each model type
+    # Target ~10,000 graphs: Bipartite (2500) + Path (2500) + Communities (2*2500=5000)
+    num_graphs_per_model_base = 2500 
 
     # --- Parameter Sampling Functions ---
     def sample_n_nodes():
-        return random.randint(20, 160) # Wider range for node counts
+        # Allow for smaller and somewhat larger graphs
+        if random.random() < 0.7: # 70% chance for smaller graphs
+            return random.randint(10, 80) 
+        else: # 30% chance for larger graphs
+            return random.randint(81, 250)
 
-    def sample_probability(low=0.0, high=0.3): # Wider general probability range
-        return random.uniform(low, high)
+    def sample_probability(low=0.0, high=0.5): # Wider general probability range
+        # Skew towards lower probabilities for sparser graphs often found in real world
+        # but allow higher probabilities for density.
+        # Using a power law or beta distribution could be more sophisticated here,
+        # but uniform provides a simple way to get varied values.
+        if random.random() < 0.6: # 60% chance for sparser connections
+            return random.uniform(low, high * 0.3)
+        elif random.random() < 0.9: # 30% chance for medium connections
+            return random.uniform(low, high * 0.6)
+        else: # 10% chance for denser connections
+            return random.uniform(low, high)
+
 
     # 1. Bipartite Model
-    print("\n--- Generating Approximate Bipartite Graphs ---")
+    print(f"\n--- Generating {num_graphs_per_model_base} Approximate Bipartite Graphs ---")
     model_name = "bipartite"
     model_output_dir = os.path.join(base_output_dir, model_name)
     os.makedirs(model_output_dir, exist_ok=True)
+    print_interval_bipartite = max(1, num_graphs_per_model_base // 20) # Print progress about 20 times
 
-    for i in range(num_graphs_per_model_type):
+    for i in range(num_graphs_per_model_base):
         n_bp_original = sample_n_nodes()
         # Bipartite model's initial setup benefits from an even number of nodes.
         n_bp = n_bp_original if n_bp_original % 2 == 0 else n_bp_original + 1
+        if n_bp < 2: n_bp = 2 # Smallest possible bipartite graph with an edge
         
-        perturb_p_bp = sample_probability(0.0, 0.25) # Perturbation probability
+        perturb_p_bp = sample_probability(0.0, 0.4) # Perturbation probability
 
         G = generate_approx_bipartite_graph(n_bp, perturb_p_bp)
-        filename = f"{model_name}_n{n_bp}_perturb{perturb_p_bp:.4f}_id{i:03d}.pkl" # Changed extension
+        filename = f"{model_name}_n{n_bp}_perturb{perturb_p_bp:.4f}_id{i:04d}.pkl" 
         filepath = os.path.join(model_output_dir, filename)
         with open(filepath, 'wb') as f:
             pickle.dump(G, f, pickle.HIGHEST_PROTOCOL)
         graph_counter += 1
-        if (i + 1) % 10 == 0 or i == num_graphs_per_model_type -1:
-            print(f"Generated {model_name} ({i+1}/{num_graphs_per_model_type}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
+        if (i + 1) % print_interval_bipartite == 0 or i == num_graphs_per_model_base -1:
+            print(f"Generated {model_name} ({i+1}/{num_graphs_per_model_base}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
 
 
     # 2. Path Model
-    print("\n--- Generating Path Community Graphs ---")
+    print(f"\n--- Generating {num_graphs_per_model_base} Path Community Graphs ---")
     model_name = "path_community"
     model_output_dir = os.path.join(base_output_dir, model_name)
     os.makedirs(model_output_dir, exist_ok=True)
+    print_interval_path = max(1, num_graphs_per_model_base // 20)
 
-    for i in range(num_graphs_per_model_type):
+    for i in range(num_graphs_per_model_base):
         n_pc_original = sample_n_nodes()
+        if n_pc_original < 1: n_pc_original = 1
         
-        min_nodes_per_community_path = 1 
-        max_c_pc = n_pc_original // min_nodes_per_community_path
-        if max_c_pc < 1: max_c_pc = 1 
-        num_c_pc = random.randint(1, max_c_pc)
+        # Allow for 1 to n communities
+        num_c_pc = random.randint(1, n_pc_original) 
         
+        # Adjust n_pc so each community has at least one node
         n_pc = (n_pc_original // num_c_pc) * num_c_pc
         if n_pc == 0 : 
-            if n_pc_original > 0: 
-                num_c_pc = n_pc_original 
-                n_pc = n_pc_original
-            else: 
-                continue 
+            n_pc = num_c_pc # each community gets 1 node if original n was too small
 
-        inter_p_pc = sample_probability(0.0, 0.35) 
+        inter_p_pc = sample_probability(0.0, 0.6) # Inter-community connection probability
 
         G = generate_path_community_graph(n_pc, num_c_pc, inter_p_pc)
-        filename = f"{model_name}_n{n_pc}_numc{num_c_pc}_interp{inter_p_pc:.4f}_id{i:03d}.pkl" # Changed extension
+        filename = f"{model_name}_n{n_pc}_numc{num_c_pc}_interp{inter_p_pc:.4f}_id{i:04d}.pkl"
         filepath = os.path.join(model_output_dir, filename)
         with open(filepath, 'wb') as f:
             pickle.dump(G, f, pickle.HIGHEST_PROTOCOL)
         graph_counter += 1
-        if (i + 1) % 10 == 0 or i == num_graphs_per_model_type -1:
-            print(f"Generated {model_name} ({i+1}/{num_graphs_per_model_type}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
+        if (i + 1) % print_interval_path == 0 or i == num_graphs_per_model_base -1:
+            print(f"Generated {model_name} ({i+1}/{num_graphs_per_model_base}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
 
     # 3. Communities Model (most complex parameters)
-    print("\n--- Generating General Community Graphs ---")
+    num_graphs_communities = num_graphs_per_model_base * 2
+    print(f"\n--- Generating {num_graphs_communities} General Community Graphs ---")
     model_name = "general_community"
     model_output_dir = os.path.join(base_output_dir, model_name)
     os.makedirs(model_output_dir, exist_ok=True)
+    print_interval_communities = max(1, num_graphs_communities // 20)
 
-    for i in range(num_graphs_per_model_type * 2): 
+
+    for i in range(num_graphs_communities): 
         n_gc_original = sample_n_nodes()
+        if n_gc_original < 1: n_gc_original = 1
         
-        min_nodes_per_community_gc = 1 
-        max_c_gc = n_gc_original // min_nodes_per_community_gc
-        if max_c_gc < 1: max_c_gc = 1
-        num_c_gc = random.randint(1, max_c_gc)
+        num_c_gc = random.randint(1, n_gc_original)
 
         n_gc = (n_gc_original // num_c_gc) * num_c_gc
         if n_gc == 0:
-            if n_gc_original > 0:
-                num_c_gc = n_gc_original
-                n_gc = n_gc_original
-            else:
-                continue
+            n_gc = num_c_gc
         
         community_size_gc = n_gc // num_c_gc
         
-        if community_size_gc <= 1:
+        # k for intra-community circulant structure
+        if community_size_gc <= 1: # Handles single-node communities
             k_gc = 0 
-        elif community_size_gc == 2:
-            k_gc = random.randint(0,1)
-        else: 
+        else: # community_size_gc >= 2
+            # Max k is such that each node connects to k distinct others on each side without overlap.
+            # For a cycle of size m, max k is (m-1)//2.
             max_k_val = (community_size_gc -1) // 2 
-            k_gc = random.randint(0, max_k_val) 
+            k_gc = random.randint(0, max_k_val) # k can be 0 (no initial k-neighbor intra-edges)
 
-        inter_p_gc = sample_probability(0.0, 0.20) 
-        intra_p_gc = sample_probability(0.0, 0.30) 
+        inter_p_gc = sample_probability(0.0, 0.4) 
+        intra_p_gc = sample_probability(0.0, 0.5) 
         
         G = generate_community_graph(n_gc, num_c_gc, k_gc, inter_p_gc, intra_p_gc)
         filename = (f"{model_name}_n{n_gc}_numc{num_c_gc}_k{k_gc}_"
-                    f"interp{inter_p_gc:.4f}_intrap{intra_p_gc:.4f}_id{i:03d}.pkl") # Changed extension
+                    f"interp{inter_p_gc:.4f}_intrap{intra_p_gc:.4f}_id{i:04d}.pkl")
         filepath = os.path.join(model_output_dir, filename)
         with open(filepath, 'wb') as f:
             pickle.dump(G, f, pickle.HIGHEST_PROTOCOL)
         graph_counter += 1
-        if (i + 1) % 10 == 0 or i == (num_graphs_per_model_type * 2) -1:
-             print(f"Generated {model_name} ({i+1}/{num_graphs_per_model_type*2}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
+        if (i + 1) % print_interval_communities == 0 or i == num_graphs_communities -1:
+             print(f"Generated {model_name} ({i+1}/{num_graphs_communities}): {filename} (N: {G.number_of_nodes()}, E: {G.number_of_edges()})")
 
     total_end_time = time.time()
     print(f"\n--- Generation Complete ---")
