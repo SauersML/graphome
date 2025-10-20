@@ -6,7 +6,7 @@ use termsize;
 use termimage::ops;
 use viuer;
 use image::{ImageError, ImageFormat};
-use base64;
+use base64::{engine::general_purpose, Engine as _};
 
 #[derive(Debug)]
 pub enum DisplayError {
@@ -132,7 +132,7 @@ pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     // Format the image escape sequence
     let inline_image_esc = format!(
         "\x1b]1337;File=inline=1;width=400%:{}\x07",
-        base64::encode(gif_data)
+        general_purpose::STANDARD.encode(gif_data)
     );
 
     // Output the escape sequence to display the GIF.
