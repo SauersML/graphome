@@ -2,103 +2,89 @@
 
 //! Module for eigendecomposition and analyses that depend on eigenvectors or eigenvalues.
 
+use csv::WriterBuilder;
+use faer::{Mat, Side};
 use ndarray::prelude::*;
 use std::io::{self, Write};
 use std::path::Path;
-use csv::WriterBuilder;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use nalgebra::{DVector, DMatrix, SymmetricEigen};
 
-/// Computes the eigendecomposition of the Laplacian matrix using nalgebra's SymmetricEigen.
+/// Computes the eigendecomposition of the Laplacian matrix using the pure-Rust faer backend.
 pub fn call_eigendecomp(laplacian: &Array2<f64>) -> io::Result<(Array1<f64>, Array2<f64>)> {
-    // Use nalgebra's SymmetricEigen for the matrix
-    println!("Using nalgebra's SymmetricEigen for the matrix.");
-    let (eigvals, eigvecs) = compute_eigenvalues_and_vectors_sym(laplacian)?;
-
-    // Convert nalgebra's DVector and DMatrix to ndarray's Array1 and Array2
-    let eigvals_nd = Array1::from(eigvals.iter().cloned().collect::<Vec<f64>>());
-    let eigvecs_nd = Array2::from_shape_vec(
-        (eigvecs.nrows(), eigvecs.ncols()),
-        eigvecs.iter().cloned().collect(),
-    ).map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
-
-    Ok((eigvals_nd, eigvecs_nd))
+    println!("Using faer's selfadjoint eigendecomposition for the matrix.");
+    compute_eigenvalues_and_vectors_sym(laplacian)
 }
 
-/// Computes eigenvalues and eigenvectors for a given Laplacian matrix with SymmetricEigen
+/// Computes eigenvalues and eigenvectors for a given Laplacian matrix using faer.
 pub fn compute_eigenvalues_and_vectors_sym(
     laplacian: &Array2<f64>,
-) -> io::Result<(DVector<f64>, DMatrix<f64>)> {
-    // Convert ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-    let nalgebra_laplacian = ndarray_to_nalgebra_matrix(laplacian)?;
-
-    // Compute eigendecomposition using nalgebra's SymmetricEigen
-    let symmetric_eigen = SymmetricEigen::new(nalgebra_laplacian);
-
-    let eigvals = symmetric_eigen.eigenvalues;
-    let eigvecs = symmetric_eigen.eigenvectors;
-
-    Ok((eigvals, eigvecs))
-}
-
-/// Converts an ndarray::Array2<f64> to nalgebra::DMatrix<f64>
-pub fn ndarray_to_nalgebra_matrix(matrix: &Array2<f64>) -> io::Result<DMatrix<f64>> {
-    let (rows, cols) = matrix.dim();
-    let mut nalgebra_matrix = DMatrix::<f64>::zeros(rows, cols);
-
-    for ((i, j), value) in matrix.indexed_iter() {
-        nalgebra_matrix[(i, j)] = *value;
+) -> io::Result<(Array1<f64>, Array2<f64>)> {
+    let (rows, cols) = laplacian.dim();
+    if rows != cols {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Laplacian matrix must be square.",
+        ));
     }
 
-    Ok(nalgebra_matrix)
+    let matrix = Mat::from_fn(rows, cols, |i, j| laplacian[(i, j)]);
+    let decomposition = matrix.selfadjoint_eigendecomposition(Side::Lower);
+
+    let eigenvalues = decomposition
+        .s()
+        .column_vector()
+        .iter()
+        .map(|value| *value)
+        .collect::<Vec<f64>>();
+
+    let mut eigenvectors = Array2::<f64>::zeros((rows, cols));
+    for i in 0..rows {
+        for j in 0..cols {
+            eigenvectors[(i, j)] = decomposition.u().read(i, j);
+        }
+    }
+
+    Ok((Array1::from_vec(eigenvalues), eigenvectors))
 }
 
-/// Saves a nalgebra::DMatrix<f64> to a CSV file
-pub fn save_nalgebra_matrix_to_csv<P: AsRef<Path>>(
-    matrix: &DMatrix<f64>,
-    csv_path: P,
-) -> io::Result<()> {
+/// Saves an `Array2<f64>` to a CSV file.
+pub fn save_array2_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, csv_path: P) -> io::Result<()> {
     let mut wtr = WriterBuilder::new()
         .has_headers(false)
         .from_path(csv_path)?;
-    for i in 0..matrix.nrows() {
-        let row = matrix.row(i).iter().cloned().collect::<Vec<f64>>();
-        wtr.serialize(row)?;
+    for row in matrix.rows() {
+        wtr.serialize(row.to_vec())?;
     }
     wtr.flush()?;
     Ok(())
 }
 
-/// Saves a nalgebra::DVector<f64> to a CSV file
-pub fn save_nalgebra_vector_to_csv<P: AsRef<Path>>(
-    vector: &DVector<f64>,
-    csv_path: P,
-) -> io::Result<()> {
+/// Saves an `Array1<f64>` to a CSV file.
+pub fn save_array1_to_csv<P: AsRef<Path>>(vector: &Array1<f64>, csv_path: P) -> io::Result<()> {
     let mut wtr = WriterBuilder::new()
         .has_headers(false)
         .from_path(csv_path)?;
-    let row = vector.iter().cloned().collect::<Vec<f64>>();
-    wtr.serialize(row)?;
+    wtr.serialize(vector.to_vec())?;
     wtr.flush()?;
     Ok(())
 }
 
 /// Converts the adjacency matrix edge list to an `ndarray::Array2<f64>`.
-/// 
+///
 /// This function takes a list of edges and creates an adjacency matrix for the nodes
 /// in the specified range from `start_node` to `end_node`, inclusive. Each entry in
 /// the returned matrix indicates whether an edge is present between the corresponding nodes.
-/// 
+///
 /// Any edges that refer to nodes outside the given range are ignored.
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `edges` - A slice of `(u32, u32)` tuples, each representing an edge between two nodes.
 /// * `start_node` - The first node index of the subgraph of interest.
 /// * `end_node` - The last node index of the subgraph of interest (inclusive).
-/// 
+///
 /// # Returns
-/// 
+///
 /// An `Array2<f64>` that is a square adjacency matrix of size `(end_node - start_node + 1) x (end_node - start_node + 1)`.
 pub fn adjacency_matrix_to_ndarray(
     edges: &[(u32, u32)],
@@ -110,12 +96,15 @@ pub fn adjacency_matrix_to_ndarray(
 
     for &(a, b) in edges {
         // Check if both nodes are strictly within our range bounds
-        if (a as usize) >= start_node && (a as usize) <= end_node &&
-           (b as usize) >= start_node && (b as usize) <= end_node {
+        if (a as usize) >= start_node
+            && (a as usize) <= end_node
+            && (b as usize) >= start_node
+            && (b as usize) <= end_node
+        {
             // Convert to local indices
             let local_a = (a as usize) - start_node;
             let local_b = (b as usize) - start_node;
-            
+
             // Since we checked bounds above, these indices are guaranteed to be valid
             adj_array[(local_a, local_b)] = 1.0;
             adj_array[(local_b, local_a)] = 1.0; // Make it symmetric
@@ -124,7 +113,6 @@ pub fn adjacency_matrix_to_ndarray(
 
     adj_array
 }
-
 
 /// Computes the Normalized Global Eigen-Complexity (NGEC) based on eigenvalues.
 /// Ignores eigenvalues that are negative within a small epsilon due to floating-point precision.
@@ -155,23 +143,24 @@ pub fn compute_ngec(eigenvalues: &Array1<f64>) -> io::Result<f64> {
             .cloned()
             .take(5)
             .collect();
-    
-        println!("❗ Significant negative eigenvalues found: {:?}", negative_eigenvalues);
-    
+
+        println!(
+            "❗ Significant negative eigenvalues found: {:?}",
+            negative_eigenvalues
+        );
+
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!(
-                "Eigenvalues contain significant negative values."
-            ),
+            format!("Eigenvalues contain significant negative values."),
         ));
     }
 
     // Calculate the sum of eigenvalues, ignoring small negative values due to precision
     let sum_eigen = eigenvalues
         .iter()
-        .filter(|&&x| x >= -epsilon)  // Only include eigenvalues >= -epsilon
+        .filter(|&&x| x >= -epsilon) // Only include eigenvalues >= -epsilon
         .sum::<f64>();
-    
+
     if sum_eigen <= 0.0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -322,14 +311,8 @@ pub fn print_heatmap_ndarray(matrix: &Array2<f64>) {
 pub fn print_eigenvalues_heatmap(vector: &Array1<f64>) {
     let num_eigvals = vector.len();
 
-    let max_value = vector
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_value = vector
-        .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
+    let max_value = vector.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_value = vector.iter().cloned().fold(f64::INFINITY, f64::min);
 
     let stdout = StandardStream::stdout(ColorChoice::Always);
     let mut stdout = stdout.lock();

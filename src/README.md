@@ -25,10 +25,8 @@ This module handles converting GFA files into adjacency matrices in edge list fo
 This module performs eigendecomposition on the Laplacian matrix derived from adjacency matrices.
 
 #### Key Functions:
-- `call_eigendecomp`: Selects between LAPACK and nalgebra eigendecomposition based on the matrix bandedness.
-- `max_band`: Determines the bandedness of the Laplacian matrix.
-- `compute_eigenvalues_and_vectors_sym_band`: Uses LAPACK for eigendecomposition of banded matrices.
-- `compute_eigenvalues_and_vectors_sym`: Uses nalgebra for more general eigendecomposition.
+- `call_eigendecomp`: Executes eigendecomposition using the faer linear algebra crate.
+- `compute_eigenvalues_and_vectors_sym`: Converts ndarray matrices to faer structures and returns eigenpairs as ndarray arrays.
 
 ### `extract.rs`
 

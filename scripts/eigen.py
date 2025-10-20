@@ -7,7 +7,7 @@ BEHAVIOR:
 - Reads ranges of nodes to process (either from command line or CSV file)
 - For each range (e.g., 0-1000, 1000-2000):
    - Calls Rust binary to extract matrix window
-   - Computes eigendecomposition using banded solver (LAPACK)
+   - Computes eigendecomposition using the faer-based Rust solver
    - Saves results to disk
 
 INPUTS:
