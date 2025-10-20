@@ -1,7 +1,8 @@
 // tests/test_extract.rs
 
+use faer::{Mat, MatRef};
 use graphome::eigen_print::{
-    adjacency_matrix_to_ndarray, call_eigendecomp, save_matrix_to_csv, save_vector_to_csv,
+    adjacency_matrix_to_dense, call_eigendecomp, save_matrix_to_csv, save_vector_to_csv,
 };
 use graphome::extract::*;
 use ndarray::prelude::*;
@@ -13,6 +14,14 @@ use tempfile::{tempdir, NamedTempFile};
 
 use graphome::convert::convert_gfa_to_edge_list;
 use graphome::extract;
+
+fn array2_to_mat(array: &Array2<f64>) -> Mat<f64> {
+    Mat::from_fn(array.nrows(), array.ncols(), |i, j| array[(i, j)])
+}
+
+fn matref_to_array(mat: MatRef<'_, f64>) -> Array2<f64> {
+    Array2::from_shape_fn((mat.nrows(), mat.ncols()), |(i, j)| mat[(i, j)])
+}
 
 /// Helper function to read edges from the binary edge list file
 fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
@@ -292,29 +301,30 @@ fn test_partial_range_extraction() -> io::Result<()> {
     Ok(())
 }
 
-/// Test that adjacency_matrix_to_ndarray correctly converts edges to adjacency matrix
+/// Test that adjacency_matrix_to_dense correctly converts edges to adjacency matrix
 #[test]
-fn test_adjacency_matrix_to_ndarray_correct_conversion() {
+fn test_adjacency_matrix_to_dense_correct_conversion() {
     let edges = vec![(0, 1), (1, 2), (2, 0)];
     let start_node = 0;
     let end_node = 2;
 
-    let adj_matrix = adjacency_matrix_to_ndarray(&edges, start_node, end_node);
+    let adj_matrix = adjacency_matrix_to_dense(&edges, start_node, end_node);
+    let adj_array = matref_to_array(adj_matrix.as_ref());
 
     let expected = array![[0.0, 1.0, 1.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0],];
 
-    assert_eq!(adj_matrix, expected);
+    assert_eq!(adj_array, expected);
 }
 
 /// Test that the adjacency matrix is symmetric
 #[test]
 fn test_adjacency_matrix_is_symmetric() {
     let edges = vec![(0, 1), (1, 2), (2, 0), (0, 2)];
-    let adj_matrix = adjacency_matrix_to_ndarray(&edges, 0, 2);
+    let adj_matrix = adjacency_matrix_to_dense(&edges, 0, 2);
 
     for i in 0..adj_matrix.nrows() {
         for j in 0..adj_matrix.ncols() {
-            assert_eq!(adj_matrix[[i, j]], adj_matrix[[j, i]]);
+            assert_eq!(adj_matrix[(i, j)], adj_matrix[(j, i)]);
         }
     }
 }
@@ -372,8 +382,10 @@ fn test_laplacian_computation() {
 #[test]
 fn test_eigendecomposition_non_negative_eigenvalues() {
     let laplacian = array![[2.0, -1.0, -1.0], [-1.0, 2.0, -1.0], [-1.0, -1.0, 2.0],];
+    let laplacian_mat = array2_to_mat(&laplacian);
 
-    let (eigvals, _) = call_eigendecomp(&laplacian).expect("Eigendecomposition with faer failed");
+    let (eigvals, _) =
+        call_eigendecomp(laplacian_mat.as_ref()).expect("Eigendecomposition with faer failed");
 
     for &lambda in eigvals.iter() {
         assert!(
@@ -390,10 +402,16 @@ fn test_eigendecomposition_correctness() -> io::Result<()> {
     // Define a small Laplacian matrix manually
     let laplacian = array![[2.0, -1.0, -1.0], [-1.0, 2.0, -1.0], [-1.0, -1.0, 2.0],];
 
-    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
+    let laplacian_mat = array2_to_mat(&laplacian);
+    let (eigvals, eigvecs) = call_eigendecomp(laplacian_mat.as_ref())?;
 
     // Iterate through each eigenpair and verify L * v = λ * v
-    for (i, (lambda, vector)) in eigvals.iter().zip(eigvecs.columns()).enumerate() {
+    for (col_index, lambda) in eigvals.iter().enumerate() {
+        let mut vector = Array1::<f64>::zeros(laplacian.nrows());
+        for row in 0..laplacian.nrows() {
+            vector[row] = eigvecs[(row, col_index)];
+        }
+
         let lv = laplacian.dot(&vector);
         let lambda_v = vector.mapv(|x| x * *lambda);
 
@@ -403,7 +421,7 @@ fn test_eigendecomposition_correctness() -> io::Result<()> {
             assert!(
                 (lv[j] - lambda_v[j]).abs() < tolerance,
                 "Eigendecomposition incorrect for eigenpair {}: L*v[{}] = {}, lambda*v[{}] = {}",
-                i,
+                col_index,
                 j,
                 lv[j],
                 j,
@@ -420,12 +438,13 @@ fn test_eigendecomposition_correctness() -> io::Result<()> {
 fn test_save_matrix_to_csv() -> io::Result<()> {
     // Create a temporary matrix
     let matrix = array![[0.0, 1.0], [1.0, 0.0]];
+    let matrix_mat = array2_to_mat(&matrix);
 
     // Output file
     let output_file = NamedTempFile::new()?;
 
     // Save matrix to CSV
-    save_matrix_to_csv(&matrix, output_file.path())?;
+    save_matrix_to_csv(matrix_mat.as_ref(), output_file.path())?;
 
     // Read the output file
     let mut file = File::open(output_file.path())?;
@@ -447,7 +466,7 @@ fn test_save_matrix_to_csv() -> io::Result<()> {
 #[test]
 fn test_save_vector_to_csv() -> io::Result<()> {
     // Create a temporary vector
-    let vector = Array1::from_vec(vec![0.0, 3.0, 3.0]);
+    let vector = vec![0.0, 3.0, 3.0];
 
     // Output file
     let output_file = NamedTempFile::new()?;

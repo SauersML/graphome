@@ -2,17 +2,52 @@ use crate::display::{display_gif, DisplayError};
 use crate::embed::Point3D;
 use gif::{Encoder as GifEncoder, Frame as GifFrame, Repeat};
 use image::{ImageBuffer, Rgba, RgbaImage};
-use nalgebra as na;
-use std::io::Cursor;
-use std::fs;
+
+fn add3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn sub3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn scale3(v: [f32; 3], s: f32) -> [f32; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+fn norm3(v: [f32; 3]) -> f32 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+fn rotate_x(v: [f32; 3], angle: f32) -> [f32; 3] {
+    let (sin_a, cos_a) = angle.sin_cos();
+    [
+        v[0],
+        cos_a * v[1] - sin_a * v[2],
+        sin_a * v[1] + cos_a * v[2],
+    ]
+}
+
+fn rotate_y(v: [f32; 3], angle: f32) -> [f32; 3] {
+    let (sin_a, cos_a) = angle.sin_cos();
+    [
+        cos_a * v[0] + sin_a * v[2],
+        v[1],
+        -sin_a * v[0] + cos_a * v[2],
+    ]
+}
+
+fn rotate_z(v: [f32; 3], angle: f32) -> [f32; 3] {
+    let (sin_a, cos_a) = angle.sin_cos();
+    [
+        cos_a * v[0] - sin_a * v[1],
+        sin_a * v[0] + cos_a * v[1],
+        v[2],
+    ]
+}
 
 /// Draws a line in screen coordinates (x0, y0) -> (x1, y1) using Bresenham's algorithm.
-fn draw_line(
-    img: &mut RgbaImage,
-    (x0, y0): (u32, u32),
-    (x1, y1): (u32, u32),
-    color: Rgba<u8>,
-) {
+fn draw_line(img: &mut RgbaImage, (x0, y0): (u32, u32), (x1, y1): (u32, u32), color: Rgba<u8>) {
     let (mut x0, mut y0) = (x0 as i32, y0 as i32);
     let (x1, y1) = (x1 as i32, y1 as i32);
 
@@ -44,38 +79,13 @@ fn draw_line(
     }
 }
 
-/// Generates the vertices of a small cube for a given center point and edge size.
-/// (Retained for compatibility with other code.)
-fn generate_cube_vertices(center: na::Point3<f32>, size: f32) -> Vec<na::Point3<f32>> {
-    let half = size / 2.0;
-    vec![
-        na::Point3::new(center.x - half, center.y - half, center.z - half),
-        na::Point3::new(center.x + half, center.y - half, center.z - half),
-        na::Point3::new(center.x - half, center.y + half, center.z - half),
-        na::Point3::new(center.x + half, center.y + half, center.z - half),
-        na::Point3::new(center.x - half, center.y - half, center.z + half),
-        na::Point3::new(center.x + half, center.y - half, center.z + half),
-        na::Point3::new(center.x - half, center.y + half, center.z + half),
-        na::Point3::new(center.x + half, center.y + half, center.z + half),
-    ]
-}
-
 /// Returns two 3D points that define a short line segment for a tick mark on an axis.
-fn generate_tick_segment(axis: char, value: f32, tick_len: f32) -> (na::Point3<f32>, na::Point3<f32>) {
+fn generate_tick_segment(axis: char, value: f32, tick_len: f32) -> ([f32; 3], [f32; 3]) {
     match axis {
-        'x' => (
-            na::Point3::new(value, -tick_len * 0.5, 0.0),
-            na::Point3::new(value, tick_len * 0.5, 0.0),
-        ),
-        'y' => (
-            na::Point3::new(-tick_len * 0.5, value, 0.0),
-            na::Point3::new(tick_len * 0.5, value, 0.0),
-        ),
-        'z' => (
-            na::Point3::new(-tick_len * 0.5, 0.0, value),
-            na::Point3::new(tick_len * 0.5, 0.0, value),
-        ),
-        _ => (na::Point3::origin(), na::Point3::origin()),
+        'x' => ([value, -tick_len * 0.5, 0.0], [value, tick_len * 0.5, 0.0]),
+        'y' => ([-tick_len * 0.5, value, 0.0], [tick_len * 0.5, value, 0.0]),
+        'z' => ([-tick_len * 0.5, 0.0, value], [tick_len * 0.5, 0.0, value]),
+        _ => ([0.0, 0.0, 0.0], [0.0, 0.0, 0.0]),
     }
 }
 
@@ -85,20 +95,20 @@ fn generate_tick_segment(axis: char, value: f32, tick_len: f32) -> (na::Point3<f
 /// drawn even if perspective transforms or partial clipping occur.
 fn draw_axis_subdiv(
     img: &mut RgbaImage,
-    start_pt: na::Point3<f32>,
-    end_pt: na::Point3<f32>,
+    start_pt: [f32; 3],
+    end_pt: [f32; 3],
     steps: usize,
-    transform_fn: &dyn Fn(&na::Point3<f32>) -> Option<(u32, u32)>,
+    transform_fn: &dyn Fn(&[f32; 3]) -> Option<(u32, u32)>,
     color: Rgba<u8>,
 ) {
     // Parametric line: P(t) = start + t*(end-start), for t in [0..1]
     let stepf = steps as f32;
-    let delta = end_pt - start_pt;
+    let delta = sub3(end_pt, start_pt);
     for i in 0..steps {
         let t0 = i as f32 / stepf;
         let t1 = (i as f32 + 1.0) / stepf;
-        let p0_3d = start_pt + delta * t0;
-        let p1_3d = start_pt + delta * t1;
+        let p0_3d = add3(start_pt, scale3(delta, t0));
+        let p1_3d = add3(start_pt, scale3(delta, t1));
         if let (Some(sxy), Some(exy)) = (transform_fn(&p0_3d), transform_fn(&p1_3d)) {
             draw_line(img, sxy, exy, color);
         }
@@ -111,36 +121,28 @@ fn draw_axis_subdiv(
 /// 3) Rotation about X for camera elevation
 /// 4) Perspective projection
 fn transform_point(
-    point: &na::Point3<f32>,
-    angle_rad: f32,       // the "slow" rotation about Y for the animation
-    camera_elev: f32,     // rotation about X
-    camera_y_rad: f32,    // fixed camera rotation about Y
-    camera_z_rad: f32,    // fixed camera rotation about Z
+    point: &[f32; 3],
+    angle_rad: f32,    // the "slow" rotation about Y for the animation
+    camera_elev: f32,  // rotation about X
+    camera_y_rad: f32, // fixed camera rotation about Y
+    camera_z_rad: f32, // fixed camera rotation about Z
     camera_dist: f32,
     max_dist: f32,
     width: u32,
     height: u32,
 ) -> Option<(u32, u32)> {
-    // 1) Pre-rotate the point by the camera's fixed Y and Z angles
-    let y_fixed = na::Rotation3::from_axis_angle(&na::Vector3::y_axis(), camera_y_rad);
-    let z_fixed = na::Rotation3::from_axis_angle(&na::Vector3::z_axis(), camera_z_rad);
-    let rotated_fixed = z_fixed.transform_point(&y_fixed.transform_point(point));
-
-    // 2) Animate rotation around Y
-    let y_anim = na::Rotation3::from_axis_angle(&na::Vector3::y_axis(), angle_rad);
-    let rotated_anim = y_anim.transform_point(&rotated_fixed);
-
-    // 3) Rotate about X for camera elevation
-    let x_rot = na::Rotation3::from_axis_angle(&na::Vector3::x_axis(), camera_elev);
-    let elevated = x_rot.transform_point(&rotated_anim);
+    let rotated_y = rotate_y(*point, camera_y_rad);
+    let rotated_fixed = rotate_z(rotated_y, camera_z_rad);
+    let rotated_anim = rotate_y(rotated_fixed, angle_rad);
+    let elevated = rotate_x(rotated_anim, camera_elev);
 
     // 4) Perspective projection (shift z by +camera_dist)
-    let z_factor = (elevated.z + camera_dist) / camera_dist;
+    let z_factor = (elevated[2] + camera_dist) / camera_dist;
     if z_factor <= 0.0 {
         return None;
     }
-    let perspective_x = elevated.x / z_factor;
-    let perspective_y = elevated.y / z_factor;
+    let perspective_x = elevated[0] / z_factor;
+    let perspective_y = elevated[1] / z_factor;
 
     // Convert to 2D image coordinates
     let half_w = width as f32 / 2.0;
@@ -166,17 +168,17 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
     // Determine maximum distance from the origin of any point
     let max_dist = points
         .iter()
-        .map(|p| p.pos.coords.norm())
+        .map(|p| norm3(p.pos))
         .fold(0.0_f32, f32::max)
         .max(1.0_f32);
 
     let num_frames = 1024;
 
     // Original camera parameters in the snippet:
-    let camera_distance = 5.5 * max_dist;   // Distance from origin
-    let camera_elev_deg: f32 = -30.0;       // Elevation in degrees (X-axis tilt)
-    let camera_y_deg: f32 = 10.0;          // Y-axis tilt
-    let camera_z_deg: f32 = 5.0;           // Z-axis tilt
+    let camera_distance = 5.5 * max_dist; // Distance from origin
+    let camera_elev_deg: f32 = -30.0; // Elevation in degrees (X-axis tilt)
+    let camera_y_deg: f32 = 10.0; // Y-axis tilt
+    let camera_z_deg: f32 = 5.0; // Z-axis tilt
 
     let camera_elev_rad = camera_elev_deg.to_radians();
     let camera_y_rad = camera_y_deg.to_radians();
@@ -189,9 +191,9 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
 
     // Main axes from -max_dist to +max_dist
     let axes = [
-        (na::Point3::new(-max_dist, 0.0, 0.0), na::Point3::new(max_dist, 0.0, 0.0)), // X
-        (na::Point3::new(0.0, -max_dist, 0.0), na::Point3::new(0.0, max_dist, 0.0)), // Y
-        (na::Point3::new(0.0, 0.0, -max_dist), na::Point3::new(0.0, 0.0, max_dist)), // Z
+        ([-max_dist, 0.0, 0.0], [max_dist, 0.0, 0.0]), // X
+        ([0.0, -max_dist, 0.0], [0.0, max_dist, 0.0]), // Y
+        ([0.0, 0.0, -max_dist], [0.0, 0.0, max_dist]), // Z
     ];
 
     // Tick marks: from -max_dist to +max_dist in steps
@@ -229,7 +231,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
 
         // Closure to transform 3D -> 2D for axes, ticks, data
-        let do_transform = |p: &na::Point3<f32>| {
+        let do_transform = |p: &[f32; 3]| {
             transform_point(
                 p,
                 angle_rad,
@@ -246,12 +248,20 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         // Draw each axis in subdivided segments for robustness
         let axis_subdiv_steps = 50;
         for (start, end) in &axes {
-            draw_axis_subdiv(&mut img, *start, *end, axis_subdiv_steps, &do_transform, axis_color);
+            draw_axis_subdiv(
+                &mut img,
+                *start,
+                *end,
+                axis_subdiv_steps,
+                &do_transform,
+                axis_color,
+            );
         }
 
         // Draw tick marks
         for (start_pt, end_pt) in &tick_segments {
-            if let (Some((sx, sy)), Some((ex, ey))) = (do_transform(start_pt), do_transform(end_pt)) {
+            if let (Some((sx, sy)), Some((ex, ey))) = (do_transform(start_pt), do_transform(end_pt))
+            {
                 draw_line(&mut img, (sx, sy), (ex, ey), tick_color);
             }
         }
@@ -301,9 +311,9 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             eprintln!("Failed to save GIF: {}", e);
         }
     });
-    
+
     // Display the resulting animation
     display_gif(&gif_data)?;
-    
+
     Ok(())
 }

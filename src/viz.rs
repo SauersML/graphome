@@ -1,22 +1,19 @@
 // src/viz.rs
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
-use std::hash::{Hash, Hasher};
-use std::io::{BufWriter, Write, BufRead};
-use std::path::{Path, PathBuf};
+use std::io::{BufWriter, Write};
+use std::path::Path;
 
-use image::GenericImageView;
-use hdbscan::{Hdbscan, HdbscanHyperParams};
+use faer::Mat;
+use hdbscan::Hdbscan;
 use ndarray::Array2;
 
 use crate::convert::convert_gfa_to_edge_list;
-use crate::extract::load_adjacency_matrix;
 use crate::display::display_tga;
-use crate::eigen_print::{adjacency_matrix_to_ndarray, call_eigendecomp};
-
-use std::f32::consts::PI;
+use crate::eigen_print::call_eigendecomp;
+use crate::extract::load_adjacency_matrix;
 
 /// A simple data structure to hold node info: length, adjacency, etc.
 #[derive(Debug)]
@@ -42,7 +39,7 @@ pub fn run_viz(
     start_node: &str,
     end_node: &str,
     output_tga: &str,
-    force_directed: bool
+    force_directed: bool,
 ) -> Result<(), Box<dyn Error>> {
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
@@ -50,15 +47,20 @@ pub fn run_viz(
     let mut gam_path = gfa_pathbase.with_extension("gam");
 
     if !gam_path.exists() {
-        eprintln!("[viz] No .gam found at {:?}. Converting GFA -> .gam", gam_path);
+        eprintln!(
+            "[viz] No .gam found at {:?}. Converting GFA -> .gam",
+            gam_path
+        );
         convert_gfa_to_edge_list(gfa_pathbase, &gam_path)?;
     } else {
         eprintln!("[viz] Using cached adjacency file {:?}", gam_path);
     }
 
-    let start_idx = start_node.parse::<usize>()
+    let start_idx = start_node
+        .parse::<usize>()
         .map_err(|_| format!("start-node must be an integer, got {}", start_node))?;
-    let end_idx = end_node.parse::<usize>()
+    let end_idx = end_node
+        .parse::<usize>()
         .map_err(|_| format!("end-node must be an integer, got {}", end_node))?;
     if end_idx < start_idx {
         return Err(format!("end-node < start-node: {} < {}", end_idx, start_idx).into());
@@ -68,12 +70,15 @@ pub fn run_viz(
         return Err(format!(
             "Refusing to force-layout {} nodes. Please narrow your range.",
             node_count
-        ).into());
+        )
+        .into());
     }
-    eprintln!("[viz] Building subgraph for node indices [{start_idx}..{end_idx}], total {} nodes", node_count);
+    eprintln!(
+        "[viz] Building subgraph for node indices [{start_idx}..{end_idx}], total {} nodes",
+        node_count
+    );
 
     let edges_vec = load_adjacency_matrix(&gam_path, start_idx, end_idx)?;
-
 
     // Build adjacency
     let mut adjacency = vec![Vec::new(); node_count];
@@ -83,7 +88,7 @@ pub fn run_viz(
         adjacency[i].push(j);
         adjacency[j].push(i);
     }
-    
+
     // Filter out nodes that have no neighbors
     let mut keep_list = Vec::new();
     for i in 0..node_count {
@@ -94,26 +99,26 @@ pub fn run_viz(
     if keep_list.is_empty() {
         return Err("No nodes with edges found in the specified range".into());
     }
-    
+
     // Create a mapping from old node indices to new indices
     let new_count = keep_list.len();
     let mut old_to_new = vec![usize::MAX; node_count];
     for (new_i, &old_i) in keep_list.iter().enumerate() {
         old_to_new[old_i] = new_i;
     }
-    
+
     // Rebuild adjacency and node data for only those kept nodes
     #[derive(Debug)]
     struct NodeData {
         length: usize,
-        neighbors: std::collections::HashSet<String>,
+        neighbors: HashSet<String>,
     }
     let mut node_data = Vec::with_capacity(new_count);
     let mut adjacency_filtered = vec![Vec::new(); new_count];
     for _ in 0..new_count {
         node_data.push(NodeData {
             length: 1,
-            neighbors: std::collections::HashSet::new(),
+            neighbors: HashSet::new(),
         });
     }
     for &old_i in &keep_list {
@@ -123,7 +128,7 @@ pub fn run_viz(
             adjacency_filtered[new_i].push(new_j);
         }
     }
-    
+
     // Gather edges (in the reduced set)
     let mut edges = Vec::new();
     for (i, nbrs) in adjacency_filtered.iter().enumerate() {
@@ -138,11 +143,11 @@ pub fn run_viz(
         new_count,
         edges.len()
     );
-    
+
     // Replace the old adjacency with the filtered one, and reset node_count
     let adjacency = adjacency_filtered;
     let node_count = new_count;
-    
+
     // Build an NxN adjacency matrix from the filtered edges,
     // so Laplacian indexing matches the nodes actually in use.
     let mut adjacency_nd = Array2::<f64>::zeros((node_count, node_count));
@@ -150,10 +155,10 @@ pub fn run_viz(
         adjacency_nd[(i, j)] = 1.0;
         adjacency_nd[(j, i)] = 1.0;
     }
-    
+
     let size = node_count;
     let mut laplacian = adjacency_nd.clone();
-    
+
     // Store the degree of each node in an array
     let mut degrees = vec![0u32; size];
     for i in 0..size {
@@ -165,14 +170,13 @@ pub fn run_viz(
         }
         degrees[i] = deg;
     }
-    
+
     // Build the normalized Laplacian
     for i in 0..size {
         for j in 0..size {
             if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0 && degrees[j] > 0 {
                 // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
-                laplacian[(i, j)] = -1.0f64
-                    / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
+                laplacian[(i, j)] = -1.0f64 / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
             } else {
                 laplacian[(i, j)] = 0.0;
             }
@@ -181,52 +185,53 @@ pub fn run_viz(
         laplacian[(i, i)] = 1.0;
     }
 
-    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
+    let laplacian_mat = Mat::from_fn(size, size, |i, j| laplacian[(i, j)]);
+    let (eigvals, eigvecs) = call_eigendecomp(laplacian_mat.as_ref())?;
     let mut pairs: Vec<(f64, Vec<f64>)> = eigvals
         .iter()
         .enumerate()
         .map(|(idx, &val)| {
-            let column_vec = (0..size)
-                .map(|row| eigvecs[(row, idx)])
-                .collect::<Vec<_>>();
+            let column_vec = (0..size).map(|row| eigvecs[(row, idx)]).collect::<Vec<_>>();
             (val, column_vec)
         })
         .collect();
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    
+
     // Skip all zero (or near-zero) eigenvalues
     let near_zero_threshold = 1e-9;
     let nonzero_pairs: Vec<(f64, Vec<f64>)> = pairs
         .iter()
-        .filter(|(val, _)| val.abs() > near_zero_threshold)
+        .filter(|(val, _)| (*val).abs() > near_zero_threshold)
         .cloned()
         .collect();
-    
+
     // Make sure we have at least two non-zero eigenvalues
     if nonzero_pairs.len() < 2 {
         return Err(format!(
             "Not enough non-zero eigenvalues for a 2D spectral layout. Found only {}.",
             nonzero_pairs.len()
-        ).into());
+        )
+        .into());
     }
-    
+
     // Build a weighted spectral embedding from ALL nonzero eigenpairs.
     // We weight each eigenvector's columns by 1/sqrt(lambda_i).
     let m = nonzero_pairs.len();
     let mut embedding = vec![vec![0.0_f32; m]; size];
     for (dim, (lambda, vec_col)) in nonzero_pairs.iter().enumerate() {
-        let w = 1.0 / (lambda.sqrt().max(1e-12));
+        let w = 1.0_f64 / ((*lambda).sqrt().max(1e-12_f64));
+        let w_f32 = w as f32;
         for i in 0..size {
-            embedding[i][dim] = vec_col[i] as f32 * w as f32;
+            embedding[i][dim] = vec_col[i] as f32 * w_f32;
         }
     }
-    
+
     // Now cluster with HDBSCAN, letting it decide clusters automatically.
     let clusterer = Hdbscan::default_hyper_params(&embedding);
     let labels = clusterer
         .cluster()
         .map_err(|e| format!("HDBSCAN failed: {:?}", e))?;
-    
+
     // Compute local density for each node as #neighbors in adjacency.
     // We'll use it later to vary saturation.
     let mut local_densities = vec![0.0_f32; node_count];
@@ -236,7 +241,7 @@ pub fn run_viz(
         let deg = adjacency[i].len() as f32;
         local_densities[i] = deg;
     }
-    
+
     // Find min/max to map density into [0..1].
     let mut min_dens = f32::MAX;
     let mut max_dens = f32::MIN;
@@ -251,7 +256,7 @@ pub fn run_viz(
     if max_dens < 1.0 {
         max_dens = 1.0; // avoid divide-by-zero
     }
-    
+
     // We'll define color_from_cluster. For positioning, we only need 2D:
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
     if m >= 2 {
@@ -265,7 +270,7 @@ pub fn run_viz(
             positions[i] = (i as f32, 0.0);
         }
     }
-    
+
     if force_directed {
         eprintln!("[viz] Running force-directed refinement on initial spectral layout...");
         // Get display size first since we need it for radius scaling
@@ -273,15 +278,16 @@ pub fn run_viz(
         let width = (size.cols * 8) as f32;
         let height = (size.rows * 8) as f32;
         let viewport_scale = width.min(height);
-        
+
         // Scale radii to match final display size
-        let node_radii: Vec<f32> = node_data.iter()
+        let node_radii: Vec<f32> = node_data
+            .iter()
             .map(|node| {
                 let radius_pixels = 3.0f32.max((node.length as f32).log2().round()).min(20.0);
-                (radius_pixels / viewport_scale) * 0.90  // 0.90 matches final position scaling
+                (radius_pixels / viewport_scale) * 0.90 // 0.90 matches final position scaling
             })
             .collect();
-            
+
         force_directed_refinement(&mut positions, &edges, &node_radii);
     }
 
@@ -330,7 +336,7 @@ pub fn run_viz(
             sy(yi),
             sx(xj),
             sy(yj),
-            (80, 80, 80)
+            (80, 80, 80),
         );
     }
 
@@ -367,24 +373,31 @@ pub fn run_viz(
     write_uncompressed_tga(width, height, &buffer, output_tga)?;
     eprintln!(
         "[viz] Wrote subgraph layout with {} nodes to {}. Image is {}x{}.",
-        node_count,
-        output_tga,
-        width,
-        height
+        node_count, output_tga, width, height
     );
 
     eprintln!("[viz] Displaying image in terminal...");
 
     let mut tga_data = Vec::with_capacity(buffer.len() + 18);
     tga_data.extend_from_slice(&[
-        0, 0, 2,
-        0, 0, 0, 0, 0,
-        0, 0, 0, 0,
+        0,
+        0,
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
         (width & 0xFF) as u8,
         ((width >> 8) & 0xFF) as u8,
         (height & 0xFF) as u8,
         ((height >> 8) & 0xFF) as u8,
-        24, 0
+        24,
+        0,
     ]);
     tga_data.extend_from_slice(&buffer);
 
@@ -393,10 +406,10 @@ pub fn run_viz(
     Ok(())
 }
 
-/// Convert HSL to RGB, each in [0..255]. 
+/// Convert HSL to RGB, each in [0..255].
 /// h in [0..360], s,l in [0..1].
 fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
-    let c = (1.0 - (2.0*l - 1.0).abs()) * s;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
     let hh = h / 60.0;
     let x = c * (1.0 - (hh % 2.0 - 1.0).abs());
 
@@ -409,12 +422,12 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
         _ => (c, 0.0, x),
     };
 
-    let m = l - c/2.0;
-    r += m; 
-    g += m; 
+    let m = l - c / 2.0;
+    r += m;
+    g += m;
     b += m;
 
-    ((r*255.0) as u8, (g*255.0) as u8, (b*255.0) as u8)
+    ((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
 /// Dynamically assign each cluster a unique hue in [0..360], skipping an orange/yellow band
@@ -425,7 +438,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 /// * `cluster_id` >= 0 => we compute a fraction = cluster_id / (cluster_id + 1).
 ///   That means each cluster_id gets a distinct fraction in [0..1].
 /// * Then we map that fraction into an effective hue range of 360 - 30 = 330 degrees,
-///   skipping H=40..70. 
+///   skipping H=40..70.
 ///   1) raw_hue = fraction * 330
 ///   2) if raw_hue >= 40 => raw_hue += 30  (jumps over orange/yellow)
 /// * Local density => scale saturation, so low-density ~ pastel, high-density ~ vivid.
@@ -435,7 +448,7 @@ fn color_from_cluster(
     cluster_id: i32,
     local_density: f32,
     min_dens: f32,
-    max_dens: f32
+    max_dens: f32,
 ) -> (u8, u8, u8) {
     // Noise => black
     if cluster_id < 0 {
@@ -450,10 +463,10 @@ fn color_from_cluster(
     };
 
     // We'll skip an orange/yellow band ~40..70 (30 degrees).
-    // So effectively, the "usable" range is 330 degrees. 
+    // So effectively, the "usable" range is 330 degrees.
     // aw_hue in [0..330], then if raw_hue >= 40 => raw_hue += 30.
     let skip_start = 40.0;
-    let skip_len   = 30.0;
+    let skip_len = 30.0;
     let total_range = 360.0 - skip_len; // 330
     let mut raw_hue = frac * total_range;
     if raw_hue >= skip_start {
@@ -486,7 +499,7 @@ fn draw_line_bgr(
     y0: i32,
     x1: i32,
     y1: i32,
-    color: (u8, u8, u8)
+    color: (u8, u8, u8),
 ) {
     let (b, g, r) = color;
     let w = width as i32;
@@ -503,16 +516,16 @@ fn draw_line_bgr(
     loop {
         if x >= 0 && x < w && y >= 0 && y < h {
             let idx = (y as usize * w as usize + x as usize) * 3;
-            if idx+2 < buffer.len() {
-                buffer[idx]   = b;
-                buffer[idx+1] = g;
-                buffer[idx+2] = r;
+            if idx + 2 < buffer.len() {
+                buffer[idx] = b;
+                buffer[idx + 1] = g;
+                buffer[idx + 2] = r;
             }
         }
         if x == x1 && y == y1 {
             break;
         }
-        let e2 = 2*err;
+        let e2 = 2 * err;
         if e2 >= dy {
             err += dy;
             x += sx;
@@ -533,12 +546,12 @@ fn draw_filled_circle_bgr(
     cx: i32,
     cy: i32,
     radius: i32,
-    color: (u8, u8, u8)
+    color: (u8, u8, u8),
 ) {
     let (b, g, r) = color;
     let w = width as i32;
     let h = height as i32;
-    let rr = (radius*radius) as i32;
+    let rr = (radius * radius) as i32;
 
     for dy in -radius..=radius {
         let yy = cy + dy;
@@ -550,12 +563,12 @@ fn draw_filled_circle_bgr(
             if xx < 0 || xx >= w {
                 continue;
             }
-            if dx*dx + dy*dy <= rr {
+            if dx * dx + dy * dy <= rr {
                 let idx = (yy as usize * w as usize + xx as usize) * 3;
-                if idx+2 < buffer.len() {
-                    buffer[idx]   = b;
-                    buffer[idx+1] = g;
-                    buffer[idx+2] = r;
+                if idx + 2 < buffer.len() {
+                    buffer[idx] = b;
+                    buffer[idx + 1] = g;
+                    buffer[idx + 2] = r;
                 }
             }
         }
@@ -571,7 +584,7 @@ fn draw_radial_glow(
     cx: i32,
     cy: i32,
     glow_radius: i32,
-    color: (u8, u8, u8)
+    color: (u8, u8, u8),
 ) {
     let (b, g, r) = color;
     let w = width as i32;
@@ -589,8 +602,8 @@ fn draw_radial_glow(
                 continue;
             }
             // Distance from center
-            let dist2 = (dx*dx + dy*dy) as f32;
-            if dist2 <= rr*rr {
+            let dist2 = (dx * dx + dy * dy) as f32;
+            if dist2 <= rr * rr {
                 let d = dist2.sqrt();
                 // alpha goes from 1.0 at center to 0.0 at outer edge
                 let mut alpha = 1.0 - (d / rr);
@@ -608,29 +621,32 @@ fn draw_radial_glow(
                 let new_g = (old_g + g as f32 * alpha).min(255.0);
                 let new_r = (old_r + r as f32 * alpha).min(255.0);
 
-                buffer[idx]   = new_b as u8;
-                buffer[idx+1] = new_g as u8;
-                buffer[idx+2] = new_r as u8;
+                buffer[idx] = new_b as u8;
+                buffer[idx + 1] = new_g as u8;
+                buffer[idx + 2] = new_r as u8;
             }
         }
     }
 }
-
 
 /// Write a 24-bit uncompressed TGA in BGR order.
 fn write_uncompressed_tga(
     width: u16,
     height: u16,
     buffer: &[u8],
-    path: &str
+    path: &str,
 ) -> Result<(), Box<dyn Error>> {
     // Check size
-    let expected = (width as usize)*(height as usize)*3;
+    let expected = (width as usize) * (height as usize) * 3;
     if buffer.len() != expected {
         return Err(format!(
             "Buffer length {} != expected {} for TGA ({}x{})",
-            buffer.len(), expected, width, height
-        ).into());
+            buffer.len(),
+            expected,
+            width,
+            height
+        )
+        .into());
     }
 
     // TGA 18-byte header
@@ -652,9 +668,9 @@ fn write_uncompressed_tga(
 }
 
 fn force_directed_refinement(
-    positions: &mut [(f32, f32)], 
+    positions: &mut [(f32, f32)],
     edges: &[(usize, usize)],
-    node_radii: &[f32]
+    node_radii: &[f32],
 ) {
     // Basic force-directed (Fruchterman–Reingold) config
     let n = positions.len();

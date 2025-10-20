@@ -1,12 +1,11 @@
-use nalgebra as na;
-use rand_distr::{Distribution, Normal};
 use image::Rgb;
 use rand::thread_rng;
+use rand_distr::{Distribution, Normal};
 use std::io;
 use std::io::Write;
 
 pub struct Point3D {
-    pub pos: na::Point3<f32>,
+    pub pos: [f32; 3],
     pub color: Rgb<u8>,
 }
 
@@ -54,7 +53,7 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
 
             // Create and return a Point3D object with the calculated position and color
             Point3D {
-                pos: na::Point3::new(x, y, z),
+                pos: [x, y, z],
                 color: Rgb([r, g, b]),
             }
         })
