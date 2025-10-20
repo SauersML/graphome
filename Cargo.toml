@@ -42,6 +42,14 @@ hdbscan = "0.9.0"
 base64 = "0.22.1"
 gif = "0.13.1"
 memchr = "2.7.4"
+aws-config = "1.2.1"
+aws-sdk-s3 = { version = "1.108.0", features = ["behavior-version-latest"] }
+futures-util = "0.3.30"
+reqwest = { version = "0.12.7", features = ["blocking", "rustls-tls"] }
+tokio = { version = "1.39.2", features = ["rt", "rt-multi-thread"] }
+tokio-util = { version = "0.7.11", features = ["io"] }
+url = "2.5.1"
+flate2 = "1.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -58,3 +66,7 @@ path = "tests/test_eigen.rs"
 [[test]]
 name = "test_extract"
 path = "tests/test_extract.rs"
+
+[[test]]
+name = "test_io"
+path = "tests/test_io.rs"
