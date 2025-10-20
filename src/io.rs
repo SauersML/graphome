@@ -5,20 +5,19 @@ use std::path::{Path, PathBuf};
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client;
+use aws_smithy_types::byte_stream::ByteStream;
+use bytes::Bytes;
 use futures_util::TryStreamExt;
 use reqwest::blocking::Client as HttpClient;
 use tempfile::NamedTempFile;
-use tokio::runtime::Builder as RuntimeBuilder;
+use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use url::Url;
 
 /// Represents a readable handle to either a local file, an HTTP(S) resource, or an S3 object.
 pub enum InputReader {
     Local(BufReader<File>),
     Http(BufReader<reqwest::blocking::Response>),
-    S3 {
-        temp: NamedTempFile,
-        reader: BufReader<File>,
-    },
+    S3(S3StreamReader),
 }
 
 impl Read for InputReader {
@@ -26,7 +25,7 @@ impl Read for InputReader {
         match self {
             InputReader::Local(reader) => reader.read(buf),
             InputReader::Http(reader) => reader.read(buf),
-            InputReader::S3 { reader, .. } => reader.read(buf),
+            InputReader::S3(reader) => reader.read(buf),
         }
     }
 }
@@ -36,7 +35,7 @@ impl BufRead for InputReader {
         match self {
             InputReader::Local(reader) => reader.fill_buf(),
             InputReader::Http(reader) => reader.fill_buf(),
-            InputReader::S3 { reader, .. } => reader.fill_buf(),
+            InputReader::S3(reader) => reader.fill_buf(),
         }
     }
 
@@ -44,7 +43,7 @@ impl BufRead for InputReader {
         match self {
             InputReader::Local(reader) => reader.consume(amt),
             InputReader::Http(reader) => reader.consume(amt),
-            InputReader::S3 { reader, .. } => reader.consume(amt),
+            InputReader::S3(reader) => reader.consume(amt),
         }
     }
 }
@@ -57,7 +56,10 @@ impl Seek for InputReader {
                 io::ErrorKind::Unsupported,
                 "HTTP streams do not support seeking",
             )),
-            InputReader::S3 { reader, .. } => reader.seek(pos),
+            InputReader::S3(_) => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "S3 streams do not support seeking",
+            )),
         }
     }
 }
@@ -80,6 +82,92 @@ struct S3Location {
     bucket: String,
     key: String,
     region: Option<String>,
+}
+
+/// Blocking adapter around the AWS SDK's streaming body for S3 objects.
+pub struct S3StreamReader {
+    runtime: Runtime,
+    stream: ByteStream,
+    buffer: Bytes,
+    pos: usize,
+    eof: bool,
+}
+
+impl S3StreamReader {
+    fn new(runtime: Runtime, stream: ByteStream) -> Self {
+        Self {
+            runtime,
+            stream,
+            buffer: Bytes::new(),
+            pos: 0,
+            eof: false,
+        }
+    }
+
+    fn ensure_buffered(&mut self) -> io::Result<()> {
+        if self.pos < self.buffer.len() || self.eof {
+            return Ok(());
+        }
+
+        loop {
+            let fut = self.stream.try_next();
+            match self.runtime.block_on(fut).map_err(to_io_error)? {
+                Some(chunk) => {
+                    if chunk.is_empty() {
+                        // Skip empty chunks and poll the stream again.
+                        continue;
+                    }
+                    self.buffer = chunk;
+                    self.pos = 0;
+                    return Ok(());
+                }
+                None => {
+                    self.buffer = Bytes::new();
+                    self.pos = 0;
+                    self.eof = true;
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+impl Read for S3StreamReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        self.ensure_buffered()?;
+        if self.pos >= self.buffer.len() {
+            return Ok(0);
+        }
+
+        let available = &self.buffer[self.pos..];
+        let len = available.len().min(buf.len());
+        buf[..len].copy_from_slice(&available[..len]);
+        self.pos += len;
+        if self.pos >= self.buffer.len() {
+            self.buffer = Bytes::new();
+            self.pos = 0;
+        }
+        Ok(len)
+    }
+}
+
+impl BufRead for S3StreamReader {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.ensure_buffered()?;
+        Ok(&self.buffer[self.pos..])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.pos = (self.pos + amt).min(self.buffer.len());
+        if self.pos >= self.buffer.len() {
+            self.buffer = Bytes::new();
+            self.pos = 0;
+        }
+    }
 }
 
 /// Open a resource that may be a local file path, HTTP(S) URL, or S3 URL.
@@ -157,18 +245,32 @@ fn download_http(url: &Url) -> io::Result<MaterializedPath> {
 }
 
 fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
-    let mut materialized = download_s3(loc)?;
-    let mut temp = materialized
-        .temp
-        .take()
-        .expect("S3 downloads must produce a temporary file");
-    let file = temp.reopen()?;
-    // Ensure the reader starts at the beginning.
-    temp.as_file_mut().seek(SeekFrom::Start(0))?;
-    Ok(InputReader::S3 {
-        temp,
-        reader: BufReader::new(file),
-    })
+    let runtime = RuntimeBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(to_io_error)?;
+    let bucket = loc.bucket.clone();
+    let key = loc.key.clone();
+    let region = loc.region.clone();
+    let body = runtime.block_on(async move {
+        let region_provider = match region {
+            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
+                .or_default_provider()
+                .or_else("us-east-1"),
+            None => RegionProviderChain::default_provider().or_else("us-east-1"),
+        };
+        let config = aws_config::from_env().region(region_provider).load().await;
+        let client = Client::new(&config);
+        let obj = client
+            .get_object()
+            .bucket(&bucket)
+            .key(&key)
+            .send()
+            .await
+            .map_err(to_io_error)?;
+        Ok::<ByteStream, io::Error>(obj.body)
+    })?;
+    Ok(InputReader::S3(S3StreamReader::new(runtime, body)))
 }
 
 fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
