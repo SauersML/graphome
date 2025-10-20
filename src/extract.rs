@@ -2,10 +2,10 @@
 
 //! Module for extracting adjacency submatrix from edge list and performing analysis.
 
+use faer::Mat;
 use ndarray::prelude::*;
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
-use std::cmp::min;
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek};
 use std::path::Path;
@@ -13,27 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::eigen_print::{
-    adjacency_matrix_to_ndarray, call_eigendecomp, compute_ngec, print_eigenvalues_heatmap,
-    print_heatmap, print_heatmap_ndarray, save_matrix_to_csv, save_vector_to_csv,
+    adjacency_matrix_to_dense, call_eigendecomp, compute_ngec, print_eigenvalues_heatmap,
+    print_heatmap, print_heatmap_normalized, save_matrix_to_csv, save_vector_to_csv,
 };
-
-/// Saves an `Array2<f64>` to CSV.
-fn save_ndarray_to_csv<P: AsRef<Path>>(matrix: &Array2<f64>, path: P) -> io::Result<()> {
-    let save_start = Instant::now();
-    println!("    ⏳ Writing matrix to CSV at {:?}", path.as_ref());
-    let write_start = Instant::now();
-    save_matrix_to_csv(matrix, path)?;
-    let write_duration = write_start.elapsed();
-    println!("    ✅ CSV write completed in {:.4?}", write_duration);
-
-    let save_duration = save_start.elapsed();
-    println!(
-        "    📂 Total time for save_ndarray_to_csv: {:.4?}",
-        save_duration
-    );
-
-    Ok(())
-}
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
 /// computes the Laplacian, performs eigendecomposition, and saves the results.
@@ -64,9 +46,9 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
 
     // Convert adjacency list to ndarray
     let adjacency_conv_start = Instant::now();
-    println!("    ⏳ Converting adjacency list to ndarray...");
+    println!("    ⏳ Converting adjacency list to dense matrix...");
     let adj_matrix =
-        adjacency_matrix_to_ndarray(&adjacency_matrix.lock().unwrap(), start_node, end_node); // This function enforces symmetry
+        adjacency_matrix_to_dense(&adjacency_matrix.lock().unwrap(), start_node, end_node); // This function enforces symmetry
     let adjacency_conv_duration = adjacency_conv_start.elapsed();
     println!(
         "    ✅ Adjacency list -> ndarray in {:.4?}",
@@ -76,16 +58,32 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     // Compute degree matrix
     let degree_start = Instant::now();
     println!("    ⏳ Computing degrees (sum of rows)...");
-    let degrees = adj_matrix.sum_axis(Axis(1));
+    let size = adj_matrix.nrows();
+    let mut degrees = vec![0.0f64; size];
+    for i in 0..size {
+        let mut sum = 0.0;
+        for j in 0..size {
+            sum += adj_matrix[(i, j)];
+        }
+        degrees[i] = sum;
+    }
     println!("    ⏳ Building degree diagonal matrix...");
-    let degree_matrix = Array2::<f64>::from_diag(&degrees);
+    let mut laplacian = Mat::<f64>::zeros(size, size);
+    for i in 0..size {
+        *laplacian.get_mut(i, i) = degrees[i];
+    }
     let degree_duration = degree_start.elapsed();
     println!("    ✅ Degree matrix computed in {:.4?}", degree_duration);
 
     // Compute Laplacian matrix: L = D - A
     let lap_start = Instant::now();
     println!("    ⏳ Computing Laplacian L = D - A...");
-    let laplacian = &degree_matrix - &adj_matrix;
+    for i in 0..size {
+        for j in 0..size {
+            let updated = laplacian[(i, j)] - adj_matrix[(i, j)];
+            *laplacian.get_mut(i, j) = updated;
+        }
+    }
     let lap_duration = lap_start.elapsed();
     println!("    ✅ Laplacian computed in {:.4?}", lap_duration);
 
@@ -97,14 +95,14 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     let laplacian_csv = output_dir.join("laplacian.csv");
     println!("    📁 Output dir = {:?}", output_dir);
     println!("    📄 Laplacian CSV path = {:?}", laplacian_csv);
-    save_ndarray_to_csv(&laplacian, &laplacian_csv)?;
+    save_matrix_to_csv(laplacian.as_ref(), &laplacian_csv)?;
     let csv_duration = csv_start.elapsed();
     println!("    ✅ Laplacian CSV saved in {:.4?}", csv_duration);
 
     // Compute eigenvalues and eigenvectors
     println!("🔬 Performing eigendecomposition...");
     let eig_start = Instant::now();
-    let (eigvals, eigvecs) = call_eigendecomp(&laplacian)?;
+    let (eigvals, eigvecs) = call_eigendecomp(laplacian.as_ref())?;
     let eig_duration = eig_start.elapsed();
     println!("✅ Eigendecomposition done in {:.4?}", eig_duration);
 
@@ -123,7 +121,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     );
 
     let eigenvecs_save_start = Instant::now();
-    save_matrix_to_csv(&eigvecs, &eigenvectors_csv)?;
+    save_matrix_to_csv(eigvecs.as_ref(), &eigenvectors_csv)?;
     let eigenvecs_save_duration = eigenvecs_save_start.elapsed();
     println!(
         "    ✅ Eigenvectors saved in {:.4?}",
@@ -147,7 +145,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     println!("🎨 Printing heatmaps:");
     println!("    Laplacian Matrix:");
     let lap_hm_start = Instant::now();
-    print_heatmap(&laplacian.view());
+    print_heatmap(laplacian.as_ref());
     let lap_hm_duration = lap_hm_start.elapsed();
     println!(
         "    ✅ Laplacian heatmap printed in {:.4?}",
@@ -156,8 +154,9 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
 
     println!("    Eigenvectors:");
     let eigenvecs_hm_start = Instant::now();
-    let eigenvecs_subset = eigvecs.slice(s![.., 0..min(500, eigvecs.ncols())]); // Display at max first 500
-    print_heatmap_ndarray(&eigenvecs_subset.to_owned());
+    let cols_to_show = eigvecs.ncols().min(500);
+    let eigenvecs_subset = Mat::from_fn(eigvecs.nrows(), cols_to_show, |i, j| eigvecs[(i, j)]);
+    print_heatmap_normalized(eigenvecs_subset.as_ref());
     let eigenvecs_hm_duration = eigenvecs_hm_start.elapsed();
     println!(
         "    ✅ Eigenvector heatmap printed in {:.4?}",
