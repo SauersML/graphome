@@ -10,3 +10,4 @@ pub mod video;
 pub mod embed;
 pub mod make_sequence;
 pub mod gfa2gbz;
+pub mod io;
