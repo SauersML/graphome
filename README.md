@@ -37,12 +37,7 @@ cd graphome
 cargo build --release
 ```
 
-Graphome has a LAPACK dependency because it uses dsbevd which is faster than alternatives for eigendecomposition of banded matrices. If there is a build error, try running the following commands and try again:
-
-```
-export RUSTFLAGS="-llapack -lopenblas"
-export RUSTFLAGS="-L/usr/lib/x86_64-linux-gnu -llapack -lopenblas"
-```
+Graphome performs eigendecomposition with [faer](https://crates.io/crates/faer), a pure Rust linear algebra library. No external LAPACK or BLAS dependencies are required.
 
 ## Usage
 

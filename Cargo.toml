@@ -24,12 +24,11 @@ palette = "0.6"
 nalgebra = "0.33.0"
 tempfile = "3.3"
 ndarray = { version = "0.16.1", features = ["rayon"] }
-ndarray-linalg = "0.16.0"
+faer = "0.23.2"
 rand = "0.8.5"
 memmap2 = "0.9.5"
 rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
-eigenvalues = "0.4"
 sprs = "0.11"
 approx = "0.5.1"
 ndarray-npy = "0.9.1"
@@ -51,9 +50,6 @@ libc = "0.2"
 name = "test_convert"
 path = "tests/test_convert.rs"
 
-[[test]]
-name = "test_dsbevd"
-path = "tests/test_dsbevd.rs"
 
 [[test]]
 name = "test_eigen"
