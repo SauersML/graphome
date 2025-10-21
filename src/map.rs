@@ -220,67 +220,88 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
     };
     
     // Get reference sample IDs
-    let ref_samples = gbz.reference_sample_ids(true);
+    let metadata = match gbz.metadata() {
+        Some(meta) => meta,
+        None => {
+            eprintln!("Warning: No metadata found in GBZ");
+            return results;
+        }
+    };
+
+    let mut ref_samples = gbz.reference_sample_ids(true);
     if ref_samples.is_empty() {
-        eprintln!("Warning: No reference samples found in GBZ");
-        return results;
+        eprintln!("Warning: No reference samples found in GBZ; falling back to all samples");
+        let mut unique_samples = std::collections::HashSet::new();
+        for path_name in metadata.path_iter() {
+            unique_samples.insert(path_name.sample());
+        }
+        if unique_samples.is_empty() {
+            return results;
+        }
+        ref_samples = unique_samples.into_iter().collect();
     }
-    
-    if let Some(metadata) = gbz.metadata() {
-        // Create a search state for the node
-        let forward_state = match gbz.search_state(node_id, Orientation::Forward) {
-            Some(state) => state,
-            None => return results,
-        };
-        
-        // Find all paths that contain this node
-        for ref_sample in &ref_samples {
-            for (path_id, path_name) in metadata.path_iter().enumerate() {
-                if path_name.sample() != *ref_sample {
-                    continue;
-                }
-                
-                let contig_name = metadata.contig_name(path_name.contig());
-                
-                // Check if this path contains the node by looking at all paths
-                if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
-                    let mut position = 0;
-                    let mut found_positions = Vec::new();
-                    
-                    // Scan path to find node positions
-                    while let Some((path_node, orientation)) = path_iter.next() {
-                        if path_node == node_id {
-                            found_positions.push((position, orientation == Orientation::Forward));
-                        }
-                        if let Some(len) = gbz.sequence_len(path_node) {
-                            position += len;
-                        }
+
+    let mut ref_paths_cache = gbz.reference_positions(1000, true);
+    if ref_paths_cache.is_empty() {
+        ref_paths_cache = gbz.reference_positions(1000, false);
+    }
+    let have_reference_positions = !ref_paths_cache.is_empty();
+
+    // Create a search state for the node (ensures node exists in the index)
+    let _forward_state = match gbz.search_state(node_id, Orientation::Forward) {
+        Some(state) => state,
+        None => return results,
+    };
+
+    // Find all paths that contain this node
+    for ref_sample in &ref_samples {
+        for (path_id, path_name) in metadata.path_iter().enumerate() {
+            if path_name.sample() != *ref_sample {
+                continue;
+            }
+
+            let contig_name = metadata.contig_name(path_name.contig());
+
+            // Check if this path contains the node by looking at all paths
+            if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
+                let mut position = 0;
+                let mut found_positions = Vec::new();
+
+                // Scan path to find node positions
+                while let Some((path_node, orientation)) = path_iter.next() {
+                    if path_node == node_id {
+                        found_positions.push((position, orientation == Orientation::Forward));
                     }
-                    
-                    // For each occurrence, extract reference coordinates
-                    for (pos, is_forward) in found_positions {
-                        // Get reference positions for this path
-                        let ref_paths = gbz.reference_positions(1000, false);
-                        for ref_path in ref_paths {
+                    if let Some(len) = gbz.sequence_len(path_node) {
+                        position += len;
+                    }
+                }
+
+                // For each occurrence, extract reference coordinates
+                for (pos, _is_forward) in found_positions {
+                    if have_reference_positions {
+                        for ref_path in &ref_paths_cache {
                             if ref_path.id == path_id {
-                                for (path_pos, gbwt_pos) in &ref_path.positions {
+                                for (path_pos, _gbwt_pos) in &ref_path.positions {
                                     if *path_pos <= pos && *path_pos + node_len >= pos {
-                                        // We found a reference position that contains our node
                                         let offset = pos - path_pos;
                                         let ref_start = *path_pos + offset;
                                         let ref_end = ref_start + node_len - 1;
-                                        
                                         results.push((contig_name.clone(), ref_start, ref_end));
                                     }
                                 }
                             }
                         }
+                    } else {
+                        let ref_start = pos;
+                        let ref_end = ref_start + node_len - 1;
+                        results.push((contig_name.clone(), ref_start, ref_end));
                     }
                 }
             }
         }
     }
-    
+
     results
 }
 
@@ -290,68 +311,111 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
 pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
 println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
-    
+
     // Get reference paths and their positions
-    let ref_paths = gbz.reference_positions(1000, true);
+    let mut ref_paths = gbz.reference_positions(1000, true);
     if ref_paths.is_empty() {
-        println!("DEBUG: No reference paths found in GBZ");
-        return results;
+        println!("DEBUG: No reference paths found in GBZ; falling back to all paths");
+        ref_paths = gbz.reference_positions(1000, false);
     }
-    
-    if let Some(metadata) = gbz.metadata() {
-        // Find paths that align to this region
-        for ref_path in &ref_paths {
-            let path_metadata = match metadata.path(ref_path.id) {
-                Some(meta) => meta,
-                None => continue,
-            };
-            
-            let contig_name = metadata.contig_name(path_metadata.contig());
+
+    let metadata = match gbz.metadata() {
+        Some(meta) => meta,
+        None => {
+            println!("DEBUG: No metadata available in GBZ");
+            return results;
+        }
+    };
+
+    if ref_paths.is_empty() {
+        println!("DEBUG: Still no paths available in GBZ; performing manual scan");
+        for (path_id, path_name) in metadata.path_iter().enumerate() {
+            let contig_name = metadata.contig_name(path_name.contig());
             if contig_name != chr {
                 continue;
             }
-            
-            println!("DEBUG: Found path in reference that matches chromosome {}", chr);
-            
-            // Find nodes in this region
-            for (path_pos, pos) in &ref_path.positions {
-                // Skip if position is outside our target region
-                if *path_pos > end || *path_pos + 1000 < start {
-                    continue;
-                }
-                
-                // Get the node at this position
-                let (node_id, orientation) = gbwt::support::decode_node(pos.node);
-                if let Some(node_len) = gbz.sequence_len(node_id) {
-                    let node_end = *path_pos + node_len;
-                    
-                    // Check if this node overlaps our region
-                    if *path_pos <= end && node_end >= start {
-                        let overlap_start = start.max(*path_pos);
-                        let overlap_end = end.min(node_end);
-                        
-                        if overlap_start <= overlap_end {
-                            println!("DEBUG: Found overlapping node {} with range {}..{}", 
-                                     node_id, overlap_start, overlap_end);
-                            
-                            // Calculate offset within the node
-                            let node_off_start = overlap_start - *path_pos;
-                            let node_off_end = overlap_end - *path_pos;
-                            
-                            results.push(Coord2NodeResult {
-                                path_name: contig_name.clone(),
-                                node_id: node_id.to_string(),
-                                node_orient: orientation == Orientation::Forward,
-                                path_off_start: node_off_start,
-                                path_off_end: node_off_end,
-                            });
+
+            if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
+                let mut position = 0;
+                while let Some((node_id, orientation)) = path_iter.next() {
+                    if let Some(node_len) = gbz.sequence_len(node_id) {
+                        let node_start = position;
+                        let node_end = node_start + node_len;
+                        if node_start <= end && node_end > start {
+                            let overlap_start = start.max(node_start);
+                            let overlap_end = end.min(node_end - 1);
+                            if overlap_start <= overlap_end {
+                                let node_off_start = overlap_start - node_start;
+                                let node_off_end = overlap_end - node_start;
+                                results.push(Coord2NodeResult {
+                                    path_name: contig_name.clone(),
+                                    node_id: node_id.to_string(),
+                                    node_orient: orientation == Orientation::Forward,
+                                    path_off_start: node_off_start,
+                                    path_off_end: node_off_end,
+                                });
+                            }
                         }
+                        position += node_len;
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    // Find paths that align to this region using reference position index
+    for ref_path in &ref_paths {
+        let path_metadata = match metadata.path(ref_path.id) {
+            Some(meta) => meta,
+            None => continue,
+        };
+
+        let contig_name = metadata.contig_name(path_metadata.contig());
+        if contig_name != chr {
+            continue;
+        }
+
+        println!("DEBUG: Found path in reference that matches chromosome {}", chr);
+
+        // Find nodes in this region
+        for (path_pos, pos) in &ref_path.positions {
+            // Skip if position is outside our target region
+            if *path_pos > end || *path_pos + 1000 < start {
+                continue;
+            }
+
+            // Get the node at this position
+            let (node_id, orientation) = gbwt::support::decode_node(pos.node);
+            if let Some(node_len) = gbz.sequence_len(node_id) {
+                let node_end = *path_pos + node_len;
+
+                // Check if this node overlaps our region
+                if *path_pos <= end && node_end >= start {
+                    let overlap_start = start.max(*path_pos);
+                    let overlap_end = end.min(node_end);
+
+                    if overlap_start <= overlap_end {
+                        println!("DEBUG: Found overlapping node {} with range {}..{}",
+                                 node_id, overlap_start, overlap_end);
+
+                        // Calculate offset within the node
+                        let node_off_start = overlap_start - *path_pos;
+                        let node_off_end = overlap_end - *path_pos;
+
+                        results.push(Coord2NodeResult {
+                            path_name: contig_name.clone(),
+                            node_id: node_id.to_string(),
+                            node_orient: orientation == Orientation::Forward,
+                            path_off_start: node_off_start,
+                            path_off_end: node_off_end,
+                        });
                     }
                 }
             }
         }
     }
-    
+
     results
 }
 
