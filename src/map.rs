@@ -723,6 +723,47 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
         return gfa_path.to_string();
     }
 
+    // Check if this is a remote URL
+    let is_remote = gfa_path.starts_with("http://") || 
+                    gfa_path.starts_with("https://") || 
+                    gfa_path.starts_with("s3://");
+    
+    if is_remote {
+        // Try to find a corresponding GBZ file on the remote
+        let gbz_url = if gfa_path.ends_with(".gfa.gz") {
+            gfa_path.replace(".gfa.gz", ".gbz")
+        } else if gfa_path.ends_with(".gfa") {
+            gfa_path.replace(".gfa", ".gbz")
+        } else {
+            format!("{}.gbz", gfa_path)
+        };
+        
+        eprintln!("[INFO] Remote GFA detected, looking for pre-built GBZ...");
+        eprintln!("[INFO] Trying: {}", gbz_url);
+        
+        // Try to download the GBZ file
+        match io::materialize(&gbz_url) {
+            Ok(materialized) => {
+                let local_gbz = materialized.path().to_str()
+                    .ok_or_else(|| "Invalid path".to_string())
+                    .expect("Failed to get GBZ path");
+                eprintln!("[INFO] Successfully downloaded GBZ from remote");
+                return local_gbz.to_string();
+            }
+            Err(_) => {
+                eprintln!("[ERROR] No pre-built GBZ found at: {}", gbz_url);
+                eprintln!("[ERROR] Cannot create GBZ index from remote GFA file (too large).");
+                eprintln!("[ERROR] Please either:");
+                eprintln!("[ERROR]   1. Use a local GBZ file");
+                eprintln!("[ERROR]   2. Download the GFA file locally first, then create GBZ");
+                eprintln!("[ERROR]");
+                eprintln!("[ERROR] For HPRC data, use the local GBZ file:");
+                eprintln!("[ERROR]   data/hprc/hprc-v2.0-mc-grch38.gbz");
+                panic!("Cannot process remote GFA files without pre-built GBZ");
+            }
+        }
+    }
+
     // Derive GBZ filename from GFA and PAF paths
     let gfa_base = Path::new(gfa_path).file_stem().unwrap_or_default().to_string_lossy();
     let paf_base = Path::new(paf_path).file_stem().unwrap_or_default().to_string_lossy();
@@ -732,7 +773,7 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     if !Path::new(&gbz_path).exists() {
         eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
 
-        // Validate and fix path names in the GFA file
+        // Validate and fix path names in the GFA file (local files only)
         let fixed_gfa_path = match validate_gfa_for_gbwt(gfa_path) {
             Ok(path) => path,
             Err(msg) => {
