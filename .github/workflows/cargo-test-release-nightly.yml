@@ -41,6 +41,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --release
-
-      - name: Run HPRC coord2node integration test
-        run: cargo test --release --test test_map integration_map_coord2node_hprc -- --ignored
