@@ -88,8 +88,8 @@ enum Commands {
         /// The path to the graph file (GFA or GBZ)
         #[arg(long)]
         gfa: String,
-        /// The path to the PAF file
-        #[arg(long)]
+        /// The path to the PAF file (optional, not needed for GBZ files)
+        #[arg(long, default_value = "")]
         paf: String,
         #[command(subcommand)]
         map_command: MapCommand,

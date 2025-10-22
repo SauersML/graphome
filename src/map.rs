@@ -19,6 +19,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use gbwt::{GBZ, Orientation};
 use simple_sds::serialize;
 use crate::mapped_gbz::MappedGBZ;
+use crate::io;
 
 // Data Structures
 
@@ -489,15 +490,21 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
 pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
     eprintln!("[INFO] Fast validating and fixing GFA path names: {}", gfa_path);
 
+    // Materialize remote files (S3, HTTP) to local filesystem
+    let materialized = io::materialize(gfa_path)
+        .map_err(|e| format!("Failed to materialize GFA file: {}", e))?;
+    let local_path = materialized.path().to_str()
+        .ok_or_else(|| "Invalid path".to_string())?;
+
     // Open and memory-map input file
-    let file = File::open(gfa_path)
+    let file = File::open(local_path)
         .map_err(|e| format!("Failed to open GFA file: {}", e))?;
     let metadata = file.metadata()
         .map_err(|e| format!("Failed to get metadata: {}", e))?;
     let file_size = metadata.len();
     
-    // Create output file path
-    let fixed_gfa_path = format!("{}.fixed.gfa", gfa_path);
+    // Create output file path (use local path for fixed file)
+    let fixed_gfa_path = format!("{}.fixed.gfa", local_path);
     
     // Create memory map for fast reading
     let mmap = unsafe {
@@ -638,8 +645,8 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
         eprintln!("[SUCCESS] Fixed GFA written to: {}", fixed_gfa_path);
         Ok(fixed_gfa_path)
     } else {
-        eprintln!("[INFO] No invalid path names found, using original file");
-        Ok(gfa_path.to_string())
+        eprintln!("[INFO] No invalid path names found, using materialized file");
+        Ok(local_path.to_string())
     }
 }
 
