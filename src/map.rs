@@ -718,15 +718,52 @@ fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
 /// Ensures a GBZ file exists for given GFA and PAF files.
 /// If the GBZ doesn't exist, validates and fixes the GFA, then creates the GBZ.
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
-    if GBZ::is_gbz(gfa_path) {
-        eprintln!("[INFO] Using provided GBZ index: {}", gfa_path);
-        return gfa_path.to_string();
-    }
-
     // Check if this is a remote URL
     let is_remote = gfa_path.starts_with("http://") || 
                     gfa_path.starts_with("https://") || 
                     gfa_path.starts_with("s3://");
+    
+    // For remote files, check extension; for local files, use GBZ::is_gbz
+    let is_gbz = if is_remote {
+        gfa_path.ends_with(".gbz")
+    } else {
+        GBZ::is_gbz(gfa_path)
+    };
+    
+    if is_gbz {
+        if is_remote {
+            // Check if we have a local copy in data/hprc/ directory
+            if let Some(filename) = gfa_path.rsplit('/').next() {
+                let local_path = format!("data/hprc/{}", filename);
+                if Path::new(&local_path).exists() && GBZ::is_gbz(&local_path) {
+                    eprintln!("[INFO] Found local copy of remote GBZ: {}", local_path);
+                    eprintln!("[INFO] Using local copy instead of downloading");
+                    return local_path;
+                }
+            }
+            
+            eprintln!("[INFO] Remote GBZ detected, downloading...");
+            eprintln!("[INFO] Source: {}", gfa_path);
+            
+            // Download the remote GBZ file
+            match io::materialize(gfa_path) {
+                Ok(materialized) => {
+                    let local_gbz = materialized.path().to_str()
+                        .ok_or_else(|| "Invalid path".to_string())
+                        .expect("Failed to get GBZ path");
+                    eprintln!("[INFO] Successfully downloaded GBZ from remote");
+                    return local_gbz.to_string();
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Failed to download remote GBZ: {}", e);
+                    panic!("Cannot download remote GBZ file");
+                }
+            }
+        } else {
+            eprintln!("[INFO] Using provided GBZ index: {}", gfa_path);
+            return gfa_path.to_string();
+        }
+    }
     
     if is_remote {
         // Try to find a corresponding GBZ file on the remote
