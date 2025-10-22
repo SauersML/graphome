@@ -39,17 +39,17 @@ pub fn run_viz(
     output_tga: &str,
     force_directed: bool,
 ) -> Result<(), Box<dyn Error>> {
-    eprintln!("[viz] Loading GFA from: {}", gfa_path);
+    eprintln!("[viz] Loading graph from: {}", gfa_path);
 
-    let gfa_pathbase = Path::new(gfa_path);
-    let gam_path = gfa_pathbase.with_extension("gam");
+    let graph_path = Path::new(gfa_path);
+    let gam_path = graph_path.with_extension("gam");
 
     if !gam_path.exists() {
         eprintln!(
-            "[viz] No .gam found at {:?}. Converting GFA -> .gam",
+            "[viz] No .gam found at {:?}. Converting graph -> .gam",
             gam_path
         );
-        convert_gfa_to_edge_list(gfa_pathbase, &gam_path)?;
+        convert_gfa_to_edge_list(graph_path, &gam_path)?;
     } else {
         eprintln!("[viz] Using cached adjacency file {:?}", gam_path);
     }
@@ -109,9 +109,7 @@ pub fn run_viz(
     let mut node_data = Vec::with_capacity(new_count);
     let mut adjacency_filtered = vec![Vec::new(); new_count];
     for _ in 0..new_count {
-        node_data.push(NodeData {
-            length: 1,
-        });
+        node_data.push(NodeData { length: 1 });
     }
     for &old_i in &keep_list {
         let new_i = old_to_new[old_i];

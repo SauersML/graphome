@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
+use graphome::{convert, embed, entropy, extract, gfa2gbz, make_sequence, map, video, viz, window};
 use std::io;
 use std::path::PathBuf;
-use graphome::{convert, extract, window, entropy, map, viz, embed, video, make_sequence, gfa2gbz};
 
 /// Graphome: GFA to Adjacency Matrix Converter and Analyzer
 #[derive(Parser)]
@@ -16,9 +16,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Convert GFA file to adjacency matrix in edge list format
+    /// Convert GFA/GBZ graph to adjacency matrix in edge list format
     Convert {
-        /// Path to the input GFA file
+        /// Path to the input GFA or GBZ file
         #[arg(short, long)]
         input: String,
         /// Path to the output adjacency matrix file
@@ -85,7 +85,7 @@ enum Commands {
 
     /// Map (with two sub-subcommands: node2coord, coord2node)
     Map {
-        /// The path to the GFA file
+        /// The path to the GFA or GBZ file
         #[arg(long)]
         gfa: String,
         /// The path to the PAF file
@@ -96,7 +96,7 @@ enum Commands {
     },
     /// Visualize a range of nodes as a colored TGA
     Viz {
-        /// Path to the GFA file
+        /// Path to the GFA or GBZ file
         #[arg(long)]
         gfa: String,
 
@@ -130,7 +130,7 @@ enum Commands {
     },
     /// Extract sequence based on coordinates
     MakeSequence {
-        /// The path to the GFA file
+        /// The path to the GFA or GBZ file
         #[arg(long)]
         gfa: String,
         /// The path to the PAF file
@@ -198,12 +198,7 @@ fn main() -> io::Result<()> {
             overlap,
             output,
         } => {
-            let config = window::WindowConfig::new(
-                *start_node,
-                *end_node,
-                *window_size,
-                *overlap,
-            );
+            let config = window::WindowConfig::new(*start_node, *end_node, *window_size, *overlap);
             window::parallel_extract_windows(input, output, config)?;
         }
         Commands::AnalyzeWindows { input } => {
@@ -211,17 +206,25 @@ fn main() -> io::Result<()> {
         }
 
         // The "Map" command has sub-subcommands: node2coord, coord2node
-        Commands::Map { gfa, paf, map_command } => {
-            match map_command {
-                MapCommand::Node2coord { node_id } => {
-                    map::run_node2coord(gfa, paf, node_id);
-                },
-                MapCommand::Coord2node { region } => {
-                    map::run_coord2node(gfa, paf, region);
-                },
+        Commands::Map {
+            gfa,
+            paf,
+            map_command,
+        } => match map_command {
+            MapCommand::Node2coord { node_id } => {
+                map::run_node2coord(gfa, paf, node_id);
             }
-        }
-        Commands::Viz { gfa, start_node, end_node, output_tga, force_directed } => {
+            MapCommand::Coord2node { region } => {
+                map::run_coord2node(gfa, paf, region);
+            }
+        },
+        Commands::Viz {
+            gfa,
+            start_node,
+            end_node,
+            output_tga,
+            force_directed,
+        } => {
             if let Err(err) = viz::run_viz(gfa, start_node, end_node, output_tga, *force_directed) {
                 eprintln!("[viz error] {}", err);
                 std::process::exit(1);
@@ -235,7 +238,13 @@ fn main() -> io::Result<()> {
             let points = embed::embed(*start_node, *end_node, input)?;
             video::make_video(&points).map_err(std::io::Error::other)?;
         }
-        Commands::MakeSequence { gfa, paf, region, sample, output } => {
+        Commands::MakeSequence {
+            gfa,
+            paf,
+            region,
+            sample,
+            output,
+        } => {
             make_sequence::run_make_sequence(gfa, paf, region, sample, output);
         }
         Commands::Gfa2gbz { input } => {
