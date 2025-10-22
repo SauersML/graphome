@@ -1,6 +1,6 @@
 use ndarray::prelude::*;
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,6 +62,7 @@ struct EdgeList {
     data: Arc<Vec<(usize, usize)>>,
     index: Arc<Vec<(usize, usize)>>, // (start_idx, end_idx) ranges for each node
     window_start: usize,  // Store window boundaries for edge filtering
+    #[allow(dead_code)]
     window_end: usize,
 }
 
@@ -84,7 +85,7 @@ impl EdgeList {
         
         // Align to 8-byte boundaries
         let start_pos = (start_pos / 8) * 8;
-        let end_pos = ((end_pos + 7) / 8) * 8;
+        let end_pos = end_pos.div_ceil(8) * 8;
         
         println!("📍 Seeking to approximate position {} - {}", start_pos, end_pos);
 
@@ -267,7 +268,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
                 start, end
             ));
             write_npy(&output_file, &laplacian)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                .map_err(io::Error::other)?;
 
             progress.lock().inc(1);
             Ok::<(), io::Error>(())

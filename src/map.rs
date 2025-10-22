@@ -9,16 +9,12 @@
 //         coord2node <chr>:<start>-<end>
 //      which do node->hg38 or hg38->node queries.
 
-use std::collections::{HashMap, HashSet};
 use std::fs::{File};
-use std::io::{BufReader, BufRead, BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::io::{BufWriter, Write};
+use std::path::{Path};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
 
 use memmap2::{MmapOptions};
-use tempfile::NamedTempFile;
-use rayon::prelude::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use gbwt::{GBZ, Orientation};
 use simple_sds::serialize;
@@ -263,12 +259,12 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
             let contig_name = metadata.contig_name(path_name.contig());
 
             // Check if this path contains the node by looking at all paths
-            if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
+            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
                 let mut position = 0;
                 let mut found_positions = Vec::new();
 
                 // Scan path to find node positions
-                while let Some((path_node, orientation)) = path_iter.next() {
+                for (path_node, orientation) in path_iter {
                     if path_node == node_id {
                         found_positions.push((position, orientation == Orientation::Forward));
                     }
@@ -335,9 +331,9 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
                 continue;
             }
 
-            if let Some(mut path_iter) = gbz.path(path_id, Orientation::Forward) {
+            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
                 let mut position = 0;
-                while let Some((node_id, orientation)) = path_iter.next() {
+                for (node_id, orientation) in path_iter {
                     if let Some(node_len) = gbz.sequence_len(node_id) {
                         let node_start = position;
                         let node_end = node_start + node_len;
@@ -740,10 +736,10 @@ fn create_node_ranges(node_ids: &[usize]) -> String {
     let mut start = sorted_ids[0];
     let mut end = start;
     
-    for i in 1..sorted_ids.len() {
-        if sorted_ids[i] == end + 1 {
+    for &id in &sorted_ids[1..] {
+        if id == end + 1 {
             // Continuing a range
-            end = sorted_ids[i];
+            end = id;
         } else {
             // End of range, start a new one
             if start == end {
@@ -751,7 +747,7 @@ fn create_node_ranges(node_ids: &[usize]) -> String {
             } else {
                 ranges.push(format!("{}-{}", start, end));
             }
-            start = sorted_ids[i];
+            start = id;
             end = start;
         }
     }

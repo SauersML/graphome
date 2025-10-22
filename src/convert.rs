@@ -46,8 +46,7 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     println!("Total segments (nodes) identified: {}", num_segments);
 
     // Step 2: Parse links and write edges in parallel
-
-    /// Some GFA files have no `L` (Link) lines at all.
+    // Some GFA files have no `L` (Link) lines at all.
     parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
     println!("Finished parsing links between nodes and writing edges.");
 
@@ -116,7 +115,7 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         .collect();
 
     // --- Line count calculation ---
-    let has_final_newline = line_ends.last().map_or(false, |&pos| pos as u64 == file_size - 1);
+    let has_final_newline = line_ends.last().is_some_and(|&pos| pos as u64 == file_size - 1);
     let total_lines = if has_final_newline {
         line_ends.len()
     } else {
@@ -202,13 +201,10 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
                 local_set
             },
         )
-        .reduce(
-            || HashSet::new(),
-            |mut a, b| {
-                a.extend(b);
-                a
-            },
-        );
+        .reduce(HashSet::new, |mut a, b| {
+            a.extend(b);
+            a
+        });
 
     pb.finish_with_message("✨ Segment parsing complete!");
 

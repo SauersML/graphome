@@ -7,7 +7,6 @@ use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client;
 use aws_smithy_types::byte_stream::ByteStream;
 use bytes::Bytes;
-use futures_util::TryStreamExt;
 use reqwest::blocking::Client as HttpClient;
 use tempfile::NamedTempFile;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
@@ -68,6 +67,7 @@ impl Seek for InputReader {
 /// and kept alive while the handle exists.
 pub struct MaterializedPath {
     path: PathBuf,
+    #[allow(dead_code)]
     temp: Option<NamedTempFile>,
 }
 
@@ -259,7 +259,7 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
                 .or_else("us-east-1"),
             None => RegionProviderChain::default_provider().or_else("us-east-1"),
         };
-        let config = aws_config::from_env().region(region_provider).load().await;
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider).load().await;
         let client = Client::new(&config);
         let obj = client
             .get_object()
@@ -289,7 +289,7 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
                 .or_else("us-east-1"),
             None => RegionProviderChain::default_provider().or_else("us-east-1"),
         };
-        let config = aws_config::from_env().region(region_provider).load().await;
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider).load().await;
         let client = Client::new(&config);
         let mut obj = client
             .get_object()
@@ -332,5 +332,5 @@ fn parse_s3_scheme(url: &Url) -> io::Result<S3Location> {
 }
 
 fn to_io_error<E: std::fmt::Display>(err: E) -> io::Error {
-    io::Error::new(io::ErrorKind::Other, err.to_string())
+    io::Error::other(err.to_string())
 }

@@ -24,12 +24,13 @@ fn matref_to_array(mat: MatRef<'_, f64>) -> Array2<f64> {
 }
 
 /// Helper function to read edges from the binary edge list file
+#[allow(dead_code)]
 fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
     let mut edges = HashSet::new();
     let mut file = File::open(path)?;
     let mut buffer = [0u8; 8];
 
-    while let Ok(_) = file.read_exact(&mut buffer) {
+    while file.read_exact(&mut buffer).is_ok() {
         let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
         edges.insert((from, to));
@@ -200,7 +201,7 @@ fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
     let nrows = matrix.len();
     let ncols = if nrows > 0 { matrix[0].len() } else { 0 };
     Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .map_err(io::Error::other)
 }
 
 /// Helper function to load a CSV file as a vector of f64 values
@@ -491,12 +492,13 @@ fn test_save_vector_to_csv() -> io::Result<()> {
 }
 
 /// Helper function to read edges from a .gam file into a HashSet
+#[allow(dead_code)]
 fn read_edges_from_gam<P: AsRef<Path>>(path: P) -> io::Result<HashSet<(u32, u32)>> {
     let mut edges = HashSet::new();
     let mut file = File::open(path)?;
     let mut buffer = [0u8; 8];
 
-    while let Ok(_) = file.read_exact(&mut buffer) {
+    while file.read_exact(&mut buffer).is_ok() {
         let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
         let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
         edges.insert((from, to));

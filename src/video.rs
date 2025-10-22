@@ -284,11 +284,11 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
     let mut gif_data = Vec::new();
     {
         let mut encoder = GifEncoder::new(&mut gif_data, width as u16, height as u16, &[])
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         encoder
             .set_repeat(Repeat::Infinite)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
 
         // 1 hundredth of a second per frame
         for mut raw in frame_buffers {
@@ -296,7 +296,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
             frame.delay = 1;
             encoder
                 .write_frame(&frame)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
         }
     }
 

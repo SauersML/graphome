@@ -17,6 +17,7 @@ use crate::extract::load_adjacency_matrix;
 
 /// A simple data structure to hold node info: length, adjacency, etc.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct NodeData {
     length: usize,
     // We'll store edges in an adjacency list: node_id -> set of neighbors
@@ -44,7 +45,7 @@ pub fn run_viz(
     eprintln!("[viz] Loading GFA from: {}", gfa_path);
 
     let gfa_pathbase = Path::new(gfa_path);
-    let mut gam_path = gfa_pathbase.with_extension("gam");
+    let gam_path = gfa_pathbase.with_extension("gam");
 
     if !gam_path.exists() {
         eprintln!(
@@ -91,8 +92,8 @@ pub fn run_viz(
 
     // Filter out nodes that have no neighbors
     let mut keep_list = Vec::new();
-    for i in 0..node_count {
-        if !adjacency[i].is_empty() {
+    for (i, adj) in adjacency.iter().enumerate() {
+        if !adj.is_empty() {
             keep_list.push(i);
         }
     }
@@ -266,8 +267,8 @@ pub fn run_viz(
         }
     } else {
         // If we only have 1 dimension or none, just spread them in a line
-        for i in 0..size {
-            positions[i] = (i as f32, 0.0);
+        for (i, pos) in positions.iter_mut().enumerate() {
+            *pos = (i as f32, 0.0);
         }
     }
 
@@ -444,7 +445,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 /// * Local density => scale saturation, so low-density ~ pastel, high-density ~ vivid.
 /// * Lightness is set to 0.45 for a deeper, more colorful look.
 fn color_from_cluster(
-    i: usize,
+    _i: usize,
     cluster_id: i32,
     local_density: f32,
     min_dens: f32,
@@ -551,7 +552,7 @@ fn draw_filled_circle_bgr(
     let (b, g, r) = color;
     let w = width as i32;
     let h = height as i32;
-    let rr = (radius * radius) as i32;
+    let rr = radius * radius;
 
     for dy in -radius..=radius {
         let yy = cy + dy;
@@ -735,9 +736,7 @@ fn force_directed_refinement(
 
     for iter in 0..iterations {
         // Reset displacements each iteration
-        for i in 0..n {
-            disp[i] = (0.0, 0.0);
-        }
+        disp.fill((0.0, 0.0));
 
         // Node–node repulsion
         for i in 0..n {
@@ -778,8 +777,7 @@ fn force_directed_refinement(
             let (a1, a2) = edges[i];
             let seg_a1 = positions[a1];
             let seg_a2 = positions[a2];
-            for j in (i + 1)..edges.len() {
-                let (b1, b2) = edges[j];
+            for &(b1, b2) in &edges[(i + 1)..] {
                 // Skip if they share a node
                 if a1 == b1 || a1 == b2 || a2 == b1 || a2 == b2 {
                     continue;

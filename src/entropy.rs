@@ -158,7 +158,7 @@ pub fn analyze_windows(output_dir: &Path) -> io::Result<()> {
         .has_headers(true)
         .from_path(&csv_path)?;
     
-    writer.write_record(&["start_node", "end_node", "ngec"])?;
+    writer.write_record(["start_node", "end_node", "ngec"])?;
     
     for result in results {
         writer.write_record(&[

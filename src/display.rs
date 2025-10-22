@@ -80,7 +80,7 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     let img = image::load_from_memory_with_format(tga_data, ImageFormat::Tga)?;
     println!("TGA image loaded successfully.");
 
-    if let Err(_) = viuer::print(&img, &conf) {
+    if viuer::print(&img, &conf).is_err() {
         println!("Failed to display image with viuer. Falling back to termimage.");
 
         // If that fails (e.g., viuer doesn't support the protocol), fall back to termimage.
@@ -120,11 +120,6 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
 
 pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     println!("Starting display_gif function...");
-
-    // Get terminal size
-    let term_size = termsize::get()
-        .map(|size| (size.cols as u32, size.rows as u32))
-        .unwrap_or((80, 24));
 
     // Set the terminal to support inline images (Kitty terminal).
     env::set_var("TERM", "xterm-kitty");

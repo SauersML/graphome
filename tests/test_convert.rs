@@ -259,7 +259,7 @@ fn load_csv_as_matrix<P: AsRef<Path>>(path: P) -> io::Result<Array2<f64>> {
     let nrows = matrix.len();
     let ncols = if nrows > 0 { matrix[0].len() } else { 0 };
     Array2::from_shape_vec((nrows, ncols), matrix.into_iter().flatten().collect())
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .map_err(io::Error::other)
 }
 
 /// Helper function to load a CSV file as a vector of f64 values

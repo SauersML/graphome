@@ -69,8 +69,8 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     }
     println!("    ⏳ Building degree diagonal matrix...");
     let mut laplacian = Mat::<f64>::zeros(size, size);
-    for i in 0..size {
-        *laplacian.get_mut(i, i) = degrees[i];
+    for (i, &degree) in degrees.iter().enumerate() {
+        *laplacian.get_mut(i, i) = degree;
     }
     let degree_duration = degree_start.elapsed();
     println!("    ✅ Degree matrix computed in {:.4?}", degree_duration);
@@ -91,7 +91,7 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
     println!("    ⏳ Saving Laplacian matrix to CSV...");
     let csv_start = Instant::now();
     let output_dir = edge_list_path.as_ref().parent().unwrap_or(Path::new("."));
-    std::fs::create_dir_all(&output_dir)?;
+    std::fs::create_dir_all(output_dir)?;
     let laplacian_csv = output_dir.join("laplacian.csv");
     println!("    📁 Output dir = {:?}", output_dir);
     println!("    📄 Laplacian CSV path = {:?}", laplacian_csv);
@@ -200,7 +200,7 @@ pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
 
     // 2) Define chunk size (1 GB for example). Make sure it's multiple of 8:
     let mut chunk_size = 1_073_741_824u64; // 1 GB
-    if chunk_size % 8 != 0 {
+    if !chunk_size.is_multiple_of(8) {
         chunk_size -= chunk_size % 8;
     }
     println!("    Using chunk_size = {} bytes", chunk_size);
@@ -209,7 +209,7 @@ pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
     let num_chunks = if file_size == 0 {
         0
     } else {
-        (file_size + chunk_size - 1) / chunk_size
+        file_size.div_ceil(chunk_size)
     };
     println!("    Number of chunks to read: {}", num_chunks);
 
@@ -283,13 +283,10 @@ pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
             );
             local_edges
         })
-        .reduce(
-            || Vec::new(), // identity
-            |mut acc, mut part| {
-                acc.append(&mut part); // merges partial vectors
-                acc
-            },
-        );
+        .reduce(Vec::new, |mut acc, mut part| {
+            acc.append(&mut part); // merges partial vectors
+            acc
+        });
 
     let total_kept = edges.len();
     println!(
@@ -326,14 +323,14 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
 
     // 2) chunk_size multiple of 8
     let mut chunk_size = 1_073_741_824u64; // 1 GB
-    if chunk_size % 8 != 0 {
+    if !chunk_size.is_multiple_of(8) {
         chunk_size -= chunk_size % 8;
     }
     // 3) number of chunks
     let num_chunks = if file_size == 0 {
         0
     } else {
-        (file_size + chunk_size - 1) / chunk_size
+        file_size.div_ceil(chunk_size)
     };
     println!(
         "    Using chunk_size = {} bytes, total chunks = {}",
@@ -416,8 +413,8 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
             || (Array2::<f64>::zeros((dim, dim)), Array1::<f64>::zeros(dim)),
             // Combine partials
             |(mut lap_a, mut deg_a), (lap_b, deg_b)| {
-                lap_a = lap_a + &lap_b; // elementwise add
-                deg_a = deg_a + &deg_b;
+                lap_a += &lap_b; // elementwise add
+                deg_a += &deg_b;
                 (lap_a, deg_a)
             },
         );
@@ -465,7 +462,7 @@ pub fn extract_and_save_matrices<P: AsRef<Path> + Send + Sync>(
 
     let lap_path = output_dir.join("laplacian.npy");
     println!("    .npy path: {:?}", lap_path);
-    write_npy(&lap_path, &laplacian).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    write_npy(&lap_path, &laplacian).map_err(io::Error::other)?;
     let save_duration = save_start.elapsed();
     println!("    ✅ Laplacian .npy saved in {:.4?}", save_duration);
 

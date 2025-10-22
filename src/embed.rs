@@ -13,7 +13,7 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
     eprintln!("Initializing embed function...");
 
     // Create a normal distribution centered around 0.0 with a standard deviation of 1.0
-    let normal = Normal::new(0.0, 1.0).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    let normal = Normal::new(0.0, 1.0).map_err(io::Error::other)?;
     eprintln!("Normal distribution created.");
 
     let mut rng = thread_rng(); // Random number generator
@@ -44,9 +44,9 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
             eprintln!("Generated 3D coordinates: ({}, {}, {})", x, y, z);
 
             // Map the x, y, z coordinates to RGB values (scaled between 0 and 255)
-            let r = ((x + 2.0_f32) * 127.5_f32).max(0.0_f32).min(255.0_f32) as u8;
-            let g = ((y + 2.0_f32) * 127.5_f32).max(0.0_f32).min(255.0_f32) as u8;
-            let b = ((z + 2.0_f32) * 127.5_f32).max(0.0_f32).min(255.0_f32) as u8;
+            let r = ((x + 2.0_f32) * 127.5_f32).clamp(0.0_f32, 255.0_f32) as u8;
+            let g = ((y + 2.0_f32) * 127.5_f32).clamp(0.0_f32, 255.0_f32) as u8;
+            let b = ((z + 2.0_f32) * 127.5_f32).clamp(0.0_f32, 255.0_f32) as u8;
 
             // Print the generated RGB color
             eprintln!("Generated color: ({}, {}, {})", r, g, b);

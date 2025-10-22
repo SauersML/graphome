@@ -36,11 +36,10 @@ fn extract_node_sequences(gfa_path: &str, node_ids: &HashSet<String>) -> HashMap
     let mut line_indices = Vec::new();
     line_indices.push(0);
     for i in 0..mmap.len() {
-        if mmap[i] == b'\n' {
-            if i + 1 < mmap.len() {
+        if mmap[i] == b'\n'
+            && i + 1 < mmap.len() {
                 line_indices.push(i + 1);
             }
-        }
     }
     
     let mut node_sequences = HashMap::new();
@@ -132,13 +131,13 @@ pub fn extract_sequence(
         for node in &nodes {
             nodes_by_path
                 .entry(node.path_name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(node);
         }
 
         // Process each path
         for (path_name, path_nodes) in nodes_by_path {
-            let safe_path_name = path_name.replace('#', "_").replace('/', "_");
+            let safe_path_name = path_name.replace(['#', '/'], "_");
             
             // Sort nodes by path offset
             let mut sorted_nodes = path_nodes.clone();

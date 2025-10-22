@@ -26,10 +26,9 @@
 
 use std::{
     fs::{File, OpenOptions},
-    io::{BufRead, BufReader, BufWriter, Write, ErrorKind},
-    path::Path,
-    collections::{HashMap, BTreeMap, BTreeSet},
-    env, process,
+    io::{BufRead, BufReader, BufWriter, Write},
+    collections::HashMap,
+    process,
     time::Instant,
 };
 
@@ -69,6 +68,7 @@ fn encode_node(node_id: usize, orientation: Orientation) -> usize {
 }
 /// Decode a GBWT node into (node_id, orientation).
 #[inline]
+#[allow(dead_code)]
 fn decode_node(gbwt_node: usize) -> (usize, Orientation) {
     let orientation_bit = gbwt_node & 1;
     let node_id = gbwt_node >> 1;
@@ -203,6 +203,7 @@ enum PathLineType {
 }
 #[derive(Debug, Clone)]
 struct GFAPathLine {
+    #[allow(dead_code)]
     ptype: PathLineType,
     raw_name: String,  // If P-line, this is the path name; if W-line, we store something else
     // For W-lines, we parse out (sample, haplotype, contig, fragment, etc.)
@@ -243,7 +244,6 @@ pub fn run_gfa2gbz(input: &str) {
     println!("[gfa2gbz] Assigning node IDs (with chunking if needed) ...");
     let (node_map, node_labels, node_translation) = build_node_id_map(&segments);
 
-    let max_node_id = node_labels.len() - 1; // if node_labels is [0..N]
     println!("[gfa2gbz] Total nodes after chunking: {}", node_labels.len());
 
     // Convert links
@@ -547,8 +547,6 @@ fn build_paths(
     gfa_paths: &Vec<GFAPathLine>,
     seg_map: &HashMap<String, Vec<usize>>,
 ) -> Vec<PathData> {
-    let mut sample_dict: BTreeMap<String, usize> = BTreeMap::new(); // not strictly needed
-    let mut contig_dict: BTreeMap<String, usize> = BTreeMap::new(); // not strictly needed
     let mut results = Vec::new();
 
     for p in gfa_paths {
@@ -599,22 +597,21 @@ fn build_paths(
  *     P-lines => sample = "_gbwt_ref", contig = path_name, hap=0, fragment= index?
  **************************************************************************************************/
 fn build_gbwt(
-    adjacency: &Vec<Vec<usize>>,
+    adjacency: &[Vec<usize>],
     node_count: usize,
-    path_data: &Vec<PathData>,
+    path_data: &[PathData],
 ) -> GBWTIndex {
     // We will store usage counts for (from, to) pairs to compute rank(v, w).
     // Then we build final adjacency with partial prefix sums.
 
     // Prepare all records.
     let total_count = (node_count << 1) + 1;
-    let mut records: Vec<Option<GBWTRecord>> = vec![None; total_count];
-    for i in 0..total_count {
-        records[i] = Some(GBWTRecord {
+    let mut records: Vec<Option<GBWTRecord>> = (0..total_count)
+        .map(|_| Some(GBWTRecord {
             edges: Vec::new(),
             runs: Vec::new(),
-        });
-    }
+        }))
+        .collect();
 
     // This map will track how many times (v, w) is used in the BWT of node v.
     // We only fill it during add_transition calls.
@@ -659,10 +656,8 @@ fn build_gbwt(
         if enc < adjacency.len() {
             let successors = &adjacency[enc];
             let mut edge_list = Vec::with_capacity(successors.len());
-            let mut prev_id = 0;
             for &succ_id in successors {
                 edge_list.push((succ_id, 0));
-                prev_id = succ_id;
             }
             edge_list.sort_by_key(|x| x.0);
             let r = records[enc].as_mut().unwrap();
@@ -754,8 +749,8 @@ fn build_gbwt(
     }
 
     // Construct the final adjacency with partial prefix sums. This sets rank(v, w).
-    for node_id in 0..total_count {
-        if let Some(rec) = records[node_id].as_mut() {
+    for (node_id, rec_opt) in records.iter_mut().enumerate() {
+        if let Some(rec) = rec_opt.as_mut() {
             if rec.edges.is_empty() {
                 continue;
             }
@@ -844,8 +839,7 @@ fn write_gbz(gbwt: &GBWTIndex, graph: &GBWTGraph, outfile: &str) -> Result<(), s
     pad_to_8(&mut w)?;
 
     // Write the GBZ-level tags
-    let mut tags = Vec::new();
-    tags.push(("source".to_string(), "gfa2gbz".to_string()));
+    let tags = vec![("source".to_string(), "gfa2gbz".to_string())];
     write_tags(&mut w, &tags)?;
     pad_to_8(&mut w)?;
 
@@ -953,7 +947,7 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
  * into a byte-coded structure. Then we store them all in a single array "data_bytes." 
  * We also store an offset for record i in record_offsets[i].
  **************************************************************************************************/
-fn build_bwt_bytes(records: &Vec<Option<GBWTRecord>>) -> (Vec<(usize,usize)>, Vec<u8>) {
+fn build_bwt_bytes(records: &[Option<GBWTRecord>]) -> (Vec<(usize,usize)>, Vec<u8>) {
     let mut data = Vec::new();
     let mut offsets = Vec::new();
     for (rid, rec_opt) in records.iter().enumerate() {
@@ -1140,7 +1134,7 @@ fn write_gbwt_graph_data<W: Write>(w: &mut W, graph: &GBWTGraph) -> Result<(), s
         w.write_all(&bit_len.to_le_bytes())?;
         // we must store the bits in a plain array of (bit_len+7)/8 
         // We'll build it 
-        let mut bits = vec![0u8; (full_len+7)/8];
+        let mut bits = vec![0u8; full_len.div_ceil(8)];
         for &pos in &tr.mapping {
             let p = pos;
             if p < full_len {
@@ -1151,13 +1145,12 @@ fn write_gbwt_graph_data<W: Write>(w: &mut W, graph: &GBWTGraph) -> Result<(), s
     } else {
         // If there's no translation, we store empty arrays. The spec requires us to store an empty string array for segments, 
         // and an empty bitvector for mapping. 
-        let zero_count = 0u64;
         // empty string array => "0" => means no strings 
         write_varuint(w, 0)?;
         // empty mapping => bit_len= forward_labels.len()+1 => then all zero. 
         let length = (graph.forward_labels.len()+1) as u64;
         w.write_all(&length.to_le_bytes())?;
-        let byte_len = (length as usize +7)/8;
+        let byte_len = (length as usize).div_ceil(8);
         let zero_bits = vec![0u8; byte_len];
         w.write_all(&zero_bits)?;
     }
@@ -1190,8 +1183,7 @@ fn write_string_array<W: Write>(w: &mut W, arr: &Vec<String>) -> Result<(), std:
     for &b in &data {
         used[b as usize] = true;
     }
-    let mut alpha_map = Vec::new(); // maps byte-> rank
-    alpha_map.resize(256, 0);
+    let mut alpha_map = vec![0; 256]; // maps byte-> rank
     let mut alpha_vec = Vec::new();
     let mut rank = 0;
     for b in 0..256 {
@@ -1211,7 +1203,7 @@ fn write_string_array<W: Write>(w: &mut W, arr: &Vec<String>) -> Result<(), std:
     // Build the bitvector of length data.len()+1. We'll set bit at offsets[i], for i in 0..arr.len(). 
     // The last offset is data.len(). 
     let bit_length = data.len()+1;
-    let mut bits = vec![0u8; (bit_length+7)/8];
+    let mut bits = vec![0u8; bit_length.div_ceil(8)];
     for &ofs in &offsets[..arr.len()] {
         bits[ofs>>3] |= 1 << (ofs & 7);
     }

@@ -178,7 +178,7 @@ fn main() -> io::Result<()> {
             input,
             start_node,
             end_node,
-            output,
+            output: _,
         } => {
             extract::extract_and_analyze_submatrix(input, *start_node, *end_node)?;
         }
@@ -233,7 +233,7 @@ fn main() -> io::Result<()> {
             end_node,
         } => {
             let points = embed::embed(*start_node, *end_node, input)?;
-            video::make_video(&points).map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))?;
+            video::make_video(&points).map_err(std::io::Error::other)?;
         }
         Commands::MakeSequence { gfa, paf, region, sample, output } => {
             make_sequence::run_make_sequence(gfa, paf, region, sample, output);

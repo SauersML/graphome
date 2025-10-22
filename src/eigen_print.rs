@@ -110,7 +110,7 @@ pub fn compute_eigenvalues_and_vectors_sym(
     }
 
     let decomposition = SelfAdjointEigen::new(laplacian, Side::Lower)
-        .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{:?}", err)))?;
+        .map_err(|err| io::Error::other(format!("{:?}", err)))?;
 
     let eigenvalues = decomposition
         .S()
@@ -144,7 +144,7 @@ pub fn save_vector_to_csv<P: AsRef<Path>>(vector: &[f64], csv_path: P) -> io::Re
     let mut wtr = WriterBuilder::new()
         .has_headers(false)
         .from_path(csv_path)?;
-    wtr.serialize(vector.iter().copied().collect::<Vec<f64>>())?;
+    wtr.serialize(vector.to_vec())?;
     wtr.flush()?;
     Ok(())
 }
