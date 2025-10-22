@@ -30,5 +30,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-nightly-
 
+      - name: Prepare HPRC dataset
+        run: |
+          mkdir -p data/hprc
+          if [ ! -f data/hprc/hprc-v2.0-mc-grch38.gbz ]; then
+            curl -L \
+              -o data/hprc/hprc-v2.0-mc-grch38.gbz \
+              https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz
+          fi
+
       - name: Run tests
         run: cargo test --release
+
+      - name: Run HPRC coord2node integration test
+        run: cargo test --release --test test_map integration_map_coord2node_hprc -- --ignored

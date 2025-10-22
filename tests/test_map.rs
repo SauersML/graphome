@@ -159,6 +159,44 @@ fn test_coord2node_empty_region() -> Result<(), Box<dyn std::error::Error>> {
         nodes.is_empty(),
         "coord2node should return empty results for nonexistent chromosome"
     );
-    
+
+    Ok(())
+}
+
+#[test]
+#[ignore = "Requires HPRC GBZ dataset and explicit invocation"]
+fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
+    let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
+    assert!(
+        gbz_path.exists(),
+        "Expected HPRC GBZ at {}",
+        gbz_path.display()
+    );
+
+    let binary = env!("CARGO_BIN_EXE_graphome");
+    let output = Command::new(binary)
+        .args([
+            "map",
+            "--gfa",
+            gbz_path.to_str().expect("Non-UTF8 GBZ path"),
+            "coord2node",
+            "chr1:103553815-103579534",
+        ])
+        .output()?;
+
+    assert!(
+        output.status.success(),
+        "graphome map command failed: {}\nStdout: {}\nStderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.trim().is_empty(),
+        "graphome map command produced no output"
+    );
+
     Ok(())
 }
