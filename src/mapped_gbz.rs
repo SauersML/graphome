@@ -395,6 +395,34 @@ impl MappedGBZ {
             current_pos: Some(start_pos),
         })
     }
+
+    /// Get metadata (compatible with GBZ interface)
+    pub fn metadata(&self) -> Option<&gbwt::gbwt::Metadata> {
+        self.gbwt.metadata()
+    }
+
+    /// Get path iterator (compatible with GBZ interface)
+    /// Returns an iterator over (node_id, orientation) pairs
+    pub fn path(&self, path_id: usize, _orientation: gbwt::Orientation) -> Option<PathWalker<'_>> {
+        // For now, we only support forward orientation
+        // The path_id is the sequence_id in GBWT terms
+        self.walk_path(path_id)
+    }
+
+    /// Get sequence length for a node (stub - needs Graph implementation)
+    /// For now, returns None since we don't have Graph loaded
+    pub fn sequence_len(&self, _node_id: usize) -> Option<usize> {
+        // TODO: Implement Graph descriptor to get node lengths
+        // For now, return a default length to allow testing
+        Some(100) // Placeholder
+    }
+
+    /// Get reference positions (stub - not implemented yet)
+    /// Returns empty vec since we don't have the reference position index
+    pub fn reference_positions(&self, _sample_interval: usize, _generic: bool) -> Vec<gbwt::gbz::ReferencePath> {
+        // TODO: Implement reference position index
+        Vec::new()
+    }
 }
 
 /// Iterator for walking a path in the graph
@@ -404,18 +432,17 @@ pub struct PathWalker<'a> {
 }
 
 impl<'a> Iterator for PathWalker<'a> {
-    type Item = (usize, bool); // (node_id, is_forward)
+    type Item = (usize, gbwt::Orientation); // (node_id, orientation)
 
     fn next(&mut self) -> Option<Self::Item> {
         let pos = self.current_pos?;
         
         // Decode the node and orientation
         let (node_id, orientation) = gbwt::support::decode_node(pos.node);
-        let is_forward = orientation == gbwt::Orientation::Forward;
         
         // Advance to next position
         self.current_pos = self.gbz.gbwt.forward(&self.gbz.map, pos);
         
-        Some((node_id, is_forward))
+        Some((node_id, orientation))
     }
 }

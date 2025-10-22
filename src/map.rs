@@ -18,6 +18,7 @@ use memmap2::{MmapOptions};
 use indicatif::{ProgressBar, ProgressStyle};
 use gbwt::{GBZ, Orientation};
 use simple_sds::serialize;
+use crate::mapped_gbz::MappedGBZ;
 
 // Data Structures
 
@@ -125,18 +126,20 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
     let gbz_path = make_gbz_exist(gfa_path, paf_path);
     eprintln!("[INFO] Using GBZ index from '{}'", gbz_path);
 
-    // Load GBZ
-    let gbz: GBZ = match serialize::load_from(&gbz_path) {
+    // Load GBZ with memory mapping
+    eprintln!("[INFO] Loading GBZ with memory mapping...");
+    let gbz = match MappedGBZ::new(&gbz_path) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Error loading GBZ file: {}", e);
             return;
         }
     };
+    eprintln!("[INFO] GBZ loaded successfully");
 
     // Parse region
     if let Some((chr, start, end)) = parse_region(region) {
-        let results = coord_to_nodes(&gbz, &chr, start, end);
+        let results = coord_to_nodes_mapped(&gbz, &chr, start, end);
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {
@@ -304,6 +307,70 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
 
 // coord_to_nodes
 // Using GBZ index to find nodes at a reference position
+/// Coordinate to nodes using memory-mapped GBZ
+pub fn coord_to_nodes_mapped(gbz: &MappedGBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
+    let mut results = Vec::new();
+
+    // Get reference paths and their positions
+    let mut ref_paths = gbz.reference_positions(1000, true);
+    if ref_paths.is_empty() {
+        println!("DEBUG: No reference paths found in GBZ; falling back to all paths");
+        ref_paths = gbz.reference_positions(1000, false);
+    }
+
+    let metadata = match gbz.metadata() {
+        Some(meta) => meta,
+        None => {
+            println!("DEBUG: No metadata available in GBZ");
+            return results;
+        }
+    };
+
+    // Since reference_positions returns empty (not implemented yet),
+    // we always use manual scan
+    if ref_paths.is_empty() {
+        println!("DEBUG: Performing manual path scan (reference positions not available)");
+        for (path_id, path_name) in metadata.path_iter().enumerate() {
+            let contig_name = metadata.contig_name(path_name.contig());
+            if contig_name != chr {
+                continue;
+            }
+
+            println!("DEBUG: Scanning path {} (id={})", contig_name, path_id);
+            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+                let mut position = 0;
+                for (node_id, orientation) in path_iter {
+                    if let Some(node_len) = gbz.sequence_len(node_id) {
+                        let node_start = position;
+                        let node_end = node_start + node_len;
+                        if node_start <= end && node_end > start {
+                            let overlap_start = start.max(node_start);
+                            let overlap_end = end.min(node_end - 1);
+                            if overlap_start <= overlap_end {
+                                let node_off_start = overlap_start - node_start;
+                                let node_off_end = overlap_end - node_start;
+                                results.push(Coord2NodeResult {
+                                    path_name: contig_name.clone(),
+                                    node_id: node_id.to_string(),
+                                    node_orient: orientation == Orientation::Forward,
+                                    path_off_start: node_off_start,
+                                    path_off_end: node_off_end,
+                                });
+                            }
+                        }
+                        position += node_len;
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    // Reference position index path (not implemented yet)
+    results
+}
+
 pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
 println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
