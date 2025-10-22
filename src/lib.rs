@@ -8,6 +8,7 @@ pub mod gfa2gbz;
 pub mod io;
 pub mod make_sequence;
 pub mod map;
+pub mod mapped_gbz;
 pub mod progress;
 pub mod video;
 pub mod viz;
