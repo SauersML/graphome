@@ -644,6 +644,11 @@ fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
 /// Ensures a GBZ file exists for given GFA and PAF files.
 /// If the GBZ doesn't exist, validates and fixes the GFA, then creates the GBZ.
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
+    if GBZ::is_gbz(gfa_path) {
+        eprintln!("[INFO] Using provided GBZ index: {}", gfa_path);
+        return gfa_path.to_string();
+    }
+
     // Derive GBZ filename from GFA and PAF paths
     let gfa_base = Path::new(gfa_path).file_stem().unwrap_or_default().to_string_lossy();
     let paf_base = Path::new(paf_path).file_stem().unwrap_or_default().to_string_lossy();
