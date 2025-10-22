@@ -210,7 +210,6 @@ fn test_coord2node_empty_region() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-#[ignore = "Requires HPRC GBZ dataset and explicit invocation"]
 fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
     let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
     assert!(
