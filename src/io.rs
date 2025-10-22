@@ -5,7 +5,6 @@ use std::path::{Path, PathBuf};
 
 use flate2::read::GzDecoder;
 
-use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client;
 use aws_smithy_types::byte_stream::ByteStream;
@@ -309,22 +308,18 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
     let key = loc.key.clone();
     let region = loc.region.clone();
     let (body, total) = runtime.block_on(async move {
-        // Use us-west-2 for human-pangenomics bucket, us-east-1 as fallback
-        let default_region = if bucket == "human-pangenomics" {
-            "us-west-2"
-        } else {
-            "us-east-1"
-        };
-        let region_provider = match region {
-            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name)),
-            None => RegionProviderChain::first_try(Region::new(default_region)),
-        };
-        // For public buckets, try without credentials first
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(region_provider)
-            .no_credentials()
-            .load()
-            .await;
+        // For public buckets, use no credentials
+        // Region will be auto-detected from the bucket's location
+        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .no_credentials();
+        
+        if let Some(region_name) = region {
+            config_loader = config_loader.region(Region::new(region_name));
+        }
+        
+        let config = config_loader.load().await;
+        
+        // Create S3 client - it should handle cross-region redirects automatically
         let client = Client::new(&config);
         let obj = client
             .get_object()
@@ -357,33 +352,70 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
     let region = loc.region.clone();
     let mut temp = NamedTempFile::new()?;
     let download_result = rt.block_on(async {
-        // Use us-west-2 for human-pangenomics bucket, us-east-1 as fallback
-        let default_region = if bucket == "human-pangenomics" {
-            "us-west-2"
-        } else {
-            "us-east-1"
-        };
-        let region_provider = match region {
-            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name)),
-            None => RegionProviderChain::first_try(Region::new(default_region)),
-        };
-        // For public buckets, try without credentials first
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(region_provider)
-            .no_credentials()
-            .load()
-            .await;
+        // For public buckets, use no credentials
+        // Region will be auto-detected from the bucket's location
+        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .no_credentials();
+        
+        if let Some(region_name) = region {
+            config_loader = config_loader.region(Region::new(region_name));
+        }
+        
+        let config = config_loader.load().await;
+        
+        // Create S3 client - it should handle cross-region redirects automatically
         let client = Client::new(&config);
-        let mut obj = client
+        // Try to get the object, handling region redirects
+        let mut obj = match client
             .get_object()
             .bucket(&bucket)
             .key(&key)
             .send()
             .await
-            .map_err(|e| {
-                eprintln!("DEBUG: S3 error details: {:?}", e);
-                to_io_error(e)
-            })?;
+        {
+            Ok(obj) => obj,
+            Err(e) => {
+                // Check if this is a redirect error with region information
+                let error_str = format!("{:?}", e);
+                if error_str.contains("PermanentRedirect") && error_str.contains("x-amz-bucket-region") {
+                    // Extract region from error (it's in the headers)
+                    // The error message contains: "x-amz-bucket-region": HeaderValue { _private: H1("us-west-2") }
+                    if let Some(start) = error_str.find("x-amz-bucket-region") {
+                        if let Some(region_start) = error_str[start..].find("H1(\"") {
+                            if let Some(region_end) = error_str[start + region_start + 4..].find("\"") {
+                                let detected_region = &error_str[start + region_start + 4..start + region_start + 4 + region_end];
+                                eprintln!("[INFO] Bucket is in region {}, retrying...", detected_region);
+                                
+                                // Recreate client with correct region
+                                let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                                    .no_credentials()
+                                    .region(Region::new(detected_region.to_string()))
+                                    .load()
+                                    .await;
+                                let client = Client::new(&config);
+                                
+                                // Retry the request
+                                client
+                                    .get_object()
+                                    .bucket(&bucket)
+                                    .key(&key)
+                                    .send()
+                                    .await
+                                    .map_err(to_io_error)?
+                            } else {
+                                return Err(to_io_error(e));
+                            }
+                        } else {
+                            return Err(to_io_error(e));
+                        }
+                    } else {
+                        return Err(to_io_error(e));
+                    }
+                } else {
+                    return Err(to_io_error(e));
+                }
+            }
+        };
         let total = obj
             .content_length()
             .and_then(|len| if len >= 0 { Some(len as u64) } else { None });
