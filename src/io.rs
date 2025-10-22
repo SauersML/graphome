@@ -320,7 +320,7 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
             .load()
             .await;
         let client = Client::new(&config);
-        let mut obj = client
+        let obj = client
             .get_object()
             .bucket(&bucket)
             .key(&key)
