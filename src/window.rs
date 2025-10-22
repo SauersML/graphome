@@ -90,12 +90,10 @@ impl EdgeList {
         println!("📍 Seeking to approximate position {} - {}", start_pos, end_pos);
 
         // Collect edges efficiently using pre-allocated vector
-        let estimated_edges = (end_pos - start_pos) / 8;
-        let mut edges = Vec::with_capacity(estimated_edges);
         let mut seen_edges = HashSet::new();
 
         // Process chunks in parallel for faster loading
-        edges = mmap[start_pos..end_pos].par_chunks_exact(8)
+        let mut edges: Vec<(usize, usize)> = mmap[start_pos..end_pos].par_chunks_exact(8)
             .filter_map(|chunk| {
                 let from = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
                 let to = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;

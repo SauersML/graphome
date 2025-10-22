@@ -1,6 +1,5 @@
 // src/viz.rs
 
-use std::collections::HashSet;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -20,8 +19,6 @@ use crate::extract::load_adjacency_matrix;
 #[allow(dead_code)]
 struct NodeData {
     length: usize,
-    // We'll store edges in an adjacency list: node_id -> set of neighbors
-    neighbors: HashSet<String>,
 }
 
 /// Renders a real 2D graph layout of all nodes in the GFA whose IDs
@@ -109,17 +106,11 @@ pub fn run_viz(
     }
 
     // Rebuild adjacency and node data for only those kept nodes
-    #[derive(Debug)]
-    struct NodeData {
-        length: usize,
-        neighbors: HashSet<String>,
-    }
     let mut node_data = Vec::with_capacity(new_count);
     let mut adjacency_filtered = vec![Vec::new(); new_count];
     for _ in 0..new_count {
         node_data.push(NodeData {
             length: 1,
-            neighbors: HashSet::new(),
         });
     }
     for &old_i in &keep_list {
