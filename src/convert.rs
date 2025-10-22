@@ -2,20 +2,21 @@
 
 // Module for converting GFA file to adjacency matrix in edge list format.
 
+use gbwt::{Orientation, GBZ};
+use indicatif::{ProgressBar, ProgressStyle};
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
+use simple_sds::serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use rand_chacha::ChaCha8Rng;
-use rand::Rng;
-use rand::SeedableRng;
 
-use indicatif::{ProgressBar, ProgressStyle};
-
-/// Converts a GFA file to an adjacency matrix in edge list format.
+/// Converts a graph (GFA or GBZ) to an adjacency matrix in edge list format.
 ///
 /// This function performs a two-pass approach:
 /// 1. First Pass: Parses the GFA file to collect all unique segment names and assigns them deterministic indices based on sorted order.
@@ -23,7 +24,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 ///
 /// # Arguments
 ///
-/// * `gfa_path` - Path to the input GFA file.
+/// * `input_path` - Path to the input graph (GFA or GBZ).
 /// * `output_path` - Path to the output adjacency matrix file.
 ///
 /// # Errors
@@ -33,21 +34,34 @@ use indicatif::{ProgressBar, ProgressStyle};
 /// # Panics
 ///
 /// This function does not explicitly panic.
-pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> io::Result<()> {
+pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(input_path: P, output_path: P) -> io::Result<()> {
+    convert_graph_to_edge_list(input_path, output_path)
+}
+
+/// Entry point for converting a graph file (GFA or GBZ) to an adjacency list.
+pub fn convert_graph_to_edge_list<P: AsRef<Path>>(input_path: P, output_path: P) -> io::Result<()> {
+    let input_path: PathBuf = input_path.as_ref().to_path_buf();
+    let output_path: PathBuf = output_path.as_ref().to_path_buf();
+
+    if GBZ::is_gbz(&input_path) {
+        convert_gbz_to_edge_list(&input_path, &output_path)
+    } else {
+        convert_gfa_to_edge_list_impl(&input_path, &output_path)
+    }
+}
+
+fn convert_gfa_to_edge_list_impl(gfa_path: &Path, output_path: &Path) -> io::Result<()> {
     let start_time = Instant::now();
 
-    println!(
-        "Starting to parse GFA file: {}",
-        gfa_path.as_ref().display()
-    );
+    println!("Starting to parse GFA file: {}", gfa_path.display());
 
     // Step 1: Parse the GFA file to extract segments and assign deterministic indices
-    let (segment_indices, num_segments) = parse_segments(&gfa_path)?;
+    let (segment_indices, num_segments) = parse_segments(gfa_path)?;
     println!("Total segments (nodes) identified: {}", num_segments);
 
     // Step 2: Parse links and write edges in parallel
     // Some GFA files have no `L` (Link) lines at all.
-    parse_links_and_write_edges(&gfa_path, &segment_indices, &output_path)?;
+    parse_links_and_write_edges(gfa_path, &segment_indices, output_path)?;
     println!("Finished parsing links between nodes and writing edges.");
 
     let duration = start_time.elapsed();
@@ -56,10 +70,118 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
     Ok(())
 }
 
+fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<()> {
+    let start_time = Instant::now();
 
+    println!("Starting to parse GBZ file: {}", gbz_path.display());
 
+    let gbz: GBZ = serialize::load_from(gbz_path).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to load GBZ: {e}"),
+        )
+    })?;
 
+    // Collect all segment names if translation is available; otherwise, fall back to node identifiers.
+    let segment_indices = if let Some(mut segment_iter) = gbz.segment_iter() {
+        let mut names = Vec::new();
+        while let Some(segment) = segment_iter.next() {
+            names.push(String::from_utf8_lossy(segment.name).to_string());
+        }
+        names.par_sort();
+        let indices: HashMap<String, u32> = names
+            .into_iter()
+            .enumerate()
+            .map(|(i, name)| (name, i as u32))
+            .collect();
+        indices
+    } else {
+        let mut node_ids: Vec<String> =
+            gbz.node_iter().map(|node_id| node_id.to_string()).collect();
+        node_ids.par_sort();
+        let indices: HashMap<String, u32> = node_ids
+            .into_iter()
+            .enumerate()
+            .map(|(i, node)| (node, i as u32))
+            .collect();
+        indices
+    };
 
+    println!(
+        "Total segments (nodes) identified: {}",
+        segment_indices.len()
+    );
+
+    // Build edges by walking the GBZ topology.
+    let mut edges: HashSet<(u32, u32)> = HashSet::new();
+
+    if gbz.has_translation() {
+        if let Some(mut segment_iter) = gbz.segment_iter() {
+            while let Some(segment) = segment_iter.next() {
+                let from_name = String::from_utf8_lossy(segment.name).to_string();
+                let Some(&from_idx) = segment_indices.get(&from_name) else {
+                    continue;
+                };
+
+                if let Some(mut succ_iter) = gbz.segment_successors(&segment, Orientation::Forward)
+                {
+                    while let Some((succ_segment, _)) = succ_iter.next() {
+                        let to_name = String::from_utf8_lossy(succ_segment.name).to_string();
+                        if let Some(&to_idx) = segment_indices.get(&to_name) {
+                            let edge = if from_idx <= to_idx {
+                                (from_idx, to_idx)
+                            } else {
+                                (to_idx, from_idx)
+                            };
+                            edges.insert(edge);
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        for node_id in gbz.node_iter() {
+            let node_name = node_id.to_string();
+            let Some(&from_idx) = segment_indices.get(&node_name) else {
+                continue;
+            };
+
+            if let Some(mut succ_iter) = gbz.successors(node_id, Orientation::Forward) {
+                while let Some((succ_id, _)) = succ_iter.next() {
+                    let succ_name = succ_id.to_string();
+                    if let Some(&to_idx) = segment_indices.get(&succ_name) {
+                        let edge = if from_idx <= to_idx {
+                            (from_idx, to_idx)
+                        } else {
+                            (to_idx, from_idx)
+                        };
+                        edges.insert(edge);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut sorted_edges: Vec<(u32, u32)> = edges.into_iter().collect();
+    sorted_edges.sort_unstable();
+
+    let output_file = File::create(output_path)?;
+    let mut writer = BufWriter::new(output_file);
+    for (from_idx, to_idx) in &sorted_edges {
+        writer.write_all(&from_idx.to_le_bytes())?;
+        writer.write_all(&to_idx.to_le_bytes())?;
+    }
+    writer.flush()?;
+
+    println!(
+        "Finished parsing GBZ edges. Unique undirected edges written: {}",
+        sorted_edges.len()
+    );
+    let duration = start_time.elapsed();
+    println!("Completed in {:.2?} seconds.", duration);
+
+    Ok(())
+}
 
 /// Parses the GFA file to extract segments and assign unique indices deterministically.
 ///
@@ -88,13 +210,13 @@ pub fn convert_gfa_to_edge_list<P: AsRef<Path>>(gfa_path: P, output_path: P) -> 
 /// # Panics
 ///
 /// Does not explicitly panic.
-fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u32>, u32)> {
+fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
     use memchr::memchr_iter;
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     // --- Memory-map the file ---
-    let file = File::open(&gfa_path)?;
+    let file = File::open(gfa_path)?;
     let file_size = file.metadata()?.len();
     let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
 
@@ -115,7 +237,9 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
         .collect();
 
     // --- Line count calculation ---
-    let has_final_newline = line_ends.last().is_some_and(|&pos| pos as u64 == file_size - 1);
+    let has_final_newline = line_ends
+        .last()
+        .is_some_and(|&pos| pos as u64 == file_size - 1);
     let total_lines = if has_final_newline {
         line_ends.len()
     } else {
@@ -137,11 +261,10 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     let samples = 1000.min(total_lines);
     let seed: u64 = rand::thread_rng().gen();
     let sample_count = AtomicU32::new(0);
-    
+
     (0..samples).into_par_iter().for_each(|_| {
-        let mut rng = ChaCha8Rng::seed_from_u64(
-            seed + rayon::current_thread_index().unwrap_or(0) as u64
-        );
+        let mut rng =
+            ChaCha8Rng::seed_from_u64(seed + rayon::current_thread_index().unwrap_or(0) as u64);
         let idx = rng.gen_range(0..total_lines);
         let line_slice = get_line_slice(idx);
         if line_slice.starts_with(b"S\t") {
@@ -211,20 +334,18 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
     // --- Deterministic sorting and indexing ---
     let mut all_names: Vec<String> = segment_names.into_iter().collect();
     all_names.par_sort();
-    
+
     let segment_indices: HashMap<String, u32> = all_names
         .into_iter()
         .enumerate()
         .map(|(i, name)| (name, i as u32))
         .collect();
-    
+
     let segment_counter = segment_indices.len() as u32;
     println!("🎯 Total segments (nodes) identified: {}", segment_counter);
 
     Ok((segment_indices, segment_counter))
 }
-
-
 
 /// Parses the GFA file to extract links and write edges to the output file.
 ///
@@ -244,15 +365,15 @@ fn parse_segments<P: AsRef<Path>>(gfa_path: P) -> io::Result<(HashMap<String, u3
 /// # Panics
 ///
 /// This function may panic if writes fail (due to `.unwrap()`).
-fn parse_links_and_write_edges<P: AsRef<Path>>(
-    gfa_path: P,
+fn parse_links_and_write_edges(
+    gfa_path: &Path,
     segment_indices: &HashMap<String, u32>,
-    output_path: P,
+    output_path: &Path,
 ) -> io::Result<()> {
-    let file = File::open(&gfa_path)?;
+    let file = File::open(gfa_path)?;
     let reader = BufReader::new(file);
 
-    let output_file = File::create(&output_path)?;
+    let output_file = File::create(output_path)?;
     let writer = Arc::new(Mutex::new(BufWriter::new(output_file)));
 
     println!("Parsing links between nodes and writing edges...");
@@ -267,7 +388,9 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
 
     // Configure the progress bar style
     let style = ProgressStyle::default_bar()
-        .template("{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)")
+        .template(
+            "{spinner} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} Links (Estimated)",
+        )
         .unwrap()
         .progress_chars("#>-");
     pb.set_style(style);
@@ -298,7 +421,7 @@ fn parse_links_and_write_edges<P: AsRef<Path>>(
                     return;
                 }
                 let from_name = parts[1].trim().to_string();
-                let to_name   = parts[3].trim().to_string();
+                let to_name = parts[3].trim().to_string();
 
                 // Look up indices
                 if let (Some(&f_idx), Some(&t_idx)) = (

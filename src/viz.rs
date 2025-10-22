@@ -9,7 +9,7 @@ use faer::Mat;
 use hdbscan::Hdbscan;
 use ndarray::Array2;
 
-use crate::convert::convert_gfa_to_edge_list;
+use crate::convert::convert_graph_to_edge_list;
 use crate::display::display_tga;
 use crate::eigen_print::call_eigendecomp;
 use crate::extract::load_adjacency_matrix;
@@ -21,11 +21,11 @@ struct NodeData {
     length: usize,
 }
 
-/// Renders a real 2D graph layout of all nodes in the GFA whose IDs
+/// Renders a real 2D graph layout of all nodes in the input graph whose IDs
 /// fall in the inclusive lexicographical range [start_node..end_node].
 ///
 /// Steps:
-///  1) Parse GFA from gfa_path.
+///  1) Parse a graph (GFA/GBZ) from `graph_path`.
 ///  2) Keep only nodes N with start_node <= N <= end_node.
 ///  3) Build adjacency (subgraph).
 ///  4) Run a spectral layout to get initial (x,y) positions.
@@ -33,23 +33,23 @@ struct NodeData {
 ///  6) Draw edges and nodes as a 2D image.
 ///  7) Write an uncompressed TGA (24‐bit BGR).
 pub fn run_viz(
-    gfa_path: &str,
+    graph_path: &str,
     start_node: &str,
     end_node: &str,
     output_tga: &str,
     force_directed: bool,
 ) -> Result<(), Box<dyn Error>> {
-    eprintln!("[viz] Loading GFA from: {}", gfa_path);
+    eprintln!("[viz] Loading graph from: {}", graph_path);
 
-    let gfa_pathbase = Path::new(gfa_path);
-    let gam_path = gfa_pathbase.with_extension("gam");
+    let graph_pathbase = Path::new(graph_path);
+    let gam_path = graph_pathbase.with_extension("gam");
 
     if !gam_path.exists() {
         eprintln!(
-            "[viz] No .gam found at {:?}. Converting GFA -> .gam",
+            "[viz] No .gam found at {:?}. Converting graph -> .gam",
             gam_path
         );
-        convert_gfa_to_edge_list(gfa_pathbase, &gam_path)?;
+        convert_graph_to_edge_list(graph_pathbase, &gam_path)?;
     } else {
         eprintln!("[viz] Using cached adjacency file {:?}", gam_path);
     }
@@ -109,9 +109,7 @@ pub fn run_viz(
     let mut node_data = Vec::with_capacity(new_count);
     let mut adjacency_filtered = vec![Vec::new(); new_count];
     for _ in 0..new_count {
-        node_data.push(NodeData {
-            length: 1,
-        });
+        node_data.push(NodeData { length: 1 });
     }
     for &old_i in &keep_list {
         let new_i = old_to_new[old_i];
