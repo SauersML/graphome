@@ -72,3 +72,7 @@ path = "tests/test_extract.rs"
 [[test]]
 name = "test_io"
 path = "tests/test_io.rs"
+
+[[test]]
+name = "test_map"
+path = "tests/test_map.rs"
