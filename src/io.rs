@@ -10,11 +10,13 @@ use aws_sdk_s3::config::Region;
 use aws_sdk_s3::Client;
 use aws_smithy_types::byte_stream::ByteStream;
 use bytes::Bytes;
+use indicatif::{HumanBytes, ProgressBar};
 use reqwest::blocking::Client as HttpClient;
 use tempfile::NamedTempFile;
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use url::Url;
 
+use crate::progress::{byte_progress_bar, count_progress_bar};
 /// Represents a readable handle to either a local file, an HTTP(S) resource, or an S3 object.
 pub enum InputReader {
     Local(BufReader<File>),
@@ -94,16 +96,26 @@ pub struct S3StreamReader {
     buffer: Bytes,
     pos: usize,
     eof: bool,
+    total_read: u64,
+    progress: ProgressBar,
+    progress_done: bool,
+    label: String,
 }
 
 impl S3StreamReader {
-    fn new(runtime: Runtime, stream: ByteStream) -> Self {
+    fn new(runtime: Runtime, stream: ByteStream, total_size: Option<u64>, label: String) -> Self {
+        let progress = byte_progress_bar(format!("Streaming {label}"), total_size);
+        progress.set_message("from S3".to_string());
         Self {
             runtime,
             stream,
             buffer: Bytes::new(),
             pos: 0,
             eof: false,
+            total_read: 0,
+            progress,
+            progress_done: false,
+            label,
         }
     }
 
@@ -120,6 +132,8 @@ impl S3StreamReader {
                         // Skip empty chunks and poll the stream again.
                         continue;
                     }
+                    self.total_read += chunk.len() as u64;
+                    self.progress.set_position(self.total_read);
                     self.buffer = chunk;
                     self.pos = 0;
                     return Ok(());
@@ -128,9 +142,29 @@ impl S3StreamReader {
                     self.buffer = Bytes::new();
                     self.pos = 0;
                     self.eof = true;
+                    if !self.progress_done {
+                        self.progress.finish_with_message(format!(
+                            "Completed streaming {label} ({})",
+                            HumanBytes(self.total_read),
+                            label = self.label,
+                        ));
+                        self.progress_done = true;
+                    }
                     return Ok(());
                 }
             }
+        }
+    }
+}
+
+impl Drop for S3StreamReader {
+    fn drop(&mut self) {
+        if !self.progress_done {
+            self.progress.abandon_with_message(format!(
+                "Streaming {} interrupted at {}",
+                self.label,
+                HumanBytes(self.total_read)
+            ));
         }
     }
 }
@@ -238,7 +272,25 @@ fn download_http(url: &Url) -> io::Result<MaterializedPath> {
         .error_for_status()
         .map_err(to_io_error)?;
     let mut temp = NamedTempFile::new()?;
-    io::copy(&mut response, temp.as_file_mut())?;
+    let total = response.content_length();
+    let label = format!("HTTP {}", url);
+    let pb = byte_progress_bar(label, total);
+    pb.set_message("downloading".to_string());
+    let mut downloaded = 0u64;
+    let mut buffer = vec![0u8; 8 * 1024 * 1024];
+    loop {
+        let bytes_read = response.read(&mut buffer).map_err(to_io_error)?;
+        if bytes_read == 0 {
+            break;
+        }
+        temp.as_file_mut().write_all(&buffer[..bytes_read])?;
+        downloaded += bytes_read as u64;
+        pb.set_position(downloaded);
+    }
+    pb.finish_with_message(format!(
+        "Completed HTTP download ({})",
+        HumanBytes(downloaded)
+    ));
     temp.as_file_mut().seek(SeekFrom::Start(0))?;
     let path = temp.path().to_path_buf();
     Ok(MaterializedPath {
@@ -252,47 +304,21 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
         .enable_all()
         .build()
         .map_err(to_io_error)?;
+    let resource_label = format!("s3://{}/{}", loc.bucket, loc.key);
     let bucket = loc.bucket.clone();
     let key = loc.key.clone();
     let region = loc.region.clone();
-    let body = runtime.block_on(async move {
+    let (body, total) = runtime.block_on(async move {
         let region_provider = match region {
             Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
                 .or_default_provider()
                 .or_else("us-east-1"),
             None => RegionProviderChain::default_provider().or_else("us-east-1"),
         };
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider).load().await;
-        let client = Client::new(&config);
-        let obj = client
-            .get_object()
-            .bucket(&bucket)
-            .key(&key)
-            .send()
-            .await
-            .map_err(to_io_error)?;
-        Ok::<ByteStream, io::Error>(obj.body)
-    })?;
-    Ok(InputReader::S3(S3StreamReader::new(runtime, body)))
-}
-
-fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
-    let rt = RuntimeBuilder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(to_io_error)?;
-    let bucket = loc.bucket.clone();
-    let key = loc.key.clone();
-    let region = loc.region.clone();
-    let mut temp = NamedTempFile::new()?;
-    rt.block_on(async {
-        let region_provider = match region {
-            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
-                .or_default_provider()
-                .or_else("us-east-1"),
-            None => RegionProviderChain::default_provider().or_else("us-east-1"),
-        };
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest()).region(region_provider).load().await;
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(region_provider)
+            .load()
+            .await;
         let client = Client::new(&config);
         let mut obj = client
             .get_object()
@@ -301,11 +327,81 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
             .send()
             .await
             .map_err(to_io_error)?;
-        while let Some(bytes) = obj.body.try_next().await.map_err(to_io_error)? {
-            temp.as_file_mut().write_all(&bytes)?;
-        }
-        Ok::<(), io::Error>(())
+        let total = obj
+            .content_length()
+            .and_then(|len| if len >= 0 { Some(len as u64) } else { None });
+        Ok::<(ByteStream, Option<u64>), io::Error>((obj.body, total))
     })?;
+    Ok(InputReader::S3(S3StreamReader::new(
+        runtime,
+        body,
+        total,
+        resource_label,
+    )))
+}
+
+fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
+    let rt = RuntimeBuilder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(to_io_error)?;
+    let label = format!("s3://{}/{}", loc.bucket, loc.key);
+    let bucket = loc.bucket.clone();
+    let key = loc.key.clone();
+    let region = loc.region.clone();
+    let mut temp = NamedTempFile::new()?;
+    let download_result = rt.block_on(async {
+        let region_provider = match region {
+            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
+                .or_default_provider()
+                .or_else("us-east-1"),
+            None => RegionProviderChain::default_provider().or_else("us-east-1"),
+        };
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region(region_provider)
+            .load()
+            .await;
+        let client = Client::new(&config);
+        let mut obj = client
+            .get_object()
+            .bucket(&bucket)
+            .key(&key)
+            .send()
+            .await
+            .map_err(to_io_error)?;
+        let total = obj
+            .content_length()
+            .and_then(|len| if len >= 0 { Some(len as u64) } else { None });
+        let pb = byte_progress_bar(format!("Downloading {label}"), total);
+        pb.set_message("from S3".to_string());
+        let mut downloaded = 0u64;
+        let mut result = Ok(());
+        while let Some(bytes) = obj.body.try_next().await.map_err(to_io_error)? {
+            if let Err(err) = temp.as_file_mut().write_all(&bytes) {
+                result = Err(err);
+                break;
+            }
+            downloaded += bytes.len() as u64;
+            pb.set_position(downloaded);
+        }
+        match result {
+            Ok(()) => {
+                pb.finish_with_message(format!(
+                    "Completed S3 download ({})",
+                    HumanBytes(downloaded)
+                ));
+                Ok::<(), io::Error>(())
+            }
+            Err(err) => {
+                pb.abandon_with_message(format!(
+                    "S3 download failed after {}",
+                    HumanBytes(downloaded)
+                ));
+                Err(err)
+            }
+        }
+    });
+    download_result?;
     temp.as_file_mut().seek(SeekFrom::Start(0))?;
     let path = temp.path().to_path_buf();
     Ok(MaterializedPath {
@@ -370,17 +466,30 @@ impl GfaReader {
 
         // Check if file is gzipped based on extension
         let is_gzipped = self.source.ends_with(".gz");
-        
+
         let mut line_count = 0;
-        
+        let progress_label = format!("Streaming {}", self.source);
+        let pb = count_progress_bar(progress_label, "lines", None);
+        pb.set_message(format!("0/{target_count} nodes"));
+
         if is_gzipped {
             // Decompress on the fly
             let decoder = GzDecoder::new(reader);
             let buf_reader = BufReader::new(decoder);
-            
+
             for line_result in buf_reader.lines() {
-                let line = line_result?;
+                let line = match line_result {
+                    Ok(line) => line,
+                    Err(err) => {
+                        pb.abandon_with_message(format!(
+                            "Streaming failed after {} lines",
+                            line_count
+                        ));
+                        return Err(err);
+                    }
+                };
                 line_count += 1;
+                pb.inc(1);
 
                 if !line.starts_with('S') {
                     continue;
@@ -403,6 +512,7 @@ impl GfaReader {
                                 "[INFO] Found {}/{} target nodes (scanned {} lines)",
                                 found_count, target_count, line_count
                             );
+                            pb.set_message(format!("{}/{} nodes", found_count, target_count));
                         }
 
                         // Early exit optimization
@@ -411,6 +521,10 @@ impl GfaReader {
                                 "[INFO] Found all {} target nodes, stopping scan at line {}",
                                 target_count, line_count
                             );
+                            pb.set_message(format!(
+                                "{}/{} nodes — early stop",
+                                found_count, target_count
+                            ));
                             break;
                         }
                     }
@@ -419,8 +533,18 @@ impl GfaReader {
         } else {
             // Read uncompressed
             for line_result in reader.lines() {
-                let line = line_result?;
+                let line = match line_result {
+                    Ok(line) => line,
+                    Err(err) => {
+                        pb.abandon_with_message(format!(
+                            "Streaming failed after {} lines",
+                            line_count
+                        ));
+                        return Err(err);
+                    }
+                };
                 line_count += 1;
+                pb.inc(1);
 
                 if !line.starts_with('S') {
                     continue;
@@ -443,6 +567,7 @@ impl GfaReader {
                                 "[INFO] Found {}/{} target nodes (scanned {} lines)",
                                 found_count, target_count, line_count
                             );
+                            pb.set_message(format!("{}/{} nodes", found_count, target_count));
                         }
 
                         // Early exit optimization
@@ -451,12 +576,21 @@ impl GfaReader {
                                 "[INFO] Found all {} target nodes, stopping scan at line {}",
                                 target_count, line_count
                             );
+                            pb.set_message(format!(
+                                "{}/{} nodes — early stop",
+                                found_count, target_count
+                            ));
                             break;
                         }
                     }
                 }
             }
         }
+
+        pb.finish_with_message(format!(
+            "Scanned {} lines — found {}/{} nodes",
+            line_count, found_count, target_count
+        ));
 
         if found_count < target_count {
             eprintln!(
