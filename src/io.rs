@@ -309,14 +309,20 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
     let key = loc.key.clone();
     let region = loc.region.clone();
     let (body, total) = runtime.block_on(async move {
-        let region_provider = match region {
-            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
-                .or_default_provider()
-                .or_else("us-east-1"),
-            None => RegionProviderChain::default_provider().or_else("us-east-1"),
+        // Use us-west-2 for human-pangenomics bucket, us-east-1 as fallback
+        let default_region = if bucket == "human-pangenomics" {
+            "us-west-2"
+        } else {
+            "us-east-1"
         };
+        let region_provider = match region {
+            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name)),
+            None => RegionProviderChain::first_try(Region::new(default_region)),
+        };
+        // For public buckets, try without credentials first
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .region(region_provider)
+            .no_credentials()
             .load()
             .await;
         let client = Client::new(&config);
@@ -351,14 +357,20 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
     let region = loc.region.clone();
     let mut temp = NamedTempFile::new()?;
     let download_result = rt.block_on(async {
-        let region_provider = match region {
-            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name))
-                .or_default_provider()
-                .or_else("us-east-1"),
-            None => RegionProviderChain::default_provider().or_else("us-east-1"),
+        // Use us-west-2 for human-pangenomics bucket, us-east-1 as fallback
+        let default_region = if bucket == "human-pangenomics" {
+            "us-west-2"
+        } else {
+            "us-east-1"
         };
+        let region_provider = match region {
+            Some(region_name) => RegionProviderChain::first_try(Region::new(region_name)),
+            None => RegionProviderChain::first_try(Region::new(default_region)),
+        };
+        // For public buckets, try without credentials first
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .region(region_provider)
+            .no_credentials()
             .load()
             .await;
         let client = Client::new(&config);
@@ -368,7 +380,10 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
             .key(&key)
             .send()
             .await
-            .map_err(to_io_error)?;
+            .map_err(|e| {
+                eprintln!("DEBUG: S3 error details: {:?}", e);
+                to_io_error(e)
+            })?;
         let total = obj
             .content_length()
             .and_then(|len| if len >= 0 { Some(len as u64) } else { None });
