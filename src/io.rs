@@ -1,6 +1,9 @@
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+
+use flate2::read::GzDecoder;
 
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::config::Region;
@@ -333,4 +336,135 @@ fn parse_s3_scheme(url: &Url) -> io::Result<S3Location> {
 
 fn to_io_error<E: std::fmt::Display>(err: E) -> io::Error {
     io::Error::other(err.to_string())
+}
+
+/// A streaming GFA reader that can efficiently extract specific nodes
+/// without downloading the entire file
+pub struct GfaReader {
+    source: String,
+}
+
+impl GfaReader {
+    /// Open a GFA file (local, HTTP, or S3)
+    pub fn new(path_or_url: &str) -> Self {
+        Self {
+            source: path_or_url.to_string(),
+        }
+    }
+
+    /// Extract sequences for specific node IDs
+    /// This streams through the GFA file and stops early when all nodes are found
+    pub fn extract_sequences(
+        &self,
+        node_ids: &HashSet<String>,
+    ) -> io::Result<HashMap<String, String>> {
+        let reader = open(&self.source)?;
+        let mut sequences = HashMap::new();
+        let mut found_count = 0;
+        let target_count = node_ids.len();
+
+        eprintln!(
+            "[INFO] Streaming GFA from {} looking for {} nodes",
+            self.source, target_count
+        );
+
+        // Check if file is gzipped based on extension
+        let is_gzipped = self.source.ends_with(".gz");
+        
+        let mut line_count = 0;
+        
+        if is_gzipped {
+            // Decompress on the fly
+            let decoder = GzDecoder::new(reader);
+            let buf_reader = BufReader::new(decoder);
+            
+            for line_result in buf_reader.lines() {
+                let line = line_result?;
+                line_count += 1;
+
+                if !line.starts_with('S') {
+                    continue;
+                }
+
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() < 3 {
+                    continue;
+                }
+
+                let node_id = parts[1];
+                if node_ids.contains(node_id) {
+                    let sequence = parts[2];
+                    if sequence != "*" {
+                        sequences.insert(node_id.to_string(), sequence.to_string());
+                        found_count += 1;
+
+                        if found_count % 10 == 0 || found_count == target_count {
+                            eprintln!(
+                                "[INFO] Found {}/{} target nodes (scanned {} lines)",
+                                found_count, target_count, line_count
+                            );
+                        }
+
+                        // Early exit optimization
+                        if found_count >= target_count {
+                            eprintln!(
+                                "[INFO] Found all {} target nodes, stopping scan at line {}",
+                                target_count, line_count
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            // Read uncompressed
+            for line_result in reader.lines() {
+                let line = line_result?;
+                line_count += 1;
+
+                if !line.starts_with('S') {
+                    continue;
+                }
+
+                let parts: Vec<&str> = line.split('\t').collect();
+                if parts.len() < 3 {
+                    continue;
+                }
+
+                let node_id = parts[1];
+                if node_ids.contains(node_id) {
+                    let sequence = parts[2];
+                    if sequence != "*" {
+                        sequences.insert(node_id.to_string(), sequence.to_string());
+                        found_count += 1;
+
+                        if found_count % 10 == 0 || found_count == target_count {
+                            eprintln!(
+                                "[INFO] Found {}/{} target nodes (scanned {} lines)",
+                                found_count, target_count, line_count
+                            );
+                        }
+
+                        // Early exit optimization
+                        if found_count >= target_count {
+                            eprintln!(
+                                "[INFO] Found all {} target nodes, stopping scan at line {}",
+                                target_count, line_count
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if found_count < target_count {
+            eprintln!(
+                "[WARNING] Only found {}/{} target nodes after scanning {} lines",
+                found_count, target_count, line_count
+            );
+        }
+
+        Ok(sequences)
+    }
 }

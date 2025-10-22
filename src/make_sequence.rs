@@ -1,10 +1,10 @@
 // make_sequence.rs
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
-use memmap2::{MmapOptions};
 
+use crate::io::GfaReader;
 use crate::map::{self, Coord2NodeResult};
 use gbwt::GBZ;
 use simple_sds::serialize;
@@ -24,62 +24,11 @@ fn reverse_complement(dna: &str) -> String {
         .collect()
 }
 
-/// Extract sequences for specific nodes from GFA using memory mapping
-fn extract_node_sequences(gfa_path: &str, node_ids: &HashSet<String>) -> HashMap<String, String> {
-    let file = File::open(gfa_path).expect("Cannot open GFA file for memmap");
-    
-    let mmap = unsafe {
-        MmapOptions::new().map(&file).expect("Failed to mmap GFA")
-    };
-    
-    // Find line boundaries
-    let mut line_indices = Vec::new();
-    line_indices.push(0);
-    for i in 0..mmap.len() {
-        if mmap[i] == b'\n'
-            && i + 1 < mmap.len() {
-                line_indices.push(i + 1);
-            }
-    }
-    
-    let mut node_sequences = HashMap::new();
-    
-    eprintln!("[INFO] Scanning GFA for {} node sequences...", node_ids.len());
-    
-    for i in 0..line_indices.len() {
-        let offset = line_indices[i];
-        let end_offset = if i + 1 < line_indices.len() {
-            line_indices[i + 1] - 1
-        } else {
-            mmap.len()
-        };
-        
-        if end_offset <= offset {
-            continue;
-        }
-        
-        let line_slice = &mmap[offset..end_offset];
-        if line_slice.is_empty() || line_slice[0] != b'S' {
-            continue;
-        }
-        
-        let parts: Vec<&[u8]> = line_slice.split(|&c| c == b'\t').collect();
-        if parts.len() < 3 {
-            continue;
-        }
-        
-        let node_id = String::from_utf8_lossy(parts[1]).to_string();
-        if node_ids.contains(&node_id) {
-            let seq = String::from_utf8_lossy(parts[2]).to_string();
-            if seq != "*" {
-                node_sequences.insert(node_id, seq);
-            }
-        }
-    }
-    
-    eprintln!("[INFO] Found sequences for {}/{} nodes", node_sequences.len(), node_ids.len());
-    
-    node_sequences
+/// Extract sequences for specific nodes from GFA
+/// Now supports streaming from S3/HTTP without full download
+fn extract_node_sequences(gfa_path: &str, node_ids: &HashSet<String>) -> io::Result<HashMap<String, String>> {
+    let reader = GfaReader::new(gfa_path);
+    reader.extract_sequences(node_ids)
 }
 
 /// Extract sequence for a region specified by coordinates
@@ -113,7 +62,7 @@ pub fn extract_sequence(
                  node_ids.len(), chr, start, end);
 
         // Extract node sequences
-        let node_sequences = extract_node_sequences(gfa_path, &node_ids);
+        let node_sequences = extract_node_sequences(gfa_path, &node_ids)?;
         
         // Check if we're missing any sequences
         let missing_nodes: Vec<_> = node_ids.iter()
