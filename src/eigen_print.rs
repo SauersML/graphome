@@ -5,14 +5,97 @@
 use csv::WriterBuilder;
 use faer::linalg::solvers::SelfAdjointEigen;
 use faer::{Mat, MatRef, Side};
+use ndarray::{Array2, ArrayView2};
 use std::io::{self, Write};
 use std::path::Path;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
+/// Supported input types for [`call_eigendecomp`].
+pub enum LaplacianInput<'a> {
+    /// A view into a Faer matrix. This is the fast path that avoids allocating.
+    Borrowed(MatRef<'a, f64>),
+    /// An owned Faer matrix produced from another representation.
+    Owned(Mat<f64>),
+}
+
+/// Trait that converts various Laplacian representations into a form usable by faer.
+pub trait IntoLaplacian<'a> {
+    fn into_laplacian(self) -> LaplacianInput<'a>;
+}
+
+impl<'a> IntoLaplacian<'a> for MatRef<'a, f64> {
+    fn into_laplacian(self) -> LaplacianInput<'a> {
+        LaplacianInput::Borrowed(self)
+    }
+}
+
+impl<'a> IntoLaplacian<'a> for &'a Mat<f64> {
+    fn into_laplacian(self) -> LaplacianInput<'a> {
+        LaplacianInput::Borrowed(self.as_ref())
+    }
+}
+
+impl<'a> IntoLaplacian<'a> for &'a Array2<f64> {
+    fn into_laplacian(self) -> LaplacianInput<'a> {
+        self.view().into_laplacian()
+    }
+}
+
+impl<'a> IntoLaplacian<'a> for ArrayView2<'a, f64> {
+    fn into_laplacian(self) -> LaplacianInput<'a> {
+        ndarray_to_laplacian_input(self)
+    }
+}
+
+impl<'a> IntoLaplacian<'a> for Array2<f64> {
+    fn into_laplacian(self) -> LaplacianInput<'a> {
+        LaplacianInput::Owned(copy_array_into_mat(self.view()))
+    }
+}
+
+fn ndarray_to_laplacian_input<'a>(array: ArrayView2<'a, f64>) -> LaplacianInput<'a> {
+    LaplacianInput::Owned(copy_array_into_mat(array))
+}
+
+fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
+    let (nrows, ncols) = array.dim();
+    let mut mat = Mat::<f64>::zeros(nrows, ncols);
+
+    if nrows == 0 || ncols == 0 {
+        return mat;
+    }
+
+    if let Some(slice) = array.as_slice_memory_order() {
+        let view = MatRef::from_row_major_slice(slice, nrows, ncols);
+        mat.as_mut().copy_from(view);
+        return mat;
+    }
+
+    for (i, row) in array.outer_iter().enumerate() {
+        for (j, value) in row.iter().enumerate() {
+            *mat.get_mut(i, j) = *value;
+        }
+    }
+
+    mat
+}
+
 /// Computes the eigendecomposition of the Laplacian matrix using faer's self-adjoint solver.
-pub fn call_eigendecomp(laplacian: MatRef<'_, f64>) -> io::Result<(Vec<f64>, Mat<f64>)> {
+///
+/// This helper now accepts either a Faer matrix view (`MatRef`) or an ndarray 2D array. When an
+/// ndarray is provided, the data is copied into a temporary Faer matrix before invoking the
+/// solver. This maintains backwards compatibility for existing callers while allowing the tests
+/// (and any downstream users) to supply Laplacians that are manipulated as ndarray matrices.
+pub fn call_eigendecomp<'a, T>(laplacian: T) -> io::Result<(Vec<f64>, Mat<f64>)>
+where
+    T: IntoLaplacian<'a>,
+{
     println!("Using faer's self-adjoint eigensolver for the matrix.");
-    compute_eigenvalues_and_vectors_sym(laplacian)
+
+    match laplacian.into_laplacian() {
+        LaplacianInput::Borrowed(view) => compute_eigenvalues_and_vectors_sym(view),
+        LaplacianInput::Owned(mat) => compute_eigenvalues_and_vectors_sym(mat.as_ref()),
+    }
 }
 
 /// Computes eigenvalues and eigenvectors for a given Laplacian matrix with faer.
@@ -106,6 +189,40 @@ pub fn adjacency_matrix_to_dense(
 
             *adj_matrix.get_mut(local_a, local_b) = 1.0;
             *adj_matrix.get_mut(local_b, local_a) = 1.0;
+        }
+    }
+
+    adj_matrix
+}
+
+/// Converts an adjacency edge list into an `ndarray::Array2` adjacency matrix.
+///
+/// The semantics match [`adjacency_matrix_to_dense`]: edges are treated as undirected, so both
+/// `(a, b)` and `(b, a)` entries are set to 1.0 whenever an edge falls within the requested node
+/// range.
+pub fn adjacency_matrix_to_ndarray(
+    edges: &[(u32, u32)],
+    start_node: usize,
+    end_node: usize,
+) -> Array2<f64> {
+    if end_node < start_node {
+        return Array2::zeros((0, 0));
+    }
+
+    let size = end_node - start_node + 1;
+    let mut adj_matrix = Array2::<f64>::zeros((size, size));
+
+    for &(a, b) in edges {
+        if (a as usize) >= start_node
+            && (a as usize) <= end_node
+            && (b as usize) >= start_node
+            && (b as usize) <= end_node
+        {
+            let local_a = (a as usize) - start_node;
+            let local_b = (b as usize) - start_node;
+
+            adj_matrix[(local_a, local_b)] = 1.0;
+            adj_matrix[(local_b, local_a)] = 1.0;
         }
     }
 
