@@ -2,9 +2,10 @@
 use memmap2::MmapOptions;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 
+use crate::io::GfaReader;
 use crate::map::{self, Coord2NodeResult};
 use gbwt::GBZ;
 use simple_sds::serialize;
@@ -24,6 +25,11 @@ fn reverse_complement(dna: &str) -> String {
         .collect()
 }
 
+/// Extract sequences for specific nodes from GFA
+/// Now supports streaming from S3/HTTP without full download
+fn extract_node_sequences(gfa_path: &str, node_ids: &HashSet<String>) -> io::Result<HashMap<String, String>> {
+    let reader = GfaReader::new(gfa_path);
+    reader.extract_sequences(node_ids)
 /// Extract sequences for specific nodes directly from a GBZ graph.
 fn extract_node_sequences_from_gbz(
     gbz: &GBZ,
@@ -161,6 +167,8 @@ pub fn extract_sequence(
         );
 
         // Extract node sequences
+        let node_sequences = extract_node_sequences(gfa_path, &node_ids)?;
+        
         let mut node_sequences = extract_node_sequences_from_gbz(&gbz, &node_ids);
 
         if node_sequences.len() < node_ids.len() && !input_is_gbz {

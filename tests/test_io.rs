@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use flate2::read::GzDecoder;
 
 use graphome::eigen_print::{adjacency_matrix_to_ndarray, call_eigendecomp};
-use graphome::io;
+use graphome::io::{self, GfaReader};
 use ndarray::{Array2, Axis};
 
 #[test]
@@ -166,4 +166,76 @@ fn process_line(
             }
         }
     }
+}
+
+#[test]
+fn test_gfa_reader_streaming_from_s3() -> Result<(), Box<dyn std::error::Error>> {
+    let url = "https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gfa.gz";
+    
+    // Test nodes from the beginning of the file (should be fast)
+    let mut target_nodes = HashSet::new();
+    target_nodes.insert("36278".to_string());
+    target_nodes.insert("36279".to_string());
+    target_nodes.insert("36280".to_string());
+    target_nodes.insert("36281".to_string());
+    
+    let start = Instant::now();
+    let reader = GfaReader::new(url);
+    let sequences = reader.extract_sequences(&target_nodes)?;
+    let duration = start.elapsed();
+    
+    eprintln!("[TEST] Extracted {} sequences in {:?}", sequences.len(), duration);
+    
+    // Verify we got all 4 nodes
+    assert_eq!(sequences.len(), 4, "Should find all 4 target nodes");
+    
+    // Verify sequences are not empty
+    for (node_id, seq) in &sequences {
+        assert!(!seq.is_empty(), "Node {} should have non-empty sequence", node_id);
+        eprintln!("[TEST] Node {}: {} bp", node_id, seq.len());
+    }
+    
+    // Verify specific node sequences match what we saw in the file
+    assert!(sequences.contains_key("36278"), "Should contain node 36278");
+    assert!(sequences.contains_key("36279"), "Should contain node 36279");
+    assert!(sequences.contains_key("36280"), "Should contain node 36280");
+    assert!(sequences.contains_key("36281"), "Should contain node 36281");
+    
+    // Should be fast since nodes are near the beginning
+    assert!(
+        duration < Duration::from_secs(30),
+        "Streaming should complete in under 30 seconds for early nodes, took {:?}",
+        duration
+    );
+    
+    Ok(())
+}
+
+#[test]
+fn test_gfa_reader_with_local_file() -> Result<(), Box<dyn std::error::Error>> {
+    // Test with local minimal.gfa file
+    let mut target_nodes = HashSet::new();
+    target_nodes.insert("36611".to_string());
+    target_nodes.insert("36612".to_string());
+    target_nodes.insert("36614".to_string());
+    
+    let reader = GfaReader::new("data/minimal.gfa");
+    let sequences = reader.extract_sequences(&target_nodes)?;
+    
+    // Verify we got all 3 nodes
+    assert_eq!(sequences.len(), 3, "Should find all 3 target nodes");
+    
+    // Verify specific sequences
+    assert_eq!(
+        sequences.get("36611").map(|s| s.as_str()),
+        Some("ACTTGGTTATATTGTCTAA"),
+        "Node 36611 sequence mismatch"
+    );
+    assert_eq!(
+        sequences.get("36612").map(|s| s.as_str()),
+        Some("C"),
+        "Node 36612 sequence mismatch"
+    );
+    
+    Ok(())
 }
