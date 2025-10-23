@@ -1,15 +1,15 @@
+use indicatif::{ProgressBar, ProgressStyle};
+use memmap2::MmapOptions;
 use ndarray::prelude::*;
+use ndarray_npy::write_npy;
+use parking_lot::Mutex;
+use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
-use ndarray_npy::write_npy;
-use rayon::prelude::*;
-use memmap2::MmapOptions;
-use indicatif::{ProgressBar, ProgressStyle};
-use parking_lot::Mutex;
-use std::collections::HashSet;
 
 // Known from GFA analysis - used for seek optimization
 const MAX_NODE_ID: usize = 110_884_673;
@@ -26,9 +26,15 @@ pub struct WindowConfig {
 impl WindowConfig {
     pub fn new(start: usize, end: usize, window_size: usize, overlap: usize) -> Self {
         assert!(end > start, "End must be greater than start");
-        assert!(window_size > overlap, "Window size must be greater than overlap");
-        assert!(window_size <= (end - start), "Window size must be less than or equal to range");
-        
+        assert!(
+            window_size > overlap,
+            "Window size must be greater than overlap"
+        );
+        assert!(
+            window_size <= (end - start),
+            "Window size must be less than or equal to range"
+        );
+
         WindowConfig {
             start,
             end,
@@ -39,20 +45,20 @@ impl WindowConfig {
 
     pub fn generate_windows(&self) -> Vec<(usize, usize)> {
         let mut windows = Vec::with_capacity(
-            ((self.end - self.start) / (self.window_size - self.overlap)).max(1)
+            ((self.end - self.start) / (self.window_size - self.overlap)).max(1),
         );
         let step_size = self.window_size - self.overlap;
-        
+
         let mut window_start = self.start;
         while window_start + self.window_size <= self.end {
             windows.push((window_start, window_start + self.window_size));
             window_start += step_size;
         }
-        
+
         if window_start < self.end {
             windows.push((self.end - self.window_size, self.end));
         }
-        
+
         windows
     }
 }
@@ -61,7 +67,7 @@ impl WindowConfig {
 struct EdgeList {
     data: Arc<Vec<(usize, usize)>>,
     index: Arc<Vec<(usize, usize)>>, // (start_idx, end_idx) ranges for each node
-    window_start: usize,  // Store window boundaries for edge filtering
+    window_start: usize,             // Store window boundaries for edge filtering
     #[allow(dead_code)]
     window_end: usize,
 }
@@ -69,7 +75,10 @@ struct EdgeList {
 impl EdgeList {
     fn new(path: &Path, window_start: usize, window_end: usize) -> io::Result<Self> {
         let start_time = Instant::now();
-        println!("🔍 Loading edges for window {}-{}", window_start, window_end);
+        println!(
+            "🔍 Loading edges for window {}-{}",
+            window_start, window_end
+        );
 
         let file = File::open(path)?;
         let file_size = file.metadata()?.len() as usize;
@@ -78,29 +87,34 @@ impl EdgeList {
         // Calculate seek positions with buffer zone
         let extended_start = window_start.saturating_sub(BUFFER_SIZE);
         let extended_end = (window_end + BUFFER_SIZE).min(MAX_NODE_ID);
-        
+
         // Calculate approximate file positions based on node distribution
         let start_pos = ((extended_start as f64 / MAX_NODE_ID as f64) * file_size as f64) as usize;
         let end_pos = ((extended_end as f64 / MAX_NODE_ID as f64) * file_size as f64) as usize;
-        
+
         // Align to 8-byte boundaries
         let start_pos = (start_pos / 8) * 8;
         let end_pos = end_pos.div_ceil(8) * 8;
-        
-        println!("📍 Seeking to approximate position {} - {}", start_pos, end_pos);
+
+        println!(
+            "📍 Seeking to approximate position {} - {}",
+            start_pos, end_pos
+        );
 
         // Collect edges efficiently using pre-allocated vector
         let mut seen_edges = HashSet::new();
 
         // Process chunks in parallel for faster loading
-        let mut edges: Vec<(usize, usize)> = mmap[start_pos..end_pos].par_chunks_exact(8)
+        let mut edges: Vec<(usize, usize)> = mmap[start_pos..end_pos]
+            .par_chunks_exact(8)
             .filter_map(|chunk| {
                 let from = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
                 let to = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]) as usize;
-                
+
                 // Keep edge if either node is in our extended window
-                if (from >= extended_start && from <= extended_end) ||
-                   (to >= extended_start && to <= extended_end) {
+                if (from >= extended_start && from <= extended_end)
+                    || (to >= extended_start && to <= extended_end)
+                {
                     Some((from, to))
                 } else {
                     None
@@ -112,7 +126,11 @@ impl EdgeList {
         edges.retain(|&edge| seen_edges.insert(edge));
         edges.shrink_to_fit();
 
-        println!("📊 Loaded {} relevant edges in {:?}", edges.len(), start_time.elapsed());
+        println!(
+            "📊 Loaded {} relevant edges in {:?}",
+            edges.len(),
+            start_time.elapsed()
+        );
 
         // Build minimal index just for our window range
         let index_size = extended_end - extended_start + 1;
@@ -127,13 +145,17 @@ impl EdgeList {
                 start_idx = i;
             }
         }
-        
+
         while current_node <= extended_end {
             index[current_node - extended_start] = (start_idx, edges.len());
             current_node += 1;
         }
 
-        println!("✨ Indexed {} nodes in {:?}", index_size, start_time.elapsed());
+        println!(
+            "✨ Indexed {} nodes in {:?}",
+            index_size,
+            start_time.elapsed()
+        );
 
         Ok(Self {
             data: Arc::new(edges),
@@ -144,38 +166,39 @@ impl EdgeList {
     }
 
     fn get_edges_for_window(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
-        let mut result = Vec::new();
-        let mut seen = HashSet::new();
-        
         // Adjust indices for our indexed range
         let index_offset = self.window_start.saturating_sub(BUFFER_SIZE);
-        
-        // Use index to get relevant edge ranges
-        for node in start..end {
-            if node < index_offset || node - index_offset >= self.index.len() {
-                continue;
-            }
-            
-            let (start_idx, end_idx) = self.index[node - index_offset];
-            
-            // Collect edges where both nodes are in window
-            for &edge in &self.data[start_idx..end_idx] {
-                if edge.0 < end && edge.1 < end && 
-                   edge.0 >= start && edge.1 >= start {
-                    // Use canonical edge representation
-                    let canonical = if edge.0 < edge.1 {
-                        edge
-                    } else {
-                        (edge.1, edge.0)
-                    };
-                    
-                    if seen.insert(canonical) {
-                        result.push(edge);
+
+        // Collect candidate edges for each node in parallel, keeping per-node ordering.
+        let per_node: Vec<Vec<(usize, usize)>> = (start..end)
+            .into_par_iter()
+            .map(|node| {
+                if node < index_offset || node - index_offset >= self.index.len() {
+                    return Vec::new();
+                }
+
+                let (start_idx, end_idx) = self.index[node - index_offset];
+                let mut local_edges = Vec::new();
+
+                for &edge in &self.data[start_idx..end_idx] {
+                    if edge.0 < end && edge.1 < end && edge.0 >= start && edge.1 >= start {
+                        local_edges.push(edge);
                     }
                 }
-            }
-        }
-        
+
+                local_edges
+            })
+            .collect();
+
+        let mut result: Vec<(usize, usize)> = per_node.into_iter().flatten().collect();
+
+        // Deduplicate edges while preserving the first occurrence ordering.
+        let mut seen = HashSet::new();
+        result.retain(|&(from, to)| {
+            let canonical = if from < to { (from, to) } else { (to, from) };
+            seen.insert(canonical)
+        });
+
         result
     }
 }
@@ -192,11 +215,11 @@ fn compute_laplacian(
     for &(from, to) in edges {
         let i = from - window_start;
         let j = to - window_start;
-        
+
         // Add edge in both directions
         laplacian[[i, j]] = -1.0;
-        laplacian[[j, i]] = -1.0;  // Symmetric
-        
+        laplacian[[j, i]] = -1.0; // Symmetric
+
         // Count degrees for both nodes
         degrees[i] += 1.0;
         degrees[j] += 1.0;
@@ -204,7 +227,7 @@ fn compute_laplacian(
 
     // Fill diagonal with degrees
     laplacian.diag_mut().assign(&Array1::from(degrees));
-    
+
     laplacian
 }
 
@@ -212,7 +235,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
     edge_list_path: P,
     output_dir: P,
     config: WindowConfig,
-) -> io::Result<()> { 
+) -> io::Result<()> {
     let start_time = Instant::now();
     println!("🚀 Starting parallel window extraction");
     println!("📊 Processing range: {} - {}", config.start, config.end);
@@ -222,11 +245,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
 
     // Load edges with indexing - only for our range
     println!("📚 Loading and indexing edge list...");
-    let edge_list = EdgeList::new(
-        edge_list_path.as_ref(),
-        config.start,
-        config.end
-    )?;
+    let edge_list = EdgeList::new(edge_list_path.as_ref(), config.start, config.end)?;
 
     // Convert output_dir to PathBuf once, before parallel processing
     let output_dir = PathBuf::from(output_dir.as_ref());
@@ -242,7 +261,7 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
         ProgressStyle::default_bar()
             .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} windows {msg}")
             .expect("Invalid progress bar template")
-            .progress_chars("▰▱▱")
+            .progress_chars("▰▱▱"),
     );
 
     // Process windows in parallel with optimized chunk size
@@ -255,18 +274,14 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
         chunk.iter().try_for_each(|&(start, end)| {
             // Get relevant edges for this window
             let window_edges = edge_list.get_edges_for_window(start, end);
-            
+
             // Compute Laplacian
             let window_size = end - start;
             let laplacian = compute_laplacian(&window_edges, start, window_size);
 
             // Save to NPY
-            let output_file = output_dir.join(format!(
-                "laplacian_{:06}_{:06}.npy",
-                start, end
-            ));
-            write_npy(&output_file, &laplacian)
-                .map_err(io::Error::other)?;
+            let output_file = output_dir.join(format!("laplacian_{:06}_{:06}.npy", start, end));
+            write_npy(&output_file, &laplacian).map_err(io::Error::other)?;
 
             progress.lock().inc(1);
             Ok::<(), io::Error>(())
@@ -274,9 +289,9 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
     })?;
 
     progress.lock().finish_with_message("✨ Complete!");
-    
+
     let duration = start_time.elapsed();
     println!("✨ Processed {} windows in {:.2?}", windows.len(), duration);
-    
+
     Ok(())
 }
