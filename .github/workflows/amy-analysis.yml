@@ -35,13 +35,18 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install matplotlib numpy
 
-      - name: Prepare HPRC dataset
+      - name: Download HPRC dataset (cached locally for 41 windows)
         run: |
+          # Download once to data/hprc/ so all 41 windows reuse the same file
+          # Without this, each window would re-download 5.1GB to temp location
           mkdir -p data/hprc
           if [ ! -f data/hprc/hprc-v2.0-mc-grch38.gbz ]; then
+            echo "Downloading HPRC GBZ (5.1GB)..."
             curl -L \
               -o data/hprc/hprc-v2.0-mc-grch38.gbz \
               https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz
+          else
+            echo "Using cached HPRC GBZ"
           fi
 
       - name: Build graphome
