@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use graphome::{convert, embed, entropy, extract, gfa2gbz, make_sequence, map, video, viz, window};
+use graphome::{convert, eigen_region, embed, entropy, extract, gfa2gbz, make_sequence, map, video, viz, window};
 use std::io;
 use std::path::PathBuf;
 
@@ -152,6 +152,18 @@ enum Commands {
         #[arg(short, long)]
         input: String,
     },
+    /// Perform eigendecomposition on a genomic region
+    EigenRegion {
+        /// Path to GBZ file (or S3 URL)
+        #[arg(long)]
+        gfa: String,
+        /// Genomic region (chr:start-end)
+        #[arg(long)]
+        region: String,
+        /// Show terminal visualization
+        #[arg(long, default_value_t = false)]
+        viz: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -249,6 +261,12 @@ fn main() -> io::Result<()> {
         }
         Commands::Gfa2gbz { input } => {
             gfa2gbz::run_gfa2gbz(input);
+        }
+        Commands::EigenRegion { gfa, region, viz } => {
+            if let Err(err) = eigen_region::run_eigen_region(gfa, region, *viz) {
+                eprintln!("[eigen-region error] {}", err);
+                std::process::exit(1);
+            }
         }
     }
     Ok(())

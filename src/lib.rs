@@ -1,6 +1,7 @@
 pub mod convert;
 pub mod display;
 pub mod eigen_print;
+pub mod eigen_region;
 pub mod embed;
 pub mod entropy;
 pub mod extract;
