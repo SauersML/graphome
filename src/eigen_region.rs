@@ -45,60 +45,50 @@ fn extract_subgraph_edges(
     edges.into_iter().collect()
 }
 
-/// Build adjacency matrix from edge list
-/// Creates mapping from arbitrary node IDs to contiguous matrix indices
-fn build_adjacency_matrix(
+/// Build Laplacian matrix directly from the edge list without materialising the adjacency
+fn build_laplacian_matrix(
     edges: &[(usize, usize)],
-    node_ids: &[usize]  // sorted list of node IDs
+    node_ids: &[usize],
 ) -> Mat<f64> {
     let n = node_ids.len();
-    eprintln!("[INFO] Building {}x{} adjacency matrix...", n, n);
-    
-    let mut matrix = Mat::zeros(n, n);
-    
+    eprintln!("[INFO] Building Laplacian matrix for {} nodes ({} edges)...", n, edges.len());
+
+    let mut laplacian = Mat::zeros(n, n);
+
+    if n == 0 {
+        return laplacian;
+    }
+
     // Create mapping: node_id -> matrix_index
-    let id_to_idx: HashMap<usize, usize> = node_ids.iter()
+    let id_to_idx: HashMap<usize, usize> = node_ids
+        .iter()
         .enumerate()
         .map(|(idx, &id)| (id, idx))
         .collect();
-    
-    // Fill adjacency matrix (symmetric for undirected graph)
-    for &(u, v) in edges {
-        if let (Some(&i), Some(&j)) = (id_to_idx.get(&u), id_to_idx.get(&v)) {
-            matrix[(i, j)] = 1.0;
-            matrix[(j, i)] = 1.0;  // Symmetric
-        }
-    }
-    
-    matrix
-}
 
-/// Compute Laplacian matrix: L = D - A
-/// where D is the degree matrix (diagonal) and A is the adjacency matrix
-fn compute_laplacian(adjacency: &Mat<f64>) -> Mat<f64> {
-    let n = adjacency.nrows();
-    eprintln!("[INFO] Computing Laplacian matrix...");
-    
-    let mut laplacian = adjacency.clone();
-    
-    // Compute degree for each node and set diagonal
-    for i in 0..n {
-        let mut degree = 0.0;
-        for j in 0..n {
-            degree += adjacency[(i, j)];
-        }
-        laplacian[(i, i)] = degree - adjacency[(i, i)];
-    }
-    
-    // Subtract adjacency from degree matrix
-    for i in 0..n {
-        for j in 0..n {
-            if i != j {
-                laplacian[(i, j)] = -adjacency[(i, j)];
-            }
+    let mut degrees = vec![0.0f64; n];
+    let mut self_loops = vec![0.0f64; n];
+
+    for &(u, v) in edges {
+        let (Some(&i), Some(&j)) = (id_to_idx.get(&u), id_to_idx.get(&v)) else {
+            continue;
+        };
+
+        if i == j {
+            degrees[i] += 1.0;
+            self_loops[i] += 1.0;
+        } else {
+            degrees[i] += 1.0;
+            degrees[j] += 1.0;
+            laplacian[(i, j)] -= 1.0;
+            laplacian[(j, i)] -= 1.0;
         }
     }
-    
+
+    for (idx, (&degree, &self_loop)) in degrees.iter().zip(self_loops.iter()).enumerate() {
+        laplacian[(idx, idx)] = degree - self_loop;
+    }
+
     laplacian
 }
 
@@ -163,11 +153,8 @@ pub fn run_eigen_region(
     let mut sorted_nodes: Vec<usize> = node_ids.into_iter().collect();
     sorted_nodes.sort_unstable();
     
-    // Build adjacency matrix
-    let adjacency = build_adjacency_matrix(&edges, &sorted_nodes);
-    
-    // Compute Laplacian
-    let laplacian = compute_laplacian(&adjacency);
+    // Build Laplacian directly from the edge list
+    let laplacian = build_laplacian_matrix(&edges, &sorted_nodes);
     
     // Perform eigendecomposition
     eprintln!("[INFO] Performing eigendecomposition...");
