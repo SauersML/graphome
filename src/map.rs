@@ -511,7 +511,15 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
                 start_anchor.node_id, full_path_name
             );
 
-            let fallback = collect_region_by_offsets(gbz, path_id, &full_path_name, start, end);
+            let fallback = collect_region_by_offsets(
+                gbz,
+                path_id,
+                &full_path_name,
+                start,
+                end,
+                &start_anchor,
+                &end_anchor,
+            );
             if fallback.is_empty() {
                 eprintln!(
                     "[WARNING] Fallback scan found no nodes for path {}",
@@ -590,6 +598,8 @@ fn collect_region_by_offsets(
     full_path_name: &str,
     start: usize,
     end: usize,
+    start_anchor: &Anchor,
+    end_anchor: &Anchor,
 ) -> Vec<Coord2NodeResult> {
     let mut results = Vec::new();
 
@@ -598,6 +608,10 @@ fn collect_region_by_offsets(
     };
 
     let mut position = 0usize;
+    let mut collecting = false;
+    let mut saw_end_anchor = false;
+    let same_anchor = start_anchor.node_id == end_anchor.node_id;
+
     for (node_id, orientation) in path_iter {
         let node_len = match gbz.sequence_len(node_id) {
             Some(len) if len > 0 => len,
@@ -608,31 +622,109 @@ fn collect_region_by_offsets(
         let node_end = node_start + node_len;
         position = node_end;
 
-        if node_end <= start {
+        let overlaps_region = node_start <= end && node_end > start;
+        let is_start_anchor = node_id == start_anchor.node_id;
+        let is_end_anchor = node_id == end_anchor.node_id;
+
+        if !collecting {
+            if is_start_anchor {
+                let (path_off_start, mut path_off_end) =
+                    start_anchor.to_path_offsets(node_len, orientation);
+
+                if same_anchor {
+                    let (_, end_off_end) = end_anchor.to_path_offsets(node_len, orientation);
+                    path_off_end = end_off_end;
+                }
+
+                results.push(Coord2NodeResult {
+                    path_name: full_path_name.to_string(),
+                    node_id: node_id.to_string(),
+                    node_orient: orientation == Orientation::Forward,
+                    path_off_start,
+                    path_off_end,
+                });
+
+                if same_anchor {
+                    saw_end_anchor = true;
+                    break;
+                }
+
+                collecting = true;
+                continue;
+            }
+
+            if !overlaps_region {
+                continue;
+            }
+
+            let overlap_start = start.max(node_start);
+            let overlap_end = match node_end.checked_sub(1) {
+                Some(val) => end.min(val),
+                None => continue,
+            };
+
+            if overlap_start > overlap_end {
+                continue;
+            }
+
+            let anchor = Anchor {
+                node_id,
+                forward_start: overlap_start - node_start,
+                forward_end: overlap_end - node_start,
+            };
+            let (path_off_start, path_off_end) = anchor.to_path_offsets(node_len, orientation);
+
+            results.push(Coord2NodeResult {
+                path_name: full_path_name.to_string(),
+                node_id: node_id.to_string(),
+                node_orient: orientation == Orientation::Forward,
+                path_off_start,
+                path_off_end,
+            });
+
+            if same_anchor && is_end_anchor {
+                saw_end_anchor = true;
+                break;
+            }
+
+            collecting = true;
+
+            if is_end_anchor {
+                saw_end_anchor = true;
+                break;
+            }
+
             continue;
         }
-        if node_start > end {
-            break;
+
+        let mut path_off_start = 0usize;
+        let mut path_off_end = node_len - 1;
+
+        if overlaps_region {
+            let overlap_start = start.max(node_start);
+            let overlap_end = match node_end.checked_sub(1) {
+                Some(val) => end.min(val),
+                None => continue,
+            };
+
+            if overlap_start <= overlap_end {
+                let anchor = Anchor {
+                    node_id,
+                    forward_start: overlap_start - node_start,
+                    forward_end: overlap_end - node_start,
+                };
+                let (offs, offe) = anchor.to_path_offsets(node_len, orientation);
+                path_off_start = offs;
+                path_off_end = offe;
+            }
         }
 
-        let overlap_start = start.max(node_start);
-        let overlap_end = match node_end.checked_sub(1) {
-            Some(val) => end.min(val),
-            None => continue,
-        };
-
-        if overlap_start > overlap_end {
-            continue;
+        if is_end_anchor {
+            let (offs, offe) = end_anchor.to_path_offsets(node_len, orientation);
+            path_off_start = offs;
+            path_off_end = offe;
+            saw_end_anchor = true;
         }
-
-        let forward_start = overlap_start - node_start;
-        let forward_end = overlap_end - node_start;
-        let anchor = Anchor {
-            node_id,
-            forward_start,
-            forward_end,
-        };
-        let (path_off_start, path_off_end) = anchor.to_path_offsets(node_len, orientation);
 
         results.push(Coord2NodeResult {
             path_name: full_path_name.to_string(),
@@ -641,6 +733,19 @@ fn collect_region_by_offsets(
             path_off_start,
             path_off_end,
         });
+
+        if is_end_anchor {
+            break;
+        }
+    }
+
+    if collecting && !saw_end_anchor {
+        eprintln!(
+            "[WARNING] Fallback scan for path {} did not encounter end anchor {}; collected {} nodes",
+            full_path_name,
+            end_anchor.node_id,
+            results.len()
+        );
     }
 
     results
