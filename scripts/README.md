@@ -14,7 +14,7 @@ Analyzes the AMY (amylase) gene cluster on chromosome 1 using sliding window eig
 ### Usage
 
 ```bash
-# Run analysis (takes ~20 minutes for 41 windows)
+# Run analysis
 bash scripts/run_amy_analysis.sh \
   "s3://human-pangenomics/.../hprc-v2.0-mc-grch38.gbz" \
   "output_directory"
@@ -72,4 +72,3 @@ To run manually:
   - Range: [0, 1]
   - Higher values = more complex/diverse structure
 - **Method:** Laplacian eigendecomposition of subgraph for each window
-- **Runtime:** ~20 seconds per window, ~45 minutes total
