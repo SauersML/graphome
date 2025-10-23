@@ -49,49 +49,49 @@ fn extract_subgraph_edges(gbz: &GBZ, node_ids: &FxHashSet<usize>) -> Vec<(usize,
     edges.into_iter().collect()
 }
 
-/// Build Laplacian matrix directly from the edge list without forming a dense adjacency matrix
-fn build_laplacian_matrix(edges: &[(usize, usize)], node_ids: &[usize]) -> Mat<f64> {
+
+/// Build Laplacian matrix directly from the edge list without materialising the adjacency
+fn build_laplacian_matrix(
+    edges: &[(usize, usize)],
+    node_ids: &[usize],
+) -> Mat<f64> {
     let n = node_ids.len();
-    eprintln!("[INFO] Building {}x{} Laplacian matrix...", n, n);
-
-    let mut id_to_idx: FxHashMap<usize, usize> = FxHashMap::default();
-    id_to_idx.reserve(n);
-    for (idx, &id) in node_ids.iter().enumerate() {
-        id_to_idx.insert(id, idx);
-    }
-
-    // Build adjacency lists to track degrees without storing a dense adjacency matrix
-    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); n];
-    if n > 0 {
-        let average_degree = (edges.len().saturating_mul(2) / n).max(1);
-        for neighbors in &mut adjacency {
-            neighbors.reserve(average_degree);
-        }
-    }
-
-    for &(u, v) in edges {
-        if let (Some(&i), Some(&j)) = (id_to_idx.get(&u), id_to_idx.get(&v)) {
-            adjacency[i].push(j);
-            if i != j {
-                adjacency[j].push(i);
-            }
-        }
-    }
+    eprintln!("[INFO] Building Laplacian matrix for {} nodes ({} edges)...", n, edges.len());
 
     let mut laplacian = Mat::zeros(n, n);
 
-    for i in 0..n {
-        let degree = adjacency[i].len() as f64;
-        laplacian[(i, i)] = degree;
+    if n == 0 {
+        return laplacian;
+    }
 
-        for &j in &adjacency[i] {
-            if i == j {
-                // Self loops contribute to the degree but should not add negative weights off-diagonal
-                laplacian[(i, i)] -= 1.0;
-            } else {
-                laplacian[(i, j)] = -1.0;
-            }
+    // Create mapping: node_id -> matrix_index
+    let id_to_idx: HashMap<usize, usize> = node_ids
+        .iter()
+        .enumerate()
+        .map(|(idx, &id)| (id, idx))
+        .collect();
+
+    let mut degrees = vec![0.0f64; n];
+    let mut self_loops = vec![0.0f64; n];
+
+    for &(u, v) in edges {
+        let (Some(&i), Some(&j)) = (id_to_idx.get(&u), id_to_idx.get(&v)) else {
+            continue;
+        };
+
+        if i == j {
+            degrees[i] += 1.0;
+            self_loops[i] += 1.0;
+        } else {
+            degrees[i] += 1.0;
+            degrees[j] += 1.0;
+            laplacian[(i, j)] -= 1.0;
+            laplacian[(j, i)] -= 1.0;
         }
+    }
+
+    for (idx, (&degree, &self_loop)) in degrees.iter().zip(self_loops.iter()).enumerate() {
+        laplacian[(idx, idx)] = degree - self_loop;
     }
 
     laplacian
@@ -157,13 +157,13 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     // Sort node IDs for consistent matrix indexing
     let mut sorted_nodes: Vec<usize> = node_ids.into_iter().collect();
     sorted_nodes.sort_unstable();
-
     let laplacian_start = Instant::now();
     let laplacian = build_laplacian_matrix(&edges, &sorted_nodes);
     eprintln!(
         "[INFO] Laplacian matrix built in {:.3?}",
         laplacian_start.elapsed()
     );
+
 
     // Perform eigendecomposition
     eprintln!("[INFO] Performing eigendecomposition...");
