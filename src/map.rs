@@ -10,7 +10,7 @@
 //      which do node->hg38 or hg38->node queries.
 
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Write, Read};
 use std::path::Path;
 use std::process::Command;
 
@@ -31,6 +31,29 @@ struct FixStats {
     missing_haplotype: usize, // Missing haplotype field (only one # symbol)
     complex_paths: usize,   // Complex cases with 3+ hash symbols (e.g., MT paths)
     total_processed: usize, // Total path lines processed
+}
+
+// Region slice: nodes and edges reachable between start and end anchors within bp cap
+use std::collections::{HashSet, HashMap, VecDeque};
+use std::io::BufReader;
+
+#[derive(Debug, Clone)]
+struct RegionSlice {
+    nodes: HashSet<usize>,                    // Node IDs in the slice
+    node_lengths: HashMap<usize, usize>,      // Node ID -> length in bp
+    edges: HashMap<usize, Vec<(usize, Orientation)>>, // Node ID -> successors
+    start_anchor_node: usize,
+    end_anchor_node: usize,
+    total_bp: usize,                          // Total bp in slice
+}
+
+// Node-to-Path postings index
+// Maps node_id -> list of path_ids that contain that node
+#[derive(Debug, Clone)]
+struct NodePathPostings {
+    postings: HashMap<usize, Vec<usize>>,  // node_id -> sorted vec of path_ids
+    total_nodes: usize,
+    total_paths: usize,
 }
 
 // We'll keep these big data structures in memory for queries.
@@ -386,6 +409,12 @@ pub fn coord_to_nodes_mapped(
 }
 
 pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
+    // This is a compatibility wrapper that doesn't have access to gbz_path
+    // It will work but won't benefit from postings caching
+    coord_to_nodes_with_path(gbz, "", chr, start, end)
+}
+
+pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
     eprintln!("[INFO] Searching for region {}:{}-{}", chr, start, end);
     let mut results = Vec::new();
 
@@ -405,15 +434,40 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
             start_anchor.node_id, end_anchor.node_id, chr, start, end
         );
 
-        for (path_id, path_name) in metadata.path_iter().enumerate() {
-            let contig_name = metadata.contig_name(path_name.contig());
-            if contig_name != chr {
-                continue;
-            }
+        // Find candidates by contig filtering (fast, no index needed)
+        let candidate_paths = find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id);
+        
+        if candidate_paths.is_empty() {
+            eprintln!("[WARNING] no candidate paths contain the start anchor");
+            return results;
+        }
 
-            // Construct full path name in PanSN format: sample#haplotype#contig
+        // Build bounded slice once
+        let bp_cap = (end - start) + 50_000;
+        let region_slice = build_region_slice(gbz, &start_anchor, &end_anchor, bp_cap);
+        
+        if region_slice.nodes.is_empty() {
+            eprintln!("[WARNING] Region slice is empty");
+            return results;
+        }
+        
+        eprintln!(
+            "[INFO] Built region slice: {} nodes, {} bp total",
+            region_slice.nodes.len(),
+            region_slice.total_bp
+        );
+
+        let mut paths_with_results = 0;
+        let mut paths_skipped = 0;
+
+        for path_id in candidate_paths {
+            let path_name = match metadata.path(path_id) {
+                Some(name) => name,
+                None => continue,
+            };
             let sample_name = metadata.sample_name(path_name.sample());
             let haplotype = path_name.phase();
+            let contig_name = metadata.contig_name(path_name.contig());
             let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
             eprintln!("[INFO] Scanning path {} ({})", path_id, full_path_name);
@@ -423,12 +477,40 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
                 let mut collecting = false;
                 let mut path_results = Vec::new();
                 let same_anchor_node = start_anchor.node_id == end_anchor.node_id;
+                let mut total_bp = 0usize;
+                
+                const MAX_NODES_PER_PATH: usize = 100000;
+                const MAX_BP_PER_PATH: usize = 10_000_000;
 
                 for (node_id, orientation) in path_iter {
+                    if node_count >= MAX_NODES_PER_PATH {
+                        eprintln!(
+                            "[WARNING] Path {} exceeded max nodes cap ({}), stopping",
+                            full_path_name, MAX_NODES_PER_PATH
+                        );
+                        break;
+                    }
+                    
+                    if total_bp >= MAX_BP_PER_PATH {
+                        eprintln!(
+                            "[WARNING] Path {} exceeded max bp cap ({}), stopping",
+                            full_path_name, MAX_BP_PER_PATH
+                        );
+                        break;
+                    }
+                    if !region_slice.nodes.contains(&node_id) {
+                        if collecting {
+                            break;
+                        }
+                        continue;
+                    }
+
                     let node_len = match gbz.sequence_len(node_id) {
                         Some(len) if len > 0 => len,
                         _ => continue,
                     };
+                    
+                    total_bp += node_len;
 
                     if !collecting {
                         if node_id != start_anchor.node_id {
@@ -502,38 +584,21 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
                         node_count, full_path_name
                     );
                     results.extend(path_results);
-                    continue;
+                    paths_with_results += 1;
+                } else {
+                    eprintln!(
+                        "[WARNING] Path {} contains start anchor but no nodes collected (may not reach end anchor within slice)",
+                        full_path_name
+                    );
+                    paths_skipped += 1;
                 }
             }
-
-            eprintln!(
-                "[WARNING] Start anchor node {} not found on path {}; attempting fallback scan",
-                start_anchor.node_id, full_path_name
-            );
-
-            let fallback = collect_region_by_offsets(
-                gbz,
-                path_id,
-                &full_path_name,
-                start,
-                end,
-                &start_anchor,
-                &end_anchor,
-            );
-            if fallback.is_empty() {
-                eprintln!(
-                    "[WARNING] Fallback scan found no nodes for path {}",
-                    full_path_name
-                );
-            } else {
-                eprintln!(
-                    "[INFO] Fallback scan found {} nodes for path {}",
-                    fallback.len(),
-                    full_path_name
-                );
-                results.extend(fallback);
-            }
         }
+
+        eprintln!(
+            "[INFO] Summary: {} paths yielded sequences, {} paths skipped, {} total results",
+            paths_with_results, paths_skipped, results.len()
+        );
 
         results
     } else {
@@ -543,13 +608,9 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
         );
 
         for (path_id, path_name) in metadata.path_iter().enumerate() {
-            let contig_name = metadata.contig_name(path_name.contig());
-            if contig_name != chr {
-                continue;
-            }
-
             let sample_name = metadata.sample_name(path_name.sample());
             let haplotype = path_name.phase();
+            let contig_name = metadata.contig_name(path_name.contig());
             let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
             if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
@@ -590,165 +651,6 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
 
         results
     }
-}
-
-fn collect_region_by_offsets(
-    gbz: &GBZ,
-    path_id: usize,
-    full_path_name: &str,
-    start: usize,
-    end: usize,
-    start_anchor: &Anchor,
-    end_anchor: &Anchor,
-) -> Vec<Coord2NodeResult> {
-    let mut results = Vec::new();
-
-    let Some(path_iter) = gbz.path(path_id, Orientation::Forward) else {
-        return results;
-    };
-
-    let mut position = 0usize;
-    let mut collecting = false;
-    let mut saw_end_anchor = false;
-    let same_anchor = start_anchor.node_id == end_anchor.node_id;
-
-    for (node_id, orientation) in path_iter {
-        let node_len = match gbz.sequence_len(node_id) {
-            Some(len) if len > 0 => len,
-            _ => continue,
-        };
-
-        let node_start = position;
-        let node_end = node_start + node_len;
-        position = node_end;
-
-        let overlaps_region = node_start <= end && node_end > start;
-        let is_start_anchor = node_id == start_anchor.node_id;
-        let is_end_anchor = node_id == end_anchor.node_id;
-
-        if !collecting {
-            if is_start_anchor {
-                let (path_off_start, mut path_off_end) =
-                    start_anchor.to_path_offsets(node_len, orientation);
-
-                if same_anchor {
-                    let (_, end_off_end) = end_anchor.to_path_offsets(node_len, orientation);
-                    path_off_end = end_off_end;
-                }
-
-                results.push(Coord2NodeResult {
-                    path_name: full_path_name.to_string(),
-                    node_id: node_id.to_string(),
-                    node_orient: orientation == Orientation::Forward,
-                    path_off_start,
-                    path_off_end,
-                });
-
-                if same_anchor {
-                    saw_end_anchor = true;
-                    break;
-                }
-
-                collecting = true;
-                continue;
-            }
-
-            if !overlaps_region {
-                continue;
-            }
-
-            let overlap_start = start.max(node_start);
-            let overlap_end = match node_end.checked_sub(1) {
-                Some(val) => end.min(val),
-                None => continue,
-            };
-
-            if overlap_start > overlap_end {
-                continue;
-            }
-
-            let anchor = Anchor {
-                node_id,
-                forward_start: overlap_start - node_start,
-                forward_end: overlap_end - node_start,
-            };
-            let (path_off_start, path_off_end) = anchor.to_path_offsets(node_len, orientation);
-
-            results.push(Coord2NodeResult {
-                path_name: full_path_name.to_string(),
-                node_id: node_id.to_string(),
-                node_orient: orientation == Orientation::Forward,
-                path_off_start,
-                path_off_end,
-            });
-
-            if same_anchor && is_end_anchor {
-                saw_end_anchor = true;
-                break;
-            }
-
-            collecting = true;
-
-            if is_end_anchor {
-                saw_end_anchor = true;
-                break;
-            }
-
-            continue;
-        }
-
-        let mut path_off_start = 0usize;
-        let mut path_off_end = node_len - 1;
-
-        if overlaps_region {
-            let overlap_start = start.max(node_start);
-            let overlap_end = match node_end.checked_sub(1) {
-                Some(val) => end.min(val),
-                None => continue,
-            };
-
-            if overlap_start <= overlap_end {
-                let anchor = Anchor {
-                    node_id,
-                    forward_start: overlap_start - node_start,
-                    forward_end: overlap_end - node_start,
-                };
-                let (offs, offe) = anchor.to_path_offsets(node_len, orientation);
-                path_off_start = offs;
-                path_off_end = offe;
-            }
-        }
-
-        if is_end_anchor {
-            let (offs, offe) = end_anchor.to_path_offsets(node_len, orientation);
-            path_off_start = offs;
-            path_off_end = offe;
-            saw_end_anchor = true;
-        }
-
-        results.push(Coord2NodeResult {
-            path_name: full_path_name.to_string(),
-            node_id: node_id.to_string(),
-            node_orient: orientation == Orientation::Forward,
-            path_off_start,
-            path_off_end,
-        });
-
-        if is_end_anchor {
-            break;
-        }
-    }
-
-    if collecting && !saw_end_anchor {
-        eprintln!(
-            "[WARNING] Fallback scan for path {} did not encounter end anchor {}; collected {} nodes",
-            full_path_name,
-            end_anchor.node_id,
-            results.len()
-        );
-    }
-
-    results
 }
 
 /// Validates and fixes path names in a GFA file for PanSN naming compliance.
@@ -1276,6 +1178,294 @@ impl Anchor {
     }
 }
 
+impl NodePathPostings {
+    fn build(gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> Self {
+        let total_paths = metadata.paths();
+        eprintln!("[INFO] Building node→path postings index from {} paths...", total_paths);
+        
+        let mut postings: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let progress = (total_paths.max(20) / 20).max(1);
+        
+        for (path_id, _) in metadata.path_iter().enumerate() {
+            if path_id % progress == 0 {
+                eprintln!("[INFO] postings build: {}/{} paths processed", path_id, total_paths);
+            }
+            
+            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+                let mut seen_nodes = HashSet::new();
+                for (node_id, _) in path_iter {
+                    // Only record each node once per path (dedup within path)
+                    if seen_nodes.insert(node_id) {
+                        postings.entry(node_id).or_insert_with(HashSet::new).insert(path_id);
+                    }
+                }
+            }
+        }
+        
+        // Convert HashSets to sorted Vecs for efficient storage
+        let postings_vec: HashMap<usize, Vec<usize>> = postings
+            .into_iter()
+            .map(|(node_id, path_set)| {
+                let mut paths: Vec<usize> = path_set.into_iter().collect();
+                paths.sort_unstable();
+                (node_id, paths)
+            })
+            .collect();
+        
+        let total_nodes = postings_vec.len();
+        eprintln!("[INFO] Built postings index: {} nodes, {} paths", total_nodes, total_paths);
+        
+        NodePathPostings {
+            postings: postings_vec,
+            total_nodes,
+            total_paths,
+        }
+    }
+    
+    fn get_paths(&self, node_id: usize) -> Option<&[usize]> {
+        self.postings.get(&node_id).map(|v| v.as_slice())
+    }
+    
+    fn save_to_file(&self, path: &str) -> std::io::Result<()> {
+        eprintln!("[INFO] Saving postings index to {}...", path);
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+        
+        // Write header: total_nodes, total_paths
+        writer.write_all(&self.total_nodes.to_le_bytes())?;
+        writer.write_all(&self.total_paths.to_le_bytes())?;
+        
+        // Write number of entries
+        let num_entries = self.postings.len();
+        writer.write_all(&num_entries.to_le_bytes())?;
+        
+        // Write each entry: node_id, num_paths, [path_ids...]
+        for (&node_id, paths) in &self.postings {
+            writer.write_all(&node_id.to_le_bytes())?;
+            writer.write_all(&paths.len().to_le_bytes())?;
+            for &path_id in paths {
+                writer.write_all(&path_id.to_le_bytes())?;
+            }
+        }
+        
+        writer.flush()?;
+        eprintln!("[INFO] Postings index saved");
+        Ok(())
+    }
+    
+    fn load_from_file(path: &str) -> std::io::Result<Self> {
+        eprintln!("[INFO] Loading postings index from {}...", path);
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        
+        // Read header
+        let mut buf = [0u8; 8];
+        reader.read_exact(&mut buf)?;
+        let total_nodes = usize::from_le_bytes(buf);
+        reader.read_exact(&mut buf)?;
+        let total_paths = usize::from_le_bytes(buf);
+        
+        // Read number of entries
+        reader.read_exact(&mut buf)?;
+        let num_entries = usize::from_le_bytes(buf);
+        
+        let mut postings = HashMap::with_capacity(num_entries);
+        
+        // Read each entry
+        for _ in 0..num_entries {
+            reader.read_exact(&mut buf)?;
+            let node_id = usize::from_le_bytes(buf);
+            
+            reader.read_exact(&mut buf)?;
+            let num_paths = usize::from_le_bytes(buf);
+            
+            let mut paths = Vec::with_capacity(num_paths);
+            for _ in 0..num_paths {
+                reader.read_exact(&mut buf)?;
+                paths.push(usize::from_le_bytes(buf));
+            }
+            
+            postings.insert(node_id, paths);
+        }
+        
+        eprintln!("[INFO] Loaded postings index: {} nodes, {} paths", total_nodes, total_paths);
+        Ok(NodePathPostings {
+            postings,
+            total_nodes,
+            total_paths,
+        })
+    }
+}
+
+fn get_or_build_postings(gbz_path: &str, gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> NodePathPostings {
+    let postings_path = format!("{}.postings", gbz_path);
+    
+    // Try to load existing postings
+    if Path::new(&postings_path).exists() {
+        match NodePathPostings::load_from_file(&postings_path) {
+            Ok(postings) => {
+                eprintln!("[INFO] Using cached postings index");
+                return postings;
+            }
+            Err(e) => {
+                eprintln!("[WARNING] Failed to load postings index: {}; rebuilding...", e);
+            }
+        }
+    }
+    
+    // Build new postings
+    let postings = NodePathPostings::build(gbz, metadata);
+    
+    // Try to save for future use
+    if let Err(e) = postings.save_to_file(&postings_path) {
+        eprintln!("[WARNING] Failed to save postings index: {}", e);
+    }
+    
+    postings
+}
+
+fn find_candidate_paths_with_postings(
+    postings: &NodePathPostings,
+    start_anchor_node: usize,
+) -> HashSet<usize> {
+    let candidates: HashSet<usize> = if let Some(paths) = postings.get_paths(start_anchor_node) {
+        eprintln!("[INFO] Found {} candidate paths from postings index for node {}", 
+            paths.len(), start_anchor_node);
+        paths.iter().copied().collect()
+    } else {
+        eprintln!("[WARNING] Start anchor node {} not found in postings index", start_anchor_node);
+        HashSet::new()
+    };
+    
+    candidates
+}
+
+fn find_candidate_paths_by_contig(
+    gbz: &GBZ,
+    metadata: &gbwt::gbwt::Metadata,
+    chr: &str,
+    start_anchor_node: usize,
+) -> HashSet<usize> {
+    let mut candidates = HashSet::new();
+    
+    // First, collect all path IDs for this contig
+    let mut contig_paths = Vec::new();
+    for (path_id, path_name) in metadata.path_iter().enumerate() {
+        let contig_name = metadata.contig_name(path_name.contig());
+        if contig_name == chr {
+            contig_paths.push(path_id);
+        }
+    }
+    
+    eprintln!("[INFO] Found {} paths on contig {}", contig_paths.len(), chr);
+    
+    if contig_paths.is_empty() {
+        eprintln!("[WARNING] No paths found for contig {}", chr);
+        return candidates;
+    }
+    
+    // Expected hits from search state
+    let expected_hits =
+        gbz.search_state(start_anchor_node, Orientation::Forward).map(|s| s.len()).unwrap_or(0) +
+        gbz.search_state(start_anchor_node, Orientation::Reverse).map(|s| s.len()).unwrap_or(0);
+    
+    eprintln!("[INFO] Scanning {} contig-filtered paths for start anchor {} (expect ~{} hits)", 
+        contig_paths.len(), start_anchor_node, expected_hits);
+    
+    let progress = (contig_paths.len().max(20) / 20).max(1);
+    
+    'paths: for (idx, &path_id) in contig_paths.iter().enumerate() {
+        if idx % progress == 0 {
+            eprintln!("[INFO] anchor-scan: {}/{} contig paths, {} candidates", 
+                idx, contig_paths.len(), candidates.len());
+        }
+        
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            for (node_id, _) in path_iter {
+                if node_id == start_anchor_node {
+                    candidates.insert(path_id);
+                    
+                    // Early exit if we've found all expected hits
+                    if candidates.len() >= expected_hits {
+                        eprintln!("[INFO] Reached expected hits ({}), stopping scan", expected_hits);
+                        break 'paths;
+                    }
+                    break; // Move to next path
+                }
+            }
+        }
+    }
+    
+    eprintln!("[INFO] Found {} candidate paths containing start anchor", candidates.len());
+    candidates
+}
+
+fn build_region_slice(
+    gbz: &GBZ,
+    start_anchor: &Anchor,
+    end_anchor: &Anchor,
+    bp_cap: usize,
+) -> RegionSlice {
+    let mut slice = RegionSlice {
+        nodes: HashSet::new(),
+        node_lengths: HashMap::new(),
+        edges: HashMap::new(),
+        start_anchor_node: start_anchor.node_id,
+        end_anchor_node: end_anchor.node_id,
+        total_bp: 0,
+    };
+    
+    let mut queue = VecDeque::new();
+    let mut dist: HashMap<(usize, Orientation), usize> = HashMap::new();
+    
+    // Seed both orientations
+    queue.push_back((start_anchor.node_id, Orientation::Forward, 0usize));
+    dist.insert((start_anchor.node_id, Orientation::Forward), 0);
+    queue.push_back((start_anchor.node_id, Orientation::Reverse, 0usize));
+    dist.insert((start_anchor.node_id, Orientation::Reverse), 0);
+    
+    while let Some((node_id, orient, d)) = queue.pop_front() {
+        if d > bp_cap {
+            continue;
+        }
+        
+        let node_len = match gbz.sequence_len(node_id) {
+            Some(len) if len > 0 => len,
+            _ => continue,
+        };
+        
+        // Only account bp once per node
+        if slice.nodes.insert(node_id) {
+            slice.node_lengths.insert(node_id, node_len);
+            slice.total_bp += node_len;
+        }
+        
+        // Still add edges (for debug/traversal guards)
+        if let Some(successors) = gbz.successors(node_id, orient) {
+            let succs: Vec<_> = successors.collect();
+            if !succs.is_empty() {
+                slice.edges.insert(node_id, succs.clone());
+            }
+            
+            // Stop expanding beyond the end anchor node (but still record that node)
+            if node_id == end_anchor.node_id {
+                continue;
+            }
+            
+            let base = d + node_len;
+            for (sid, sori) in succs {
+                let key = (sid, sori);
+                if dist.get(&key).map_or(true, |&old| base < old) && base <= bp_cap {
+                    dist.insert(key, base);
+                    queue.push_back((sid, sori, base));
+                }
+            }
+        }
+    }
+    
+    slice
+}
+
 fn compute_reference_anchors(
     gbz: &GBZ,
     metadata: &gbwt::gbwt::Metadata,
@@ -1283,46 +1473,68 @@ fn compute_reference_anchors(
     start: usize,
     end: usize,
 ) -> Option<(Anchor, Anchor)> {
-    let mut ref_paths = gbz.reference_positions(1, true);
-    if ref_paths.is_empty() {
-        ref_paths = gbz.reference_positions(1, false);
+    // Get reference sample IDs
+    let ref_samples = gbz.reference_sample_ids(true);
+    let ref_samples = if ref_samples.is_empty() {
+        gbz.reference_sample_ids(false)
+    } else {
+        ref_samples
+    };
+    
+    if ref_samples.is_empty() {
+        eprintln!("[WARNING] No reference samples found");
+        return None;
     }
-
-    for ref_path in &ref_paths {
-        let path_name = match metadata.path(ref_path.id) {
-            Some(name) => name,
-            None => continue,
-        };
+    
+    // Find reference path for this contig by scanning metadata
+    for (path_id, path_name) in metadata.path_iter().enumerate() {
+        // Check if this is a reference path for the requested contig
+        if !ref_samples.contains(&path_name.sample()) {
+            continue;
+        }
+        
         let contig_name = metadata.contig_name(path_name.contig());
         if contig_name != chr {
             continue;
         }
-
+        
+        // Walk this single reference path to find anchors
+        let Some(path_iter) = gbz.path(path_id, Orientation::Forward) else {
+            continue;
+        };
+        
         let mut first_anchor: Option<Anchor> = None;
         let mut last_anchor: Option<Anchor> = None;
-
-        for (path_offset, pos) in &ref_path.positions {
-            let (node_id, orientation) = support::decode_node(pos.node);
+        let mut position = 0usize;
+        
+        for (node_id, orientation) in path_iter {
             let node_len = match gbz.sequence_len(node_id) {
                 Some(len) if len > 0 => len,
                 _ => continue,
             };
-
-            let node_start = *path_offset;
-            let node_end = node_start + node_len - 1;
-            if node_end < start {
+            
+            let node_start = position;
+            let node_end = node_start + node_len;
+            position = node_end;
+            
+            // Skip nodes before the region
+            if node_end <= start {
                 continue;
             }
-            if node_start > end {
+            
+            // Stop after the region
+            if node_start >= end {
                 break;
             }
-
+            
+            // This node overlaps the region
             let overlap_start = start.max(node_start);
-            let overlap_end = end.min(node_end);
+            let overlap_end = end.min(node_end - 1);
+            
             if overlap_start > overlap_end {
                 continue;
             }
-
+            
             let oriented_start = overlap_start - node_start;
             let oriented_end = overlap_end - node_start;
             let anchor = Anchor::from_reference(
@@ -1332,18 +1544,18 @@ fn compute_reference_anchors(
                 oriented_start,
                 oriented_end,
             );
-
+            
             if first_anchor.is_none() {
                 first_anchor = Some(anchor.clone());
             }
             last_anchor = Some(anchor);
         }
-
+        
         if let (Some(first), Some(last)) = (first_anchor, last_anchor) {
             return Some((first, last));
         }
     }
-
+    
     None
 }
 

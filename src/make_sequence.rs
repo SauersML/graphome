@@ -88,7 +88,7 @@ pub fn extract_sequence(
             map::make_gbz_exist(graph_path, paf_path)
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
-        let nodes = map::coord_to_nodes(&gbz, &chr, start, end);
+        let nodes = map::coord_to_nodes_with_path(&gbz, &gbz_path, &chr, start, end);
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());
