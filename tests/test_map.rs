@@ -212,13 +212,11 @@ fn test_coord2node_empty_region() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
     let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
-    if !gbz_path.exists() {
-        eprintln!(
-            "[SKIP] integration_map_coord2node_hprc requires {}",
-            gbz_path.display()
-        );
-        return Ok(());
-    }
+    assert!(
+        gbz_path.exists(),
+        "integration_map_coord2node_hprc requires {}",
+        gbz_path.display()
+    );
 
     let binary = env!("CARGO_BIN_EXE_graphome");
     let output = Command::new(binary)
@@ -251,13 +249,11 @@ fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
     let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
-    if !gbz_path.exists() {
-        eprintln!(
-            "[SKIP] integration_eigen_region_hprc requires {}",
-            gbz_path.display()
-        );
-        return Ok(());
-    }
+    assert!(
+        gbz_path.exists(),
+        "integration_eigen_region_hprc requires {}",
+        gbz_path.display()
+    );
 
     let binary = env!("CARGO_BIN_EXE_graphome");
     let output = Command::new(binary)
