@@ -502,12 +502,28 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
                         node_count, full_path_name
                     );
                     results.extend(path_results);
-                } else {
-                    eprintln!(
-                        "[WARNING] Start anchor node {} not found on path {}",
-                        start_anchor.node_id, full_path_name
-                    );
+                    continue;
                 }
+            }
+
+            eprintln!(
+                "[WARNING] Start anchor node {} not found on path {}; attempting fallback scan",
+                start_anchor.node_id, full_path_name
+            );
+
+            let fallback = collect_region_by_offsets(gbz, path_id, &full_path_name, start, end);
+            if fallback.is_empty() {
+                eprintln!(
+                    "[WARNING] Fallback scan found no nodes for path {}",
+                    full_path_name
+                );
+            } else {
+                eprintln!(
+                    "[INFO] Fallback scan found {} nodes for path {}",
+                    fallback.len(),
+                    full_path_name
+                );
+                results.extend(fallback);
             }
         }
 
@@ -566,6 +582,68 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
 
         results
     }
+}
+
+fn collect_region_by_offsets(
+    gbz: &GBZ,
+    path_id: usize,
+    full_path_name: &str,
+    start: usize,
+    end: usize,
+) -> Vec<Coord2NodeResult> {
+    let mut results = Vec::new();
+
+    let Some(path_iter) = gbz.path(path_id, Orientation::Forward) else {
+        return results;
+    };
+
+    let mut position = 0usize;
+    for (node_id, orientation) in path_iter {
+        let node_len = match gbz.sequence_len(node_id) {
+            Some(len) if len > 0 => len,
+            _ => continue,
+        };
+
+        let node_start = position;
+        let node_end = node_start + node_len;
+        position = node_end;
+
+        if node_end <= start {
+            continue;
+        }
+        if node_start > end {
+            break;
+        }
+
+        let overlap_start = start.max(node_start);
+        let overlap_end = match node_end.checked_sub(1) {
+            Some(val) => end.min(val),
+            None => continue,
+        };
+
+        if overlap_start > overlap_end {
+            continue;
+        }
+
+        let forward_start = overlap_start - node_start;
+        let forward_end = overlap_end - node_start;
+        let anchor = Anchor {
+            node_id,
+            forward_start,
+            forward_end,
+        };
+        let (path_off_start, path_off_end) = anchor.to_path_offsets(node_len, orientation);
+
+        results.push(Coord2NodeResult {
+            path_name: full_path_name.to_string(),
+            node_id: node_id.to_string(),
+            node_orient: orientation == Orientation::Forward,
+            path_off_start,
+            path_off_end,
+        });
+    }
+
+    results
 }
 
 /// Validates and fixes path names in a GFA file for PanSN naming compliance.
@@ -852,16 +930,10 @@ fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
 /// Ensures a GBZ file exists for given GFA and PAF files.
 /// If the GBZ doesn't exist, validates and fixes the GFA, then creates the GBZ.
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
-    fn cache_downloaded_gbz(
-        materialized: io::MaterializedPath,
-        remote_path: &str,
-    ) -> String {
+    fn cache_downloaded_gbz(materialized: io::MaterializedPath, remote_path: &str) -> String {
         let downloaded_path = materialized.path().to_path_buf();
 
-        if let Some(filename) = remote_path
-            .rsplit('/')
-            .find(|segment| !segment.is_empty())
-        {
+        if let Some(filename) = remote_path.rsplit('/').find(|segment| !segment.is_empty()) {
             let cache_dir = Path::new("data").join("hprc");
             if let Err(err) = fs::create_dir_all(&cache_dir) {
                 eprintln!(
@@ -873,10 +945,7 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
                 let cache_path = cache_dir.join(filename);
                 match fs::copy(&downloaded_path, &cache_path) {
                     Ok(_) => {
-                        eprintln!(
-                            "[INFO] Cached remote GBZ at {}",
-                            cache_path.display()
-                        );
+                        eprintln!("[INFO] Cached remote GBZ at {}", cache_path.display());
                         return cache_path.to_string_lossy().into_owned();
                     }
                     Err(err) => {
@@ -958,7 +1027,6 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
         // Try to download the GBZ file
         match io::materialize(&gbz_url) {
             Ok(materialized) => {
-
                 eprintln!("[INFO] Successfully downloaded GBZ from remote");
                 return cache_downloaded_gbz(materialized, &gbz_url);
             }
@@ -1188,7 +1256,7 @@ fn contig_matches(contig_name: &str, requested_chr: &str, normalized_target: &st
     contig_normalized == requested_chr || contig_normalized == normalized_target
 }
 
-pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
+pub fn parse_region(r: &str) -> Option<(String, usize, usize)> {
     // e.g. "grch38#chr1:120616922-120626943"
     let (chr_part, rng_part) = r.split_once(':')?;
     let (s, e) = rng_part.split_once('-')?;
