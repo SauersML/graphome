@@ -177,7 +177,7 @@ pub fn extract_sequence(
                         reverse_complement(seq)
                     };
                     let start_in_node = node_result.path_off_start;
-                    let end_in_node = node_result.path_off_end + 1;
+                    let end_in_node = node_result.path_off_end;
                     let clipped_start = start_in_node.min(node_len);
                     let clipped_end = end_in_node.min(node_len);
 

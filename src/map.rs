@@ -184,7 +184,7 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
 
             for r in &results {
                 println!(
-                    "path={} node={}({}) offsets=[{}..{}]",
+                    "path={} node={}({}) offsets=[{}..{})",
                     r.path_name,
                     r.node_id,
                     if r.node_orient { '+' } else { '-' },
@@ -381,10 +381,10 @@ pub fn coord_to_nodes_mapped(
                     if let Some(node_len) = gbz.sequence_len(node_id) {
                         let node_start = position;
                         let node_end = node_start + node_len;
-                        if node_start <= end && node_end > start {
+                        if node_start < end && node_end > start {
                             let overlap_start = start.max(node_start);
-                            let overlap_end = end.min(node_end - 1);
-                            if overlap_start <= overlap_end {
+                            let overlap_end = end.min(node_end);
+                            if overlap_start < overlap_end {
                                 let node_off_start = overlap_start - node_start;
                                 let node_off_end = overlap_end - node_start;
                                 results.push(Coord2NodeResult {
@@ -522,7 +522,7 @@ pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usi
                         collecting = !same_anchor_node;
                         let (start_off_start, _) =
                             start_anchor.to_path_offsets(node_len, orientation);
-                        let mut path_off_end = node_len - 1;
+                        let mut path_off_end = node_len;
                         if same_anchor_node {
                             let (_, end_off_end) =
                                 end_anchor.to_path_offsets(node_len, orientation);
@@ -545,7 +545,7 @@ pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usi
                         continue;
                     }
 
-                    let mut path_off_end = node_len - 1;
+                    let mut path_off_end = node_len;
 
                     if node_id == end_anchor.node_id {
                         let (_, end_off_end) = end_anchor.to_path_offsets(node_len, orientation);
@@ -628,11 +628,11 @@ pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usi
                         let node_start = position;
                         let node_end = node_start + node_len;
 
-                        if node_start <= end && node_end > start {
+                        if node_start < end && node_end > start {
                             let overlap_start = start.max(node_start);
-                            let overlap_end = end.min(node_end.saturating_sub(1));
+                            let overlap_end = end.min(node_end);
 
-                            if overlap_start <= overlap_end {
+                            if overlap_start < overlap_end {
                                 results.push(Coord2NodeResult {
                                     path_name: full_path_name.clone(),
                                     node_id: node_id.to_string(),
@@ -1131,6 +1131,9 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
 }
 
 #[derive(Debug)]
+/// Describes the portion of a node that overlaps the requested region.
+/// `path_off_start` is inclusive and `path_off_end` is exclusive within the
+/// node's oriented coordinate system (respecting `node_orient`).
 pub struct Coord2NodeResult {
     pub path_name: String,
     pub node_id: String,
@@ -1152,16 +1155,15 @@ impl Anchor {
         node_len: usize,
         orientation: Orientation,
         oriented_start: usize,
-        oriented_end: usize,
+        oriented_end_exclusive: usize,
     ) -> Self {
-        let max_offset = node_len.saturating_sub(1);
-        let oriented_start = oriented_start.min(max_offset);
-        let oriented_end = oriented_end.min(max_offset);
+        let oriented_start = oriented_start.min(node_len);
+        let oriented_end_exclusive = oriented_end_exclusive.min(node_len);
         let (forward_start, forward_end) = match orientation {
-            Orientation::Forward => (oriented_start, oriented_end),
+            Orientation::Forward => (oriented_start, oriented_end_exclusive),
             Orientation::Reverse => {
-                let forward_start = node_len - 1 - oriented_end;
-                let forward_end = node_len - 1 - oriented_start;
+                let forward_start = node_len.saturating_sub(oriented_end_exclusive);
+                let forward_end = node_len.saturating_sub(oriented_start);
                 (forward_start, forward_end)
             }
         };
@@ -1174,12 +1176,15 @@ impl Anchor {
     }
 
     fn to_path_offsets(&self, node_len: usize, orientation: Orientation) -> (usize, usize) {
-        let max_offset = node_len.saturating_sub(1);
-        let forward_start = self.forward_start.min(max_offset);
-        let forward_end = self.forward_end.min(max_offset);
+        let forward_start = self.forward_start.min(node_len);
+        let forward_end = self.forward_end.min(node_len);
         match orientation {
             Orientation::Forward => (forward_start, forward_end),
-            Orientation::Reverse => (node_len - 1 - forward_end, node_len - 1 - forward_start),
+            Orientation::Reverse => {
+                let start = node_len.saturating_sub(forward_end);
+                let end = node_len.saturating_sub(forward_start);
+                (start, end)
+            }
         }
     }
 }
@@ -1534,12 +1539,12 @@ fn compute_reference_anchors(
             
             // This node overlaps the region
             let overlap_start = start.max(node_start);
-            let overlap_end = end.min(node_end - 1);
-            
-            if overlap_start > overlap_end {
+            let overlap_end = end.min(node_end);
+
+            if overlap_start >= overlap_end {
                 continue;
             }
-            
+
             let oriented_start = overlap_start - node_start;
             let oriented_end = overlap_end - node_start;
             let anchor = Anchor::from_reference(
@@ -1662,10 +1667,10 @@ fn create_coord_ranges(ranges: &[(String, usize, usize)]) -> Vec<(String, String
     result
 }
 
-/// merge_intervals takes a vector of (start, end) pairs and merges
-/// all overlapping or contiguous intervals into a minimal set of
-/// non‐overlapping intervals. Two intervals a..b and c..d are considered
-/// part of the same “group” if they overlap or if c <= b+1.
+/// `merge_intervals` takes a vector of half-open (start, end) pairs and merges
+/// all overlapping or back-to-back intervals into a minimal set of
+/// non-overlapping intervals. Two intervals `a..b` and `c..d` are considered
+/// part of the same group if they overlap or if `c <= b`.
 fn merge_intervals(mut intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
     // Sort by the start coordinate
     intervals.sort_by_key(|iv| iv.0);
@@ -1679,7 +1684,7 @@ fn merge_intervals(mut intervals: Vec<(usize, usize)>) -> Vec<(usize, usize)> {
 
     // Sweep through the rest
     for &(s, e) in intervals.iter().skip(1) {
-        if s <= current_end + 1 {
+        if s <= current_end {
             // Overlaps or touches the current group
             if e > current_end {
                 current_end = e;
