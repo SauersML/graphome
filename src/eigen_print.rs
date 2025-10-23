@@ -25,8 +25,14 @@ fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
     }
 
     for (i, row) in array.outer_iter().enumerate() {
-        for (j, value) in row.iter().enumerate() {
-            *mat.get_mut(i, j) = *value;
+        if let Some(row_slice) = row.as_slice() {
+            for (j, value) in row_slice.iter().copied().enumerate() {
+                *mat.get_mut(i, j) = value;
+            }
+        } else {
+            for (j, value) in row.iter().enumerate() {
+                *mat.get_mut(i, j) = *value;
+            }
         }
     }
 
@@ -199,14 +205,19 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
         ));
     }
 
-    if eigenvalues.iter().any(|&x| x < -epsilon) {
-        let negative_eigenvalues: Vec<f64> = eigenvalues
-            .iter()
-            .copied()
-            .filter(|&x| x < -epsilon)
-            .take(5)
-            .collect();
+    let mut negative_eigenvalues = Vec::new();
+    let mut sum_eigen = 0.0;
+    for &value in eigenvalues {
+        if value < -epsilon {
+            if negative_eigenvalues.len() < 5 {
+                negative_eigenvalues.push(value);
+            }
+        } else {
+            sum_eigen += value;
+        }
+    }
 
+    if !negative_eigenvalues.is_empty() {
         println!(
             "❗ Significant negative eigenvalues found: {:?}",
             negative_eigenvalues
@@ -216,13 +227,6 @@ pub fn compute_ngec(eigenvalues: &[f64]) -> io::Result<f64> {
             io::ErrorKind::InvalidInput,
             "Eigenvalues contain significant negative values.",
         ));
-    }
-
-    let mut sum_eigen = 0.0;
-    for &value in eigenvalues {
-        if value >= -epsilon {
-            sum_eigen += value;
-        }
     }
 
     if sum_eigen <= 0.0 {
@@ -258,29 +262,29 @@ pub fn print_heatmap(matrix: MatRef<'_, f64>) {
     let num_rows = matrix.nrows();
     let num_cols = matrix.ncols();
 
-    let mut non_zero_values = Vec::new();
+    let mut min_value = f64::INFINITY;
+    let mut max_value = f64::NEG_INFINITY;
+    let mut has_non_zero = false;
+
     for i in 0..num_rows {
         for j in 0..num_cols {
             let value = matrix[(i, j)];
             if value != 0.0 {
-                non_zero_values.push(value);
+                has_non_zero = true;
+                if value < min_value {
+                    min_value = value;
+                }
+                if value > max_value {
+                    max_value = value;
+                }
             }
         }
     }
 
-    if non_zero_values.is_empty() {
+    if !has_non_zero {
         println!("(heatmap omitted: matrix is all zeros)");
         return;
     }
-
-    let max_value = non_zero_values
-        .iter()
-        .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
-    let min_value = non_zero_values
-        .iter()
-        .copied()
-        .fold(f64::INFINITY, f64::min);
 
     let stdout = StandardStream::stdout(ColorChoice::Always);
     let mut stdout = stdout.lock();
@@ -324,16 +328,22 @@ pub fn print_heatmap_normalized(matrix: MatRef<'_, f64>) {
         return;
     }
 
-    let mut all_values = Vec::with_capacity(num_rows * num_cols);
+    let mut count = 0usize;
+    let mut mean = 0.0f64;
+    let mut m2 = 0.0f64;
+
     for i in 0..num_rows {
         for j in 0..num_cols {
-            all_values.push(matrix[(i, j)]);
+            let value = matrix[(i, j)];
+            count += 1;
+            let delta = value - mean;
+            mean += delta / count as f64;
+            let delta2 = value - mean;
+            m2 += delta * delta2;
         }
     }
 
-    let mean = all_values.iter().sum::<f64>() / all_values.len() as f64;
-    let variance =
-        all_values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / all_values.len() as f64;
+    let variance = if count > 1 { m2 / count as f64 } else { 0.0 };
     let stddev = variance.sqrt();
 
     let stdout = StandardStream::stdout(ColorChoice::Always);
