@@ -1,0 +1,76 @@
+name: AMY Gene Cluster Analysis
+
+on:
+  workflow_dispatch:  # Manual trigger
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight
+
+jobs:
+  amy-ngec-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-nightly-
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install matplotlib numpy
+
+      - name: Prepare HPRC dataset
+        run: |
+          mkdir -p data/hprc
+          if [ ! -f data/hprc/hprc-v2.0-mc-grch38.gbz ]; then
+            curl -L \
+              -o data/hprc/hprc-v2.0-mc-grch38.gbz \
+              https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz
+          fi
+
+      - name: Build graphome
+        run: cargo build --release
+
+      - name: Run AMY gene cluster analysis
+        run: |
+          bash scripts/run_amy_analysis.sh \
+            "s3://human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz" \
+            "amy_analysis_results"
+
+      - name: Upload results
+        uses: actions/upload-artifact@v3
+        with:
+          name: amy-analysis-results
+          path: |
+            amy_analysis_results/ngec_results.txt
+            amy_analysis_results/amy_ngec_plot.png
+          retention-days: 90
+
+      - name: Display plot info
+        run: |
+          echo "## AMY Gene Cluster NGEC Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Analysis complete! Results uploaded as artifacts." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f amy_analysis_results/ngec_results.txt ]; then
+            echo "### Summary Statistics" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            tail -20 amy_analysis_results/ngec_results.txt >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
