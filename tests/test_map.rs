@@ -240,6 +240,97 @@ fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn test_coord2node_full_coverage() -> Result<(), Box<dyn std::error::Error>> {
+    // This test verifies that coord_to_nodes finds ALL nodes in a region,
+    // not just a sparse sample. This was a bug where reference_positions(1000)
+    // was used, which only sampled every 1000 bp and missed ~90% of nodes.
+    
+    let gbz_path = get_test_gbz_path()?;
+    let gbz: GBZ = serialize::load_from(gbz_path)?;
+    
+    // Get a coordinate range from the minimal.gfa
+    // The paths start at position 0 in the GBZ (not the reference offset)
+    // (Note: GBZ extracts just "chr10" from the full path name "grch38#0#chr10")
+    let chr = "chr10";
+    let start = 0;
+    let end = 500;
+    
+    eprintln!("\n=== Testing full node coverage for {}:{}-{} ===", chr, start, end);
+    
+    let nodes = coord_to_nodes(&gbz, chr, start, end);
+    eprintln!("Found {} nodes in region", nodes.len());
+    
+    // Calculate total sequence length that should be extracted
+    let mut total_extracted_length = 0;
+    let mut paths_seen = std::collections::HashSet::new();
+    for node in &nodes {
+        let node_seq_len = node.path_off_end - node.path_off_start + 1;
+        total_extracted_length += node_seq_len;
+        paths_seen.insert(node.path_name.clone());
+        eprintln!(
+            "  path={} Node {} offsets {}..{} (length {})",
+            node.path_name,
+            node.node_id,
+            node.path_off_start,
+            node.path_off_end,
+            node_seq_len
+        );
+    }
+    
+    eprintln!("Unique paths found: {:?}", paths_seen);
+    
+    eprintln!("Total extracted sequence length: {} bp", total_extracted_length);
+    eprintln!("Requested region length: {} bp", end - start);
+    
+    // We should find at least some nodes
+    assert!(
+        !nodes.is_empty(),
+        "Expected to find at least one node in the region"
+    );
+    
+    // Verify we're getting full path names with sample#haplotype#contig format
+    eprintln!("Checking path name format...");
+    for path in &paths_seen {
+        let parts: Vec<&str> = path.split('#').collect();
+        assert!(
+            parts.len() >= 2,
+            "Path name '{}' should be in format 'sample#haplotype#contig', but has {} parts",
+            path,
+            parts.len()
+        );
+        eprintln!("  ✓ Path '{}' has correct format", path);
+    }
+    
+    // The minimal.gfa has two paths: grch38#0#chr10 and chm13#0#chr10
+    // We should see both paths distinguished
+    assert!(
+        paths_seen.len() >= 2,
+        "Expected to find at least 2 distinct paths (grch38 and chm13), but only found: {:?}",
+        paths_seen
+    );
+    
+    // The extracted length should be close to the requested region length
+    // With the old sparse sampling bug, we would only get ~1-2 bp per 1000 bp
+    // Now we should get close to the full region (allowing for some graph structure)
+    let coverage_ratio = total_extracted_length as f64 / (end - start) as f64;
+    eprintln!("Coverage ratio: {:.1}%", coverage_ratio * 100.0);
+    
+    // At minimum, we should extract more than 50% of the region PER PATH
+    // Since we have 2 paths, total coverage will be ~200%
+    // (The old bug would give us < 1%)
+    assert!(
+        coverage_ratio >= 0.5,
+        "Expected to extract at least 50% of region ({} bp), but only got {:.1}% ({} bp). \
+         This suggests nodes are being missed (sparse sampling bug).",
+        (end - start) / 2,
+        coverage_ratio * 100.0,
+        total_extracted_length
+    );
+    
+    Ok(())
+}
+
+#[test]
 fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
     let binary = env!("CARGO_BIN_EXE_graphome");
     let output = Command::new(binary)
