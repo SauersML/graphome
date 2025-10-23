@@ -339,13 +339,15 @@ pub fn coord_to_nodes_mapped(
         }
     };
 
+    let normalized_target_chr = normalize_contig(chr).to_string();
+
     // Since reference_positions returns empty (not implemented yet),
     // we always use manual scan
     if ref_paths.is_empty() {
         println!("DEBUG: Performing manual path scan (reference positions not available)");
         for (path_id, path_name) in metadata.path_iter().enumerate() {
             let contig_name = metadata.contig_name(path_name.contig());
-            if contig_name != chr {
+            if !contig_matches(&contig_name, chr, &normalized_target_chr) {
                 continue;
             }
 
@@ -1135,7 +1137,21 @@ fn compute_reference_anchors(
     None
 }
 
-pub fn parse_region(r: &str) -> Option<(String, usize, usize)> {
+fn normalize_contig(name: &str) -> &str {
+    let after_hash = name.rsplit('#').next().unwrap_or(name);
+    after_hash.split('@').next().unwrap_or(after_hash)
+}
+
+fn contig_matches(contig_name: &str, requested_chr: &str, normalized_target: &str) -> bool {
+    if contig_name == requested_chr {
+        return true;
+    }
+
+    let contig_normalized = normalize_contig(contig_name);
+    contig_normalized == requested_chr || contig_normalized == normalized_target
+}
+
+pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
     // e.g. "grch38#chr1:120616922-120626943"
     let (chr_part, rng_part) = r.split_once(':')?;
     let (s, e) = rng_part.split_once('-')?;
