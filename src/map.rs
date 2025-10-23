@@ -328,13 +328,15 @@ println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
         }
     };
 
+    let normalized_target_chr = normalize_contig(chr).to_string();
+
     // Since reference_positions returns empty (not implemented yet),
     // we always use manual scan
     if ref_paths.is_empty() {
         println!("DEBUG: Performing manual path scan (reference positions not available)");
         for (path_id, path_name) in metadata.path_iter().enumerate() {
             let contig_name = metadata.contig_name(path_name.contig());
-            if contig_name != chr {
+            if !contig_matches(&contig_name, chr, &normalized_target_chr) {
                 continue;
             }
 
@@ -384,6 +386,8 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
         }
     };
 
+    let normalized_target_chr = normalize_contig(chr).to_string();
+
     // Note: reference_positions(1000, true) samples nodes every 1000 bp,
     // which is too sparse for exhaustive node enumeration. With typical
     // node sizes of ~100 bp, this would miss ~90% of nodes in a region.
@@ -392,7 +396,7 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
     
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         let contig_name = metadata.contig_name(path_name.contig());
-        if contig_name != chr {
+        if !contig_matches(&contig_name, chr, &normalized_target_chr) {
             continue;
         }
 
@@ -832,6 +836,20 @@ pub struct Coord2NodeResult {
     pub node_orient: bool,
     pub path_off_start: usize,
     pub path_off_end:   usize,
+}
+
+fn normalize_contig(name: &str) -> &str {
+    let after_hash = name.rsplit('#').next().unwrap_or(name);
+    after_hash.split('@').next().unwrap_or(after_hash)
+}
+
+fn contig_matches(contig_name: &str, requested_chr: &str, normalized_target: &str) -> bool {
+    if contig_name == requested_chr {
+        return true;
+    }
+
+    let contig_normalized = normalize_contig(contig_name);
+    contig_normalized == requested_chr || contig_normalized == normalized_target
 }
 
 pub fn parse_region(r: &str) -> Option<(String,usize,usize)> {
