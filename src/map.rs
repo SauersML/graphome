@@ -1189,31 +1189,30 @@ impl NodePathPostings {
         let total_paths = metadata.paths();
         eprintln!("[INFO] Building node→path postings index from {} paths...", total_paths);
         
-        let mut postings: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let mut postings: HashMap<usize, Vec<usize>> = HashMap::new();
         let progress = (total_paths.max(20) / 20).max(1);
-        
+
         for (path_id, _) in metadata.path_iter().enumerate() {
             if path_id % progress == 0 {
                 eprintln!("[INFO] postings build: {}/{} paths processed", path_id, total_paths);
             }
-            
+
             if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-                let mut seen_nodes = HashSet::new();
                 for (node_id, _) in path_iter {
-                    // Only record each node once per path (dedup within path)
-                    if seen_nodes.insert(node_id) {
-                        postings.entry(node_id).or_insert_with(HashSet::new).insert(path_id);
-                    }
+                    postings
+                        .entry(node_id)
+                        .or_insert_with(Vec::new)
+                        .push(path_id);
                 }
             }
         }
-        
+
         // Convert HashSets to sorted Vecs for efficient storage
         let postings_vec: HashMap<usize, Vec<usize>> = postings
             .into_iter()
-            .map(|(node_id, path_set)| {
-                let mut paths: Vec<usize> = path_set.into_iter().collect();
+            .map(|(node_id, mut paths)| {
                 paths.sort_unstable();
+                paths.dedup();
                 (node_id, paths)
             })
             .collect();
