@@ -167,20 +167,10 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
     };
     eprintln!("[INFO] GBZ loaded successfully");
 
-    // Parse region
+    // Parse region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = parse_region(region) {
-        let region_start_0 = start.checked_sub(1).unwrap_or(0);
-        let region_end_0 = end.checked_sub(1).unwrap_or(0);
-
-        if region_end_0 < region_start_0 {
-            eprintln!(
-                "[ERROR] Region start {} is greater than end {}; unable to perform lookup",
-                start, end
-            );
-            return;
-        }
-
-        let results = coord_to_nodes_mapped(&gbz, &chr, region_start_0, region_end_0);
+        // start and end are already 0-based half-open from parse_region
+        let results = coord_to_nodes_mapped(&gbz, &chr, start, end);
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {

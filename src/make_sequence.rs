@@ -114,21 +114,9 @@ pub fn extract_sequence(
         graph_path, paf_path
     );
 
-    // Parse the region
+    // Parse the region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = map::parse_region(region) {
-        let region_start_0 = start.checked_sub(1).unwrap_or(0);
-        let region_end_0 = end.checked_sub(1).unwrap_or(0);
-
-        if region_end_0 < region_start_0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "Region start {} is greater than end {}; unable to extract sequence",
-                    start, end
-                ),
-            ));
-        }
-
+        // start and end are already 0-based half-open from parse_region
         // Convert coordinates to nodes
         let input_is_gbz = GBZ::is_gbz(graph_path);
         let gbz_path = if input_is_gbz {
@@ -138,7 +126,7 @@ pub fn extract_sequence(
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
         let nodes =
-            map::coord_to_nodes_with_path(&gbz, &gbz_path, &chr, region_start_0, region_end_0);
+            map::coord_to_nodes_with_path(&gbz, &gbz_path, &chr, start, end);
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());
