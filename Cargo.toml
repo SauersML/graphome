@@ -77,3 +77,7 @@ path = "tests/test_io.rs"
 [[test]]
 name = "test_map"
 path = "tests/test_map.rs"
+
+[[test]]
+name = "test_sparse_sampling"
+path = "tests/test_sparse_sampling.rs"
