@@ -64,23 +64,33 @@ while read start end; do
     echo -n "[$window_num/$NUM_WINDOWS] chr1:$start-$end ... "
     
     # Run eigen-region
-    result=$(cargo run --release -- eigen-region \
+    if ! result=$(cargo run --release -- eigen-region \
         --gfa "$GBZ" \
-        --region "chr1:$start-$end" 2>&1)
-    
-    # Extract metrics
-    ngec=$(echo "$result" | grep "^NGEC:" | awk '{print $2}')
-    nodes=$(echo "$result" | grep "^Nodes:" | awk '{print $2}')
-    edges=$(echo "$result" | grep "^Edges:" | awk '{print $2}')
-    
-    # Handle empty regions
-    if [ -z "$ngec" ]; then
-        ngec="0.0"
-        nodes="0"
-        edges="0"
-        echo "EMPTY"
+        --region "chr1:$start-$end" 2>&1); then
+        if echo "$result" | grep -q "No nodes found"; then
+            ngec="0.0"
+            nodes="0"
+            edges="0"
+            echo "EMPTY (no nodes in region)"
+        else
+            echo "$result"
+            exit 1
+        fi
     else
-        echo "NGEC=$ngec (nodes=$nodes, edges=$edges)"
+        # Extract metrics
+        ngec=$(echo "$result" | grep "^NGEC:" | awk '{print $2}')
+        nodes=$(echo "$result" | grep "^Nodes:" | awk '{print $2}')
+        edges=$(echo "$result" | grep "^Edges:" | awk '{print $2}')
+
+        # Handle empty regions (unexpected)
+        if [ -z "$ngec" ]; then
+            ngec="0.0"
+            nodes="0"
+            edges="0"
+            echo "EMPTY"
+        else
+            echo "NGEC=$ngec (nodes=$nodes, edges=$edges)"
+        fi
     fi
     
     # Save results: window_num start end ngec nodes edges
