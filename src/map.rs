@@ -9,7 +9,7 @@
 //         coord2node <chr>:<start>-<end>
 //      which do node->hg38 or hg38->node queries.
 
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::process::Command;
@@ -852,6 +852,52 @@ fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
 /// Ensures a GBZ file exists for given GFA and PAF files.
 /// If the GBZ doesn't exist, validates and fixes the GFA, then creates the GBZ.
 pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
+    fn cache_downloaded_gbz(
+        materialized: io::MaterializedPath,
+        remote_path: &str,
+    ) -> String {
+        let downloaded_path = materialized.path().to_path_buf();
+
+        if let Some(filename) = remote_path
+            .rsplit('/')
+            .find(|segment| !segment.is_empty())
+        {
+            let cache_dir = Path::new("data").join("hprc");
+            if let Err(err) = fs::create_dir_all(&cache_dir) {
+                eprintln!(
+                    "[WARNING] Failed to prepare cache directory {}: {}",
+                    cache_dir.display(),
+                    err
+                );
+            } else {
+                let cache_path = cache_dir.join(filename);
+                match fs::copy(&downloaded_path, &cache_path) {
+                    Ok(_) => {
+                        eprintln!(
+                            "[INFO] Cached remote GBZ at {}",
+                            cache_path.display()
+                        );
+                        return cache_path.to_string_lossy().into_owned();
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "[WARNING] Failed to cache GBZ at {}: {}",
+                            cache_path.display(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
+        let retained_path = io::retain_materialized(materialized);
+        eprintln!(
+            "[INFO] Using temporary GBZ at {} for this run",
+            retained_path.display()
+        );
+        retained_path.to_string_lossy().into_owned()
+    }
+
     // Check if this is a remote URL
     let is_remote = gfa_path.starts_with("http://")
         || gfa_path.starts_with("https://")
@@ -882,13 +928,8 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
             // Download the remote GBZ file
             match io::materialize(gfa_path) {
                 Ok(materialized) => {
-                    let local_gbz = materialized
-                        .path()
-                        .to_str()
-                        .ok_or_else(|| "Invalid path".to_string())
-                        .expect("Failed to get GBZ path");
                     eprintln!("[INFO] Successfully downloaded GBZ from remote");
-                    return local_gbz.to_string();
+                    return cache_downloaded_gbz(materialized, gfa_path);
                 }
                 Err(e) => {
                     eprintln!("[ERROR] Failed to download remote GBZ: {}", e);
@@ -917,13 +958,9 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
         // Try to download the GBZ file
         match io::materialize(&gbz_url) {
             Ok(materialized) => {
-                let local_gbz = materialized
-                    .path()
-                    .to_str()
-                    .ok_or_else(|| "Invalid path".to_string())
-                    .expect("Failed to get GBZ path");
+
                 eprintln!("[INFO] Successfully downloaded GBZ from remote");
-                return local_gbz.to_string();
+                return cache_downloaded_gbz(materialized, &gbz_url);
             }
             Err(_) => {
                 eprintln!("[ERROR] No pre-built GBZ found at: {}", gbz_url);
