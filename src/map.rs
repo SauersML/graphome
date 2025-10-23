@@ -169,7 +169,18 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
 
     // Parse region
     if let Some((chr, start, end)) = parse_region(region) {
-        let results = coord_to_nodes_mapped(&gbz, &chr, start, end);
+        let region_start_0 = start.checked_sub(1).unwrap_or(0);
+        let region_end_0 = end.checked_sub(1).unwrap_or(0);
+
+        if region_end_0 < region_start_0 {
+            eprintln!(
+                "[ERROR] Region start {} is greater than end {}; unable to perform lookup",
+                start, end
+            );
+            return;
+        }
+
+        let results = coord_to_nodes_mapped(&gbz, &chr, region_start_0, region_end_0);
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {
@@ -344,7 +355,12 @@ pub fn coord_to_nodes_mapped(
     start: usize,
     end: usize,
 ) -> Vec<Coord2NodeResult> {
-    println!("DEBUG: Searching for region {}:{}-{}", chr, start, end);
+    let display_start = start.saturating_add(1);
+    let display_end = end.saturating_add(1);
+    println!(
+        "DEBUG: Searching for region {}:{}-{} (0-based offsets {}..{})",
+        chr, display_start, display_end, start, end
+    );
     let mut results = Vec::new();
 
     // Get reference paths and their positions
@@ -414,8 +430,19 @@ pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coo
     coord_to_nodes_with_path(gbz, "", chr, start, end)
 }
 
-pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
-    eprintln!("[INFO] Searching for region {}:{}-{}", chr, start, end);
+pub fn coord_to_nodes_with_path(
+    gbz: &GBZ,
+    gbz_path: &str,
+    chr: &str,
+    start: usize,
+    end: usize,
+) -> Vec<Coord2NodeResult> {
+    let display_start = start.saturating_add(1);
+    let display_end = end.saturating_add(1);
+    eprintln!(
+        "[INFO] Searching for region {}:{}-{} (0-based offsets {}..{})",
+        chr, display_start, display_end, start, end
+    );
     let mut results = Vec::new();
 
     let metadata = match gbz.metadata() {
