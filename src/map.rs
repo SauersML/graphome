@@ -1584,12 +1584,8 @@ fn contig_matches(contig_name: &str, requested_chr: &str, normalized_target: &st
 }
 
 pub fn parse_region(r: &str) -> Option<(String, usize, usize)> {
-    // e.g. "grch38#chr1:120616922-120626943"
-    let (chr_part, rng_part) = r.split_once(':')?;
-    let (s, e) = rng_part.split_once('-')?;
-    let start = s.parse::<usize>().ok()?;
-    let end = e.parse::<usize>().ok()?;
-    Some((chr_part.to_string(), start, end))
+    // Delegate to coords module which handles 1-based -> 0-based conversion
+    crate::coords::parse_user_region(r)
 }
 
 /// Creates a human-readable representation of consecutive node IDs as ranges
