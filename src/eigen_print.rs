@@ -10,53 +10,6 @@ use std::io::{self, Write};
 use std::path::Path;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
-/// Supported input types for [`call_eigendecomp`].
-pub enum LaplacianInput<'a> {
-    /// A view into a Faer matrix. This is the fast path that avoids allocating.
-    Borrowed(MatRef<'a, f64>),
-    /// An owned Faer matrix produced from another representation.
-    Owned(Mat<f64>),
-}
-
-/// Trait that converts various Laplacian representations into a form usable by faer.
-pub trait IntoLaplacian<'a> {
-    fn into_laplacian(self) -> LaplacianInput<'a>;
-}
-
-impl<'a> IntoLaplacian<'a> for MatRef<'a, f64> {
-    fn into_laplacian(self) -> LaplacianInput<'a> {
-        LaplacianInput::Borrowed(self)
-    }
-}
-
-impl<'a> IntoLaplacian<'a> for &'a Mat<f64> {
-    fn into_laplacian(self) -> LaplacianInput<'a> {
-        LaplacianInput::Borrowed(self.as_ref())
-    }
-}
-
-impl<'a> IntoLaplacian<'a> for &'a Array2<f64> {
-    fn into_laplacian(self) -> LaplacianInput<'a> {
-        self.view().into_laplacian()
-    }
-}
-
-impl<'a> IntoLaplacian<'a> for ArrayView2<'a, f64> {
-    fn into_laplacian(self) -> LaplacianInput<'a> {
-        ndarray_to_laplacian_input(self)
-    }
-}
-
-impl<'a> IntoLaplacian<'a> for Array2<f64> {
-    fn into_laplacian(self) -> LaplacianInput<'a> {
-        LaplacianInput::Owned(copy_array_into_mat(self.view()))
-    }
-}
-
-fn ndarray_to_laplacian_input<'a>(array: ArrayView2<'a, f64>) -> LaplacianInput<'a> {
-    LaplacianInput::Owned(copy_array_into_mat(array))
-}
-
 fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
     let (nrows, ncols) = array.dim();
     let mut mat = Mat::<f64>::zeros(nrows, ncols);
@@ -82,20 +35,16 @@ fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
 
 /// Computes the eigendecomposition of the Laplacian matrix using faer's self-adjoint solver.
 ///
-/// This helper now accepts either a Faer matrix view (`MatRef`) or an ndarray 2D array. When an
-/// ndarray is provided, the data is copied into a temporary Faer matrix before invoking the
-/// solver. This maintains backwards compatibility for existing callers while allowing the tests
-/// (and any downstream users) to supply Laplacians that are manipulated as ndarray matrices.
-pub fn call_eigendecomp<'a, T>(laplacian: T) -> io::Result<(Vec<f64>, Mat<f64>)>
-where
-    T: IntoLaplacian<'a>,
-{
+/// This helper expects callers to provide a Faer matrix view (`MatRef`).
+pub fn call_eigendecomp(laplacian: MatRef<'_, f64>) -> io::Result<(Vec<f64>, Mat<f64>)> {
     println!("Using faer's self-adjoint eigensolver for the matrix.");
 
-    match laplacian.into_laplacian() {
-        LaplacianInput::Borrowed(view) => compute_eigenvalues_and_vectors_sym(view),
-        LaplacianInput::Owned(mat) => compute_eigenvalues_and_vectors_sym(mat.as_ref()),
-    }
+    compute_eigenvalues_and_vectors_sym(laplacian)
+}
+
+/// Explicitly convert an `ndarray` view into a `faer::Mat<f64>`.
+pub fn ndarray_to_faer(array: ArrayView2<'_, f64>) -> Mat<f64> {
+    copy_array_into_mat(array)
 }
 
 /// Computes eigenvalues and eigenvectors for a given Laplacian matrix with faer.
