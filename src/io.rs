@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use flate2::read::GzDecoder;
 
@@ -80,6 +82,20 @@ impl MaterializedPath {
     pub fn path(&self) -> &Path {
         &self.path
     }
+}
+
+static RETAINED_MATERIALIZED: OnceLock<Mutex<Vec<MaterializedPath>>> = OnceLock::new();
+
+/// Retains a materialized file for the remainder of the process so that temporary files
+/// downloaded from remote locations remain accessible after the handle goes out of scope.
+pub fn retain_materialized(materialized: MaterializedPath) -> PathBuf {
+    let path = materialized.path.clone();
+    let cache = RETAINED_MATERIALIZED.get_or_init(|| Mutex::new(Vec::new()));
+    cache
+        .lock()
+        .expect("materialized cache mutex poisoned")
+        .push(materialized);
+    path
 }
 
 struct S3Location {
@@ -298,27 +314,52 @@ fn download_http(url: &Url) -> io::Result<MaterializedPath> {
     })
 }
 
+fn proxy_required_for_s3() -> bool {
+    const PROXY_ENV_VARS: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"];
+    PROXY_ENV_VARS
+        .iter()
+        .filter_map(|name| env::var(name).ok())
+        .any(|value| !value.trim().is_empty())
+}
+
+fn public_s3_https_url(bucket: &str, key: &str) -> io::Result<Url> {
+    let mut url =
+        Url::parse(&format!("https://{bucket}.s3.amazonaws.com/")).map_err(to_io_error)?;
+    url.set_path(key);
+    Ok(url)
+}
+
 fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
+    let resource_label = format!("s3://{}/{}", loc.bucket, loc.key);
+
+    if proxy_required_for_s3() {
+        let url = public_s3_https_url(&loc.bucket, &loc.key)?;
+        eprintln!(
+            "[INFO] Detected HTTPS proxy configuration; streaming {} via public S3 HTTPS endpoint",
+            resource_label
+        );
+        return open_http(&url);
+    }
+
     let runtime = RuntimeBuilder::new_current_thread()
         .enable_all()
         .build()
         .map_err(to_io_error)?;
-    let resource_label = format!("s3://{}/{}", loc.bucket, loc.key);
     let bucket = loc.bucket.clone();
     let key = loc.key.clone();
     let region = loc.region.clone();
     let (body, total) = runtime.block_on(async move {
         // For public buckets, use no credentials
         // Region will be auto-detected from the bucket's location
-        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .no_credentials();
-        
+        let mut config_loader =
+            aws_config::defaults(aws_config::BehaviorVersion::latest()).no_credentials();
+
         if let Some(region_name) = region {
             config_loader = config_loader.region(Region::new(region_name));
         }
-        
+
         let config = config_loader.load().await;
-        
+
         // Create S3 client - it should handle cross-region redirects automatically
         let client = Client::new(&config);
         let obj = client
@@ -342,6 +383,15 @@ fn open_s3(loc: &S3Location) -> io::Result<InputReader> {
 }
 
 fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
+    if proxy_required_for_s3() {
+        let url = public_s3_https_url(&loc.bucket, &loc.key)?;
+        eprintln!(
+            "[INFO] Detected HTTPS proxy configuration; downloading s3://{}/{} via public S3 HTTPS endpoint",
+            loc.bucket, loc.key
+        );
+        return download_http(&url);
+    }
+
     let rt = RuntimeBuilder::new_current_thread()
         .enable_all()
         .build()
@@ -354,46 +404,49 @@ fn download_s3(loc: &S3Location) -> io::Result<MaterializedPath> {
     let download_result = rt.block_on(async {
         // For public buckets, use no credentials
         // Region will be auto-detected from the bucket's location
-        let mut config_loader = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .no_credentials();
-        
+        let mut config_loader =
+            aws_config::defaults(aws_config::BehaviorVersion::latest()).no_credentials();
+
         if let Some(region_name) = region {
             config_loader = config_loader.region(Region::new(region_name));
         }
-        
+
         let config = config_loader.load().await;
-        
+
         // Create S3 client - it should handle cross-region redirects automatically
         let client = Client::new(&config);
         // Try to get the object, handling region redirects
-        let mut obj = match client
-            .get_object()
-            .bucket(&bucket)
-            .key(&key)
-            .send()
-            .await
-        {
+        let mut obj = match client.get_object().bucket(&bucket).key(&key).send().await {
             Ok(obj) => obj,
             Err(e) => {
                 // Check if this is a redirect error with region information
                 let error_str = format!("{:?}", e);
-                if error_str.contains("PermanentRedirect") && error_str.contains("x-amz-bucket-region") {
+                if error_str.contains("PermanentRedirect")
+                    && error_str.contains("x-amz-bucket-region")
+                {
                     // Extract region from error (it's in the headers)
                     // The error message contains: "x-amz-bucket-region": HeaderValue { _private: H1("us-west-2") }
                     if let Some(start) = error_str.find("x-amz-bucket-region") {
                         if let Some(region_start) = error_str[start..].find("H1(\"") {
-                            if let Some(region_end) = error_str[start + region_start + 4..].find("\"") {
-                                let detected_region = &error_str[start + region_start + 4..start + region_start + 4 + region_end];
-                                eprintln!("[INFO] Bucket is in region {}, retrying...", detected_region);
-                                
+                            if let Some(region_end) =
+                                error_str[start + region_start + 4..].find("\"")
+                            {
+                                let detected_region = &error_str[start + region_start + 4
+                                    ..start + region_start + 4 + region_end];
+                                eprintln!(
+                                    "[INFO] Bucket is in region {}, retrying...",
+                                    detected_region
+                                );
+
                                 // Recreate client with correct region
-                                let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-                                    .no_credentials()
-                                    .region(Region::new(detected_region.to_string()))
-                                    .load()
-                                    .await;
+                                let config =
+                                    aws_config::defaults(aws_config::BehaviorVersion::latest())
+                                        .no_credentials()
+                                        .region(Region::new(detected_region.to_string()))
+                                        .load()
+                                        .await;
                                 let client = Client::new(&config);
-                                
+
                                 // Retry the request
                                 client
                                     .get_object()
