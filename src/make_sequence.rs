@@ -13,19 +13,79 @@ use simple_sds::serialize;
 
 const DEFAULT_SEQUENCE_CACHE_SIZE: usize = 256;
 
-/// Reverses and complements a DNA sequence
+fn complement_base(base: u8) -> u8 {
+    match base {
+        b'A' => b'T',
+        b'a' => b't',
+        b'T' => b'A',
+        b't' => b'a',
+        b'G' => b'C',
+        b'g' => b'c',
+        b'C' => b'G',
+        b'c' => b'g',
+        b'N' | b'n' => base,
+        other => other,
+    }
+}
+
+fn reverse_complement_bytes(sequence: &[u8]) -> Vec<u8> {
+    let mut rc = Vec::with_capacity(sequence.len());
+    for base in sequence.iter().rev() {
+        rc.push(complement_base(*base));
+    }
+    rc
+}
+
+/// Reverses and complements a DNA sequence (string version for compatibility)
 fn reverse_complement(dna: &str) -> String {
-    dna.chars()
-        .rev()
-        .map(|c| match c {
-            'A' | 'a' => 'T',
-            'T' | 't' => 'A',
-            'G' | 'g' => 'C',
-            'C' | 'c' => 'G',
-            'N' | 'n' => 'N',
-            other => other, // Keep other characters as-is
-        })
-        .collect()
+    String::from_utf8(reverse_complement_bytes(dna.as_bytes())).unwrap()
+}
+
+fn write_wrapped_segment<W: Write>(
+    writer: &mut W,
+    segment: &[u8],
+    current_line_len: &mut usize,
+) -> io::Result<()> {
+    let mut index = 0;
+    while index < segment.len() {
+        let remaining_in_line = 60 - *current_line_len;
+        let to_write = remaining_in_line.min(segment.len() - index);
+        if to_write > 0 {
+            writer.write_all(&segment[index..index + to_write])?;
+            *current_line_len += to_write;
+            index += to_write;
+        }
+
+        if *current_line_len == 60 {
+            writer.write_all(b"\n")?;
+            *current_line_len = 0;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_node_segment(
+    writer: &mut BufWriter<File>,
+    sequence: &str,
+    orientation_forward: bool,
+    clipped_start: usize,
+    clipped_end: usize,
+    node_len: usize,
+    current_line_len: &mut usize,
+) -> io::Result<usize> {
+    if orientation_forward {
+        let segment = &sequence[clipped_start..clipped_end];
+        write_wrapped_segment(writer, segment.as_bytes(), current_line_len)?;
+        Ok(segment.len())
+    } else {
+        let slice_start = node_len - clipped_end;
+        let slice_end = node_len - clipped_start;
+        let rc_segment = reverse_complement_bytes(&sequence.as_bytes()[slice_start..slice_end]);
+        let len = rc_segment.len();
+        write_wrapped_segment(writer, &rc_segment, current_line_len)?;
+        Ok(len)
+    }
 }
 
 struct SequenceCache<'a> {
@@ -221,30 +281,47 @@ pub fn extract_sequence(
                 sorted_nodes.len()
             );
 
-            // Build a sequence from the nodes
-            let mut final_sequence = String::new();
+            // Create output directory if it doesn't exist
+            let output_dir = Path::new(output_path).parent().unwrap_or(Path::new("."));
+            if !output_dir.exists() {
+                std::fs::create_dir_all(output_dir)?;
+            }
 
-            for node_result in sorted_nodes {
+            // Write FASTA output (streaming)
+            let output_file = format!(
+                "{}_{}_{}_{}-{}.fa",
+                output_path, sample_name, safe_path_name, start, end
+            );
+            let file = File::create(&output_file)?;
+            let mut writer = BufWriter::new(file);
+
+            // Write FASTA header
+            writeln!(writer, ">{}_{}: {}-{}", sample_name, chr, start, end)?;
+
+            let mut current_line_len = 0usize;
+            let mut total_bases = 0usize;
+
+            for node_result in &sorted_nodes {
                 if let Some(seq) = sequence_cache.get(&node_result.node_id) {
                     let node_len = seq.len();
-                    let mut rc_buffer = None;
-                    let oriented_seq = if node_result.node_orient {
-                        seq.as_str()
-                    } else {
-                        rc_buffer = Some(reverse_complement(&seq));
-                        rc_buffer.as_ref().unwrap().as_str()
-                    };
-                    let start_in_node = node_result.path_off_start;
-                    let end_in_node = node_result.path_off_end;
-                    let clipped_start = start_in_node.min(node_len);
-                    let clipped_end = end_in_node.min(node_len);
+                    let start_in_node = node_result.path_off_start.min(node_len);
+                    let end_in_node = node_result.path_off_end.saturating_add(1).min(node_len);
 
-                    if clipped_start < clipped_end {
-                        final_sequence.push_str(&oriented_seq[clipped_start..clipped_end]);
+                    if start_in_node < end_in_node {
+                        let bases_written = write_node_segment(
+                            &mut writer,
+                            &seq,
+                            node_result.node_orient,
+                            start_in_node,
+                            end_in_node,
+                            node_len,
+                            &mut current_line_len,
+                        )?;
+                        total_bases += bases_written;
                     } else {
                         eprintln!(
                             "[WARNING] Invalid sequence range for node {}: {}..{} (length {})",
-                            node_result.node_id, clipped_start, clipped_end, node_len
+                            node_result.node_id, start_in_node, end_in_node, node_len
                         );
                     }
                 } else {
@@ -255,41 +332,14 @@ pub fn extract_sequence(
                 }
             }
 
-            if final_sequence.is_empty() {
-                eprintln!(
-                    "[WARNING] Generated empty sequence for path {}, skipping output",
-                    path_name
-                );
-                continue;
-            }
-
-            // Create output directory if it doesn't exist
-            let output_dir = Path::new(output_path).parent().unwrap_or(Path::new("."));
-            if !output_dir.exists() {
-                std::fs::create_dir_all(output_dir)?;
-            }
-
-            // Write FASTA output
-            let output_file = format!(
-                "{}_{}_{}_{}-{}.fa",
-                output_path, sample_name, safe_path_name, start, end
-            );
-            let file = File::create(&output_file)?;
-            let mut writer = BufWriter::new(file);
-
-            // Write FASTA header
-            writeln!(writer, ">{}_{}:{}-{}", sample_name, chr, start, end)?;
-
-            // Write sequence in lines of 60 characters
-            for chunk in final_sequence.as_bytes().chunks(60) {
-                writeln!(writer, "{}", std::str::from_utf8(chunk).unwrap())?;
+            // Ensure final newline if needed
+            if current_line_len > 0 {
+                writer.write_all(b"\n")?;
             }
 
             eprintln!(
                 "[INFO] Wrote sequence of length {} for path {} to {}",
-                final_sequence.len(),
-                path_name,
-                output_file
+                total_bases, path_name, output_file
             );
         }
 
