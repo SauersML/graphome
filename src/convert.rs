@@ -16,6 +16,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
+    let start = match bytes.iter().position(|b| !b.is_ascii_whitespace()) {
+        Some(idx) => idx,
+        None => return &bytes[..0],
+    };
+    let end = bytes
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .expect("start guaranteed a non-whitespace byte");
+    &bytes[start..=end]
+}
+
 /// Converts a graph (GFA or GBZ) to an adjacency matrix in edge list format.
 ///
 /// This function performs a two-pass approach:
@@ -86,20 +98,22 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
     let segment_indices = if let Some(mut segment_iter) = gbz.segment_iter() {
         let mut names = Vec::new();
         while let Some(segment) = segment_iter.next() {
-            names.push(String::from_utf8_lossy(segment.name).to_string());
+            names.push(segment.name.to_vec());
         }
         names.par_sort();
-        let indices: HashMap<String, u32> = names
+        let indices: HashMap<Vec<u8>, u32> = names
             .into_iter()
             .enumerate()
             .map(|(i, name)| (name, i as u32))
             .collect();
         indices
     } else {
-        let mut node_ids: Vec<String> =
-            gbz.node_iter().map(|node_id| node_id.to_string()).collect();
+        let mut node_ids: Vec<Vec<u8>> = gbz
+            .node_iter()
+            .map(|node_id| node_id.to_string().into_bytes())
+            .collect();
         node_ids.par_sort();
-        let indices: HashMap<String, u32> = node_ids
+        let indices: HashMap<Vec<u8>, u32> = node_ids
             .into_iter()
             .enumerate()
             .map(|(i, node)| (node, i as u32))
@@ -118,16 +132,14 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
     if gbz.has_translation() {
         if let Some(mut segment_iter) = gbz.segment_iter() {
             while let Some(segment) = segment_iter.next() {
-                let from_name = String::from_utf8_lossy(segment.name).to_string();
-                let Some(&from_idx) = segment_indices.get(&from_name) else {
+                let Some(&from_idx) = segment_indices.get(segment.name) else {
                     continue;
                 };
 
                 if let Some(mut succ_iter) = gbz.segment_successors(&segment, Orientation::Forward)
                 {
                     while let Some((succ_segment, _)) = succ_iter.next() {
-                        let to_name = String::from_utf8_lossy(succ_segment.name).to_string();
-                        if let Some(&to_idx) = segment_indices.get(&to_name) {
+                        if let Some(&to_idx) = segment_indices.get(succ_segment.name) {
                             let edge = if from_idx <= to_idx {
                                 (from_idx, to_idx)
                             } else {
@@ -142,14 +154,14 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
     } else {
         for node_id in gbz.node_iter() {
             let node_name = node_id.to_string();
-            let Some(&from_idx) = segment_indices.get(&node_name) else {
+            let Some(&from_idx) = segment_indices.get(node_name.as_bytes()) else {
                 continue;
             };
 
             if let Some(mut succ_iter) = gbz.successors(node_id, Orientation::Forward) {
                 while let Some((succ_id, _)) = succ_iter.next() {
                     let succ_name = succ_id.to_string();
-                    if let Some(&to_idx) = segment_indices.get(&succ_name) {
+                    if let Some(&to_idx) = segment_indices.get(succ_name.as_bytes()) {
                         let edge = if from_idx <= to_idx {
                             (from_idx, to_idx)
                         } else {
@@ -189,7 +201,7 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
 /// 1. Memory-map the file for fast random access.
 /// 2. Identify line boundaries by scanning for newline characters.
 /// 3. Estimate the number of segments for progress display by sampling lines.
-/// 4. Use `fold` and `reduce` in parallel to accumulate segment names into a single `HashSet<String>`.
+/// 4. Use `fold` and `reduce` in parallel to accumulate segment names into a single `HashSet<Vec<u8>>`.
 ///
 /// This ensures no partial lines, leverages parallelism, and avoids previous issues with map_init returning `()`.
 ///
@@ -200,7 +212,7 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
 /// # Returns
 ///
 /// A tuple containing:
-/// - A `HashMap<String, u32>` mapping segment names to indices
+/// - A `HashMap<Vec<u8>, u32>` mapping segment names to indices
 /// - A `u32` count of total segments
 ///
 /// # Errors
@@ -210,7 +222,7 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
 /// # Panics
 ///
 /// Does not explicitly panic.
-fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
+fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
     use memchr::memchr_iter;
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -296,7 +308,7 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
         .chunks(1024) // Process 1024 lines per batch, but make sure we aren't getting partial lines
         .fold(
             || {
-                let mut set = HashSet::new();
+                let mut set: HashSet<Vec<u8>> = HashSet::new();
                 set.reserve(estimated_segments as usize / rayon::current_num_threads().max(1));
                 set
             },
@@ -304,20 +316,20 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
                 for i in batch {
                     let line_slice = get_line_slice(i);
                     if line_slice.starts_with(b"S\t") {
-                        if let Ok(line_str) = std::str::from_utf8(line_slice) {
-                            let parts: Vec<&str> = line_str.split('\t').collect();
-                            // GFA v1 requires at least 3 fields for an S line:
-                            //   0: "S"
-                            //   1: segment name
-                            //   2: sequence (or '*')
-                            if parts.len() < 3 {
-                                continue; // skip malformed lines
-                            }
-                            let segment_name = parts[1].trim();
-                            if !segment_name.is_empty() {
-                                local_set.insert(segment_name.to_string());
-                                pb.inc(1);
-                            }
+                        let mut fields = line_slice.split(|&b| b == b'\t');
+                        let Some(tag) = fields.next() else {
+                            continue;
+                        };
+                        if tag != b"S" {
+                            continue;
+                        }
+                        let Some(name_raw) = fields.next() else {
+                            continue;
+                        };
+                        let name = trim_ascii_whitespace(name_raw);
+                        if !name.is_empty() {
+                            local_set.insert(name.to_vec());
+                            pb.inc(1);
                         }
                     }
                 }
@@ -332,10 +344,10 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
     pb.finish_with_message("✨ Segment parsing complete!");
 
     // --- Deterministic sorting and indexing ---
-    let mut all_names: Vec<String> = segment_names.into_iter().collect();
+    let mut all_names: Vec<Vec<u8>> = segment_names.into_iter().collect();
     all_names.par_sort();
 
-    let segment_indices: HashMap<String, u32> = all_names
+    let segment_indices: HashMap<Vec<u8>, u32> = all_names
         .into_iter()
         .enumerate()
         .map(|(i, name)| (name, i as u32))
@@ -367,7 +379,7 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<String, u32>, u32)> {
 /// This function may panic if writes fail (due to `.unwrap()`).
 fn parse_links_and_write_edges(
     gfa_path: &Path,
-    segment_indices: &HashMap<String, u32>,
+    segment_indices: &HashMap<Vec<u8>, u32>,
     output_path: &Path,
 ) -> io::Result<()> {
     let file = File::open(gfa_path)?;
@@ -401,13 +413,14 @@ fn parse_links_and_write_edges(
     // We will NOT write undirected edges by writing both (from->to) and (to->from).
     // Instead, we just pick one since it is known to be all undirected.
     reader
-        .lines()
+        .split(b'\n')
         .par_bridge()
         .filter_map(Result::ok)
         .for_each(|line| {
             let mut local_edges = Vec::new();
 
-            if line.starts_with("L\t") {
+            let line = trim_ascii_whitespace(&line);
+            if line.starts_with(b"L\t") {
                 // GFA v1 "L" line requires 6 fields:
                 //   0: "L"
                 //   1: from segment
@@ -415,19 +428,39 @@ fn parse_links_and_write_edges(
                 //   3: to segment
                 //   4: to orientation (+/-)
                 //   5: overlap/CIGAR (can be '*')
-                let parts: Vec<&str> = line.split('\t').collect();
-                if parts.len() < 6 {
-                    // Skip malformed L lines
+                let mut parts = line.split(|&b| b == b'\t');
+                let Some(tag) = parts.next() else {
+                    return;
+                };
+                if tag != b"L" {
                     return;
                 }
-                let from_name = parts[1].trim().to_string();
-                let to_name = parts[3].trim().to_string();
+                let Some(from_raw) = parts.next() else {
+                    return;
+                };
+                let Some(_) = parts.next() else {
+                    return;
+                };
+                let Some(to_raw) = parts.next() else {
+                    return;
+                };
+                let Some(_) = parts.next() else {
+                    return;
+                };
+                let Some(_) = parts.next() else {
+                    return;
+                };
 
-                // Look up indices
-                if let (Some(&f_idx), Some(&t_idx)) = (
-                    segment_indices.get(&from_name),
-                    segment_indices.get(&to_name),
-                ) {
+                let from_name = trim_ascii_whitespace(from_raw);
+                let to_name = trim_ascii_whitespace(to_raw);
+
+                if from_name.is_empty() || to_name.is_empty() {
+                    return;
+                }
+
+                if let (Some(&f_idx), Some(&t_idx)) =
+                    (segment_indices.get(from_name), segment_indices.get(to_name))
+                {
                     local_edges.push((f_idx, t_idx));
                 }
             }

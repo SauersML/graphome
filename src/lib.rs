@@ -1,4 +1,5 @@
 pub mod convert;
+pub mod coords;
 pub mod display;
 pub mod eigen_print;
 pub mod eigen_region;

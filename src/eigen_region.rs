@@ -131,7 +131,9 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     eprintln!("[INFO] GBZ loaded successfully");
 
     // Find nodes in the region using coord2node
+    // start and end are already 0-based half-open from parse_region
     eprintln!("[INFO] Finding nodes in region...");
+
     let results = coord_to_nodes_mapped(&mapped_gbz, &chr, start, end);
 
     if results.is_empty() {
