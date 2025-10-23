@@ -9,19 +9,74 @@ use crate::map::{self, Coord2NodeResult};
 use gbwt::GBZ;
 use simple_sds::serialize;
 
-/// Reverses and complements a DNA sequence
-fn reverse_complement(dna: &str) -> String {
-    dna.chars()
-        .rev()
-        .map(|c| match c {
-            'A' | 'a' => 'T',
-            'T' | 't' => 'A',
-            'G' | 'g' => 'C',
-            'C' | 'c' => 'G',
-            'N' | 'n' => 'N',
-            other => other, // Keep other characters as-is
-        })
-        .collect()
+fn complement_base(base: u8) -> u8 {
+    match base {
+        b'A' => b'T',
+        b'a' => b't',
+        b'T' => b'A',
+        b't' => b'a',
+        b'G' => b'C',
+        b'g' => b'c',
+        b'C' => b'G',
+        b'c' => b'g',
+        b'N' | b'n' => base,
+        other => other,
+    }
+}
+
+fn reverse_complement_bytes(sequence: &[u8]) -> Vec<u8> {
+    let mut rc = Vec::with_capacity(sequence.len());
+    for base in sequence.iter().rev() {
+        rc.push(complement_base(*base));
+    }
+    rc
+}
+
+fn write_wrapped_segment<W: Write>(
+    writer: &mut W,
+    segment: &[u8],
+    current_line_len: &mut usize,
+) -> io::Result<()> {
+    let mut index = 0;
+    while index < segment.len() {
+        let remaining_in_line = 60 - *current_line_len;
+        let to_write = remaining_in_line.min(segment.len() - index);
+        if to_write > 0 {
+            writer.write_all(&segment[index..index + to_write])?;
+            *current_line_len += to_write;
+            index += to_write;
+        }
+
+        if *current_line_len == 60 {
+            writer.write_all(b"\n")?;
+            *current_line_len = 0;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_node_segment(
+    writer: &mut BufWriter<File>,
+    sequence: &str,
+    orientation_forward: bool,
+    clipped_start: usize,
+    clipped_end: usize,
+    node_len: usize,
+    current_line_len: &mut usize,
+) -> io::Result<usize> {
+    if orientation_forward {
+        let segment = &sequence[clipped_start..clipped_end];
+        write_wrapped_segment(writer, segment.as_bytes(), current_line_len)?;
+        Ok(segment.len())
+    } else {
+        let slice_start = node_len - clipped_end;
+        let slice_end = node_len - clipped_start;
+        let rc_segment = reverse_complement_bytes(&sequence.as_bytes()[slice_start..slice_end]);
+        let len = rc_segment.len();
+        write_wrapped_segment(writer, &rc_segment, current_line_len)?;
+        Ok(len)
+    }
 }
 
 /// Extract sequences for specific nodes directly from a GBZ graph.
@@ -165,28 +220,19 @@ pub fn extract_sequence(
                 sorted_nodes.len()
             );
 
-            // Build a sequence from the nodes
-            let mut final_sequence = String::new();
-
-            for node_result in sorted_nodes {
+            let mut total_bases = 0usize;
+            for node_result in &sorted_nodes {
                 if let Some(seq) = node_sequences.get(&node_result.node_id) {
                     let node_len = seq.len();
-                    let oriented_seq = if node_result.node_orient {
-                        seq.clone()
-                    } else {
-                        reverse_complement(seq)
-                    };
-                    let start_in_node = node_result.path_off_start;
-                    let end_in_node = node_result.path_off_end + 1;
-                    let clipped_start = start_in_node.min(node_len);
-                    let clipped_end = end_in_node.min(node_len);
+                    let start_in_node = node_result.path_off_start.min(node_len);
+                    let end_in_node = node_result.path_off_end.saturating_add(1).min(node_len);
 
-                    if clipped_start < clipped_end {
-                        final_sequence.push_str(&oriented_seq[clipped_start..clipped_end]);
+                    if start_in_node < end_in_node {
+                        total_bases += end_in_node - start_in_node;
                     } else {
                         eprintln!(
                             "[WARNING] Invalid sequence range for node {}: {}..{} (length {})",
-                            node_result.node_id, clipped_start, clipped_end, node_len
+                            node_result.node_id, start_in_node, end_in_node, node_len
                         );
                     }
                 } else {
@@ -197,7 +243,7 @@ pub fn extract_sequence(
                 }
             }
 
-            if final_sequence.is_empty() {
+            if total_bases == 0 {
                 eprintln!(
                     "[WARNING] Generated empty sequence for path {}, skipping output",
                     path_name
@@ -222,16 +268,36 @@ pub fn extract_sequence(
             // Write FASTA header
             writeln!(writer, ">{}_{}:{}-{}", sample_name, chr, start, end)?;
 
-            // Write sequence in lines of 60 characters
-            for chunk in final_sequence.as_bytes().chunks(60) {
-                writeln!(writer, "{}", std::str::from_utf8(chunk).unwrap())?;
+            let mut current_line_len = 0usize;
+            let mut bases_written = 0usize;
+
+            for node_result in &sorted_nodes {
+                if let Some(seq) = node_sequences.get(&node_result.node_id) {
+                    let node_len = seq.len();
+                    let start_in_node = node_result.path_off_start.min(node_len);
+                    let end_in_node = node_result.path_off_end.saturating_add(1).min(node_len);
+
+                    if start_in_node < end_in_node {
+                        bases_written += write_node_segment(
+                            &mut writer,
+                            seq,
+                            node_result.node_orient,
+                            start_in_node,
+                            end_in_node,
+                            node_len,
+                            &mut current_line_len,
+                        )?;
+                    }
+                }
+            }
+
+            if current_line_len > 0 {
+                writer.write_all(b"\n")?;
             }
 
             eprintln!(
                 "[INFO] Wrote sequence of length {} for path {} to {}",
-                final_sequence.len(),
-                path_name,
-                output_file
+                bases_written, path_name, output_file
             );
         }
 
