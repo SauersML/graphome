@@ -50,7 +50,6 @@ EOF
 
 NUM_WINDOWS=$(wc -l < "$WINDOWS_FILE")
 echo "Total windows: $NUM_WINDOWS"
-echo "Estimated runtime: ~$((NUM_WINDOWS * 20 / 60)) minutes (smaller windows = faster)"
 echo ""
 
 # Run eigen-region for each window
