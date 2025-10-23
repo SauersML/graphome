@@ -17,31 +17,39 @@ use std::time::Instant;
 
 /// Extract edges from GBZ for a specific subset of nodes
 /// Matches the behavior of convert_gbz_to_edge_list: Forward orientation only, undirected
-fn extract_subgraph_edges(gbz: &GBZ, node_ids: &FxHashSet<usize>) -> Vec<(usize, usize)> {
+fn extract_subgraph_edges(
+    gbz: &GBZ,
+    node_ids: &[usize],
+    id_to_idx: &FxHashMap<usize, usize>,
+) -> Vec<(usize, usize)> {
     if node_ids.is_empty() {
         return Vec::new();
     }
 
     eprintln!("[INFO] Extracting edges for {} nodes...", node_ids.len());
 
-    let nodes: Vec<usize> = node_ids.iter().copied().collect();
-
-    // Build local edge sets in parallel and merge them, avoiding contention.
-    let edges: FxHashSet<(usize, usize)> = nodes
+    let edges: FxHashSet<(usize, usize)> = node_ids
         .par_iter()
         .fold(FxHashSet::default, |mut local_edges, &node_id| {
+            let Some(&src_idx) = id_to_idx.get(&node_id) else {
+                return local_edges;
+            };
+
             if let Some(mut succ_iter) = gbz.successors(node_id, Orientation::Forward) {
                 while let Some((succ_id, _)) = succ_iter.next() {
-                    if node_ids.contains(&succ_id) {
-                        let edge = if node_id <= succ_id {
-                            (node_id, succ_id)
-                        } else {
-                            (succ_id, node_id)
-                        };
-                        local_edges.insert(edge);
-                    }
+                    let Some(&dst_idx) = id_to_idx.get(&succ_id) else {
+                        continue;
+                    };
+
+                    let edge = if src_idx <= dst_idx {
+                        (src_idx, dst_idx)
+                    } else {
+                        (dst_idx, src_idx)
+                    };
+                    local_edges.insert(edge);
                 }
             }
+
             local_edges
         })
         .reduce(FxHashSet::default, |mut acc, set| {
@@ -54,17 +62,15 @@ fn extract_subgraph_edges(gbz: &GBZ, node_ids: &FxHashSet<usize>) -> Vec<(usize,
             acc
         });
 
-    let edge_count = edges.len();
-    eprintln!("[INFO] Found {} unique edges in subgraph", edge_count);
-
     let mut edge_vec: Vec<(usize, usize)> = edges.into_iter().collect();
     edge_vec.shrink_to_fit();
+    eprintln!("[INFO] Found {} unique edges in subgraph", edge_vec.len());
     edge_vec
 }
 
 /// Build Laplacian matrix directly from the edge list without materialising the adjacency
-fn build_laplacian_matrix(edges: &[(usize, usize)], node_ids: &[usize]) -> Mat<f64> {
-    let n = node_ids.len();
+fn build_laplacian_matrix(edges: &[(usize, usize)], node_count: usize) -> Mat<f64> {
+    let n = node_count;
     eprintln!(
         "[INFO] Building Laplacian matrix for {} nodes ({} edges)...",
         n,
@@ -77,29 +83,18 @@ fn build_laplacian_matrix(edges: &[(usize, usize)], node_ids: &[usize]) -> Mat<f
         return laplacian;
     }
 
-    // Create mapping: node_id -> matrix_index
-    let id_to_idx: FxHashMap<usize, usize> = node_ids
-        .iter()
-        .enumerate()
-        .map(|(idx, &id)| (id, idx))
-        .collect();
-
     let mut degrees = vec![0.0f64; n];
     let mut self_loops = vec![0.0f64; n];
 
     for &(u, v) in edges {
-        let (Some(&i), Some(&j)) = (id_to_idx.get(&u), id_to_idx.get(&v)) else {
-            continue;
-        };
-
-        if i == j {
-            degrees[i] += 1.0;
-            self_loops[i] += 1.0;
+        if u == v {
+            degrees[u] += 1.0;
+            self_loops[u] += 1.0;
         } else {
-            degrees[i] += 1.0;
-            degrees[j] += 1.0;
-            laplacian[(i, j)] -= 1.0;
-            laplacian[(j, i)] -= 1.0;
+            degrees[u] += 1.0;
+            degrees[v] += 1.0;
+            laplacian[(u, v)] -= 1.0;
+            laplacian[(v, u)] -= 1.0;
         }
     }
 
@@ -139,15 +134,25 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     }
 
     // Extract unique node IDs
-    let mut node_ids: FxHashSet<usize> = FxHashSet::default();
-    node_ids.reserve(results.len());
-    node_ids.extend(
-        results
-            .iter()
-            .filter_map(|r| r.node_id.parse::<usize>().ok()),
-    );
+    let mut sorted_nodes: Vec<usize> = results
+        .iter()
+        .filter_map(|r| r.node_id.parse::<usize>().ok())
+        .collect();
 
-    eprintln!("[INFO] Found {} unique nodes in region", node_ids.len());
+    sorted_nodes.sort_unstable();
+    sorted_nodes.dedup();
+
+    eprintln!("[INFO] Found {} unique nodes in region", sorted_nodes.len());
+
+    if sorted_nodes.is_empty() {
+        return Err(format!("No nodes found in region {}:{}-{}", chr, start, end).into());
+    }
+
+    let id_to_idx: FxHashMap<usize, usize> = sorted_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, &id)| (id, idx))
+        .collect();
 
     // Load full GBZ for edge extraction (need successors API)
     eprintln!("[INFO] Loading full GBZ for edge extraction...");
@@ -160,18 +165,15 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     eprintln!("[INFO] Full GBZ loaded");
 
     // Extract subgraph edges
-    let edges = extract_subgraph_edges(&gbz, &node_ids);
+    let edges = extract_subgraph_edges(&gbz, &sorted_nodes, &id_to_idx);
 
     if edges.is_empty() {
         eprintln!("[WARNING] No edges found between nodes in region");
         eprintln!("[WARNING] Subgraph may be disconnected or have isolated nodes");
     }
 
-    // Sort node IDs for consistent matrix indexing
-    let mut sorted_nodes: Vec<usize> = node_ids.into_iter().collect();
-    sorted_nodes.sort_unstable();
     let laplacian_start = Instant::now();
-    let laplacian = build_laplacian_matrix(&edges, &sorted_nodes);
+    let laplacian = build_laplacian_matrix(&edges, sorted_nodes.len());
     eprintln!(
         "[INFO] Laplacian matrix built in {:.3?}",
         laplacian_start.elapsed()
