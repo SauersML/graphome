@@ -8,6 +8,7 @@ use crate::map::{coord_to_nodes_mapped, make_gbz_exist, parse_region};
 use crate::mapped_gbz::MappedGBZ;
 use faer::Mat;
 use gbwt::{Orientation, GBZ};
+use rayon::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use simple_sds::serialize;
 use std::error::Error;
@@ -17,46 +18,58 @@ use std::time::Instant;
 /// Extract edges from GBZ for a specific subset of nodes
 /// Matches the behavior of convert_gbz_to_edge_list: Forward orientation only, undirected
 fn extract_subgraph_edges(gbz: &GBZ, node_ids: &FxHashSet<usize>) -> Vec<(usize, usize)> {
-    let mut edges: FxHashSet<(usize, usize)> = FxHashSet::default();
-
-    if !node_ids.is_empty() {
-        edges.reserve(node_ids.len().saturating_mul(4));
+    if node_ids.is_empty() {
+        return Vec::new();
     }
 
     eprintln!("[INFO] Extracting edges for {} nodes...", node_ids.len());
 
-    for &node_id in node_ids {
-        // Query Forward orientation only (matches existing convert.rs behavior)
-        if let Some(mut succ_iter) = gbz.successors(node_id, Orientation::Forward) {
-            while let Some((succ_id, _)) = succ_iter.next() {
-                // Only keep edges where both nodes are in our subset
-                if node_ids.contains(&succ_id) {
-                    // Normalize to (min, max) for undirected graph
-                    let edge = if node_id <= succ_id {
-                        (node_id, succ_id)
-                    } else {
-                        (succ_id, node_id)
-                    };
-                    edges.insert(edge);
+    let nodes: Vec<usize> = node_ids.iter().copied().collect();
+
+    // Build local edge sets in parallel and merge them, avoiding contention.
+    let edges: FxHashSet<(usize, usize)> = nodes
+        .par_iter()
+        .fold(FxHashSet::default, |mut local_edges, &node_id| {
+            if let Some(mut succ_iter) = gbz.successors(node_id, Orientation::Forward) {
+                while let Some((succ_id, _)) = succ_iter.next() {
+                    if node_ids.contains(&succ_id) {
+                        let edge = if node_id <= succ_id {
+                            (node_id, succ_id)
+                        } else {
+                            (succ_id, node_id)
+                        };
+                        local_edges.insert(edge);
+                    }
                 }
             }
-        }
-    }
+            local_edges
+        })
+        .reduce(FxHashSet::default, |mut acc, set| {
+            if acc.capacity() < acc.len() + set.len() {
+                acc.reserve(set.len());
+            }
+            for edge in set {
+                acc.insert(edge);
+            }
+            acc
+        });
 
     let edge_count = edges.len();
     eprintln!("[INFO] Found {} unique edges in subgraph", edge_count);
 
-    edges.into_iter().collect()
+    let mut edge_vec: Vec<(usize, usize)> = edges.into_iter().collect();
+    edge_vec.shrink_to_fit();
+    edge_vec
 }
 
-
 /// Build Laplacian matrix directly from the edge list without materialising the adjacency
-fn build_laplacian_matrix(
-    edges: &[(usize, usize)],
-    node_ids: &[usize],
-) -> Mat<f64> {
+fn build_laplacian_matrix(edges: &[(usize, usize)], node_ids: &[usize]) -> Mat<f64> {
     let n = node_ids.len();
-    eprintln!("[INFO] Building Laplacian matrix for {} nodes ({} edges)...", n, edges.len());
+    eprintln!(
+        "[INFO] Building Laplacian matrix for {} nodes ({} edges)...",
+        n,
+        edges.len()
+    );
 
     let mut laplacian = Mat::zeros(n, n);
 
@@ -65,7 +78,7 @@ fn build_laplacian_matrix(
     }
 
     // Create mapping: node_id -> matrix_index
-    let id_to_idx: HashMap<usize, usize> = node_ids
+    let id_to_idx: FxHashMap<usize, usize> = node_ids
         .iter()
         .enumerate()
         .map(|(idx, &id)| (id, idx))
@@ -163,7 +176,6 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
         "[INFO] Laplacian matrix built in {:.3?}",
         laplacian_start.elapsed()
     );
-
 
     // Perform eigendecomposition
     eprintln!("[INFO] Performing eigendecomposition...");

@@ -211,19 +211,12 @@ fn test_coord2node_empty_region() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
-    let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
-    assert!(
-        gbz_path.exists(),
-        "Expected HPRC GBZ at {}",
-        gbz_path.display()
-    );
-
     let binary = env!("CARGO_BIN_EXE_graphome");
     let output = Command::new(binary)
         .args([
             "map",
             "--gfa",
-            gbz_path.to_str().expect("Non-UTF8 GBZ path"),
+            "s3://human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz",
             "coord2node",
             "chr1:103553815-103579534",
         ])
@@ -248,13 +241,6 @@ fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
-    let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
-    assert!(
-        gbz_path.exists(),
-        "Expected HPRC GBZ at {}",
-        gbz_path.display()
-    );
-
     let binary = env!("CARGO_BIN_EXE_graphome");
     let output = Command::new(binary)
         .args([
@@ -276,7 +262,7 @@ fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    
+
     // Verify key output elements
     assert!(
         stdout.contains("EIGENANALYSIS RESULTS"),
@@ -286,18 +272,9 @@ fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
         stdout.contains("Region: chr1:103554644-103758692"),
         "Output missing region information"
     );
-    assert!(
-        stdout.contains("Nodes:"),
-        "Output missing node count"
-    );
-    assert!(
-        stdout.contains("Edges:"),
-        "Output missing edge count"
-    );
-    assert!(
-        stdout.contains("NGEC:"),
-        "Output missing NGEC score"
-    );
+    assert!(stdout.contains("Nodes:"), "Output missing node count");
+    assert!(stdout.contains("Edges:"), "Output missing edge count");
+    assert!(stdout.contains("NGEC:"), "Output missing NGEC score");
     assert!(
         stdout.contains("Top 10 Eigenvalues"),
         "Output missing eigenvalue list"
