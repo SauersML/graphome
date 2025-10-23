@@ -426,6 +426,8 @@ pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usi
         }
     };
 
+    let normalized_target_chr = normalize_contig(chr).to_string();
+
     if let Some((start_anchor, end_anchor)) =
         compute_reference_anchors(gbz, metadata, chr, start, end)
     {
@@ -612,6 +614,10 @@ pub fn coord_to_nodes_with_path(gbz: &GBZ, gbz_path: &str, chr: &str, start: usi
             let haplotype = path_name.phase();
             let contig_name = metadata.contig_name(path_name.contig());
             let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+
+            if !contig_matches(&contig_name, chr, &normalized_target_chr) {
+                continue;
+            }
 
             if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
                 let mut node_count = 0usize;
