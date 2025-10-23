@@ -3,18 +3,18 @@
 //! Module for extracting adjacency submatrix from edge list and performing analysis.
 
 use faer::Mat;
+use memmap2::MmapOptions;
 use ndarray::prelude::*;
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
 use std::fs::File;
-use std::io::{self, BufReader, Read, Seek};
+use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use crate::eigen_print::{
-    adjacency_matrix_to_dense, call_eigendecomp, compute_ngec, print_eigenvalues_heatmap,
-    print_heatmap, print_heatmap_normalized, save_matrix_to_csv, save_vector_to_csv,
+    call_eigendecomp, compute_ngec, print_eigenvalues_heatmap, print_heatmap,
+    print_heatmap_normalized, save_matrix_to_csv, save_vector_to_csv,
 };
 
 /// Extracts a submatrix for a given node range from the adjacency matrix edge list,
@@ -33,59 +33,19 @@ pub fn extract_and_analyze_submatrix<P: AsRef<Path> + Send + Sync>(
         edge_list_path.as_ref()
     );
     let load_start = Instant::now();
-    let adjacency_matrix = Arc::new(Mutex::new(load_adjacency_matrix(
-        &edge_list_path,
-        start_node,
-        end_node,
-    )?));
+    let adjacency_edges = load_adjacency_matrix(&edge_list_path, start_node, end_node)?;
     let load_duration = load_start.elapsed();
     println!("✅ Loaded adjacency matrix in {:.4?}", load_duration);
 
     // Compute Laplacian and eigendecomposition
     println!("🔬 Computing Laplacian matrix and eigendecomposition...");
-
-    // Convert adjacency list to ndarray
-    let adjacency_conv_start = Instant::now();
-    println!("    ⏳ Converting adjacency list to dense matrix...");
-    let adj_matrix =
-        adjacency_matrix_to_dense(&adjacency_matrix.lock().unwrap(), start_node, end_node); // This function enforces symmetry
-    let adjacency_conv_duration = adjacency_conv_start.elapsed();
+    let lap_build_start = Instant::now();
+    let laplacian = build_laplacian_from_edges(&adjacency_edges, start_node, end_node);
+    let lap_build_duration = lap_build_start.elapsed();
     println!(
-        "    ✅ Adjacency list -> ndarray in {:.4?}",
-        adjacency_conv_duration
+        "    ✅ Laplacian assembled directly from edges in {:.4?}",
+        lap_build_duration
     );
-
-    // Compute degree matrix
-    let degree_start = Instant::now();
-    println!("    ⏳ Computing degrees (sum of rows)...");
-    let size = adj_matrix.nrows();
-    let mut degrees = vec![0.0f64; size];
-    for i in 0..size {
-        let mut sum = 0.0;
-        for j in 0..size {
-            sum += adj_matrix[(i, j)];
-        }
-        degrees[i] = sum;
-    }
-    println!("    ⏳ Building degree diagonal matrix...");
-    let mut laplacian = Mat::<f64>::zeros(size, size);
-    for (i, &degree) in degrees.iter().enumerate() {
-        *laplacian.get_mut(i, i) = degree;
-    }
-    let degree_duration = degree_start.elapsed();
-    println!("    ✅ Degree matrix computed in {:.4?}", degree_duration);
-
-    // Compute Laplacian matrix: L = D - A
-    let lap_start = Instant::now();
-    println!("    ⏳ Computing Laplacian L = D - A...");
-    for i in 0..size {
-        for j in 0..size {
-            let updated = laplacian[(i, j)] - adj_matrix[(i, j)];
-            *laplacian.get_mut(i, j) = updated;
-        }
-    }
-    let lap_duration = lap_start.elapsed();
-    println!("    ✅ Laplacian computed in {:.4?}", lap_duration);
 
     // Save Laplacian matrix to CSV
     println!("    ⏳ Saving Laplacian matrix to CSV...");
@@ -194,104 +154,72 @@ pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
     println!("    === load_adjacency_matrix BEGIN (PARALLEL) ===");
     let func_start = Instant::now();
 
-    // 1) Get file size
-    let file_size = std::fs::metadata(&path)?.len();
+    if end_node < start_node {
+        println!("    Start node is greater than end node; returning empty edge set.");
+        return Ok(Vec::new());
+    }
+
+    let start_u32: u32 = start_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "start_node exceeds u32"))?;
+    let end_u32: u32 = end_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "end_node exceeds u32"))?;
+
+    let file = File::open(&path)?;
+    let file_size = file.metadata()?.len();
     println!("    File size: {} bytes", file_size);
 
-    // 2) Define chunk size (1 GB for example). Make sure it's multiple of 8:
-    let mut chunk_size = 1_073_741_824u64; // 1 GB
-    if !chunk_size.is_multiple_of(8) {
-        chunk_size -= chunk_size % 8;
+    if file_size < 8 {
+        println!("    File smaller than single edge; returning empty edge set.");
+        return Ok(Vec::new());
     }
-    println!("    Using chunk_size = {} bytes", chunk_size);
 
-    // 3) Calculate how many chunks
-    let num_chunks = if file_size == 0 {
-        0
-    } else {
-        file_size.div_ceil(chunk_size)
-    };
-    println!("    Number of chunks to read: {}", num_chunks);
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    let total_bytes = mmap.len();
+    let valid_bytes = total_bytes - (total_bytes % 8);
 
-    // 4) We'll collect partial vectors from each chunk in parallel, then combine.
-    // (0..num_chunks) -> ParIter
-    let edges: Vec<(u32, u32)> = (0..num_chunks)
-        .into_par_iter()
-        .map(|chunk_idx| {
-            // Each parallel job will read [start_offset..end_offset)
-            let start_offset = chunk_idx * chunk_size;
-            let mut end_offset = start_offset + chunk_size;
-            if end_offset > file_size {
-                end_offset = file_size;
+    if valid_bytes != total_bytes {
+        println!(
+            "    ⚠️  Ignoring {} trailing bytes that do not form full edges.",
+            total_bytes - valid_bytes
+        );
+    }
+
+    let edge_width = 8usize;
+    let total_edges = valid_bytes / edge_width;
+    println!("    Total full edges detected: {}", total_edges);
+
+    if valid_bytes == 0 {
+        println!("    No complete edges present; returning empty edge set.");
+        return Ok(Vec::new());
+    }
+
+    let chunk_bytes: usize = 8 * 262_144; // 2MB chunks keep good cache locality.
+    let estimated_chunks = (valid_bytes + chunk_bytes - 1) / chunk_bytes;
+    println!(
+        "    Processing in approximately {} parallel chunks",
+        estimated_chunks
+    );
+
+    let edges: Vec<(u32, u32)> = mmap
+        .get(..valid_bytes)
+        .expect("valid_bytes already checked")
+        .par_chunks_exact(edge_width)
+        .filter_map(|edge_bytes| {
+            let from = u32::from_le_bytes(edge_bytes[0..4].try_into().unwrap());
+            let to = u32::from_le_bytes(edge_bytes[4..8].try_into().unwrap());
+            if from >= start_u32 && from <= end_u32 && to >= start_u32 && to <= end_u32 {
+                Some((from, to))
+            } else {
+                None
             }
-
-            // We'll parse from start_offset up to end_offset, ignoring any
-            // partial edge at the tail if it doesn't align.
-            // Because chunk_size is multiple of 8, only the last chunk
-            // might have partial leftover if the file_size isn't multiple of 8.
-            let length_to_read = end_offset - start_offset;
-            println!(
-                "        Chunk {}: offset=[{}..{}], length={}",
-                chunk_idx, start_offset, end_offset, length_to_read
-            );
-
-            // Open the file for this chunk, seek to start_offset
-            let file = File::open(&path).expect("Unable to open file in parallel load");
-            let mut reader = BufReader::new(file);
-            reader
-                .seek(io::SeekFrom::Start(start_offset))
-                .expect("Failed to seek in parallel load");
-
-            // Read the entire chunk into memory
-            let mut buf = vec![0u8; length_to_read as usize];
-            let mut total_read = 0usize;
-            while total_read < buf.len() {
-                let n = reader
-                    .read(&mut buf[total_read..])
-                    .expect("Failed to read chunk");
-                if n == 0 {
-                    break; // EOF
-                }
-                total_read += n;
-            }
-
-            // Now parse edges from buf. Only parse multiples of 8 fully contained.
-            let valid_bytes = (total_read / 8) * 8;
-            let mut local_edges = Vec::new();
-
-            let mut i = 0;
-            let mut edge_count_local = 0usize;
-            while i + 7 < valid_bytes {
-                let from = u32::from_le_bytes(buf[i..i + 4].try_into().unwrap());
-                let to = u32::from_le_bytes(buf[i + 4..i + 8].try_into().unwrap());
-                i += 8;
-
-                edge_count_local += 1;
-                // Filter by [start_node..end_node]
-                if (start_node..=end_node).contains(&(from as usize))
-                    && (start_node..=end_node).contains(&(to as usize))
-                {
-                    local_edges.push((from, to));
-                }
-            }
-
-            println!(
-                "        Chunk {} done: parsed {} edges, kept {}",
-                chunk_idx,
-                edge_count_local,
-                local_edges.len()
-            );
-            local_edges
         })
-        .reduce(Vec::new, |mut acc, mut part| {
-            acc.append(&mut part); // merges partial vectors
-            acc
-        });
+        .collect();
 
-    let total_kept = edges.len();
     println!(
         "    Parallel parse complete. Total edges in range: {}",
-        total_kept
+        edges.len()
     );
 
     let func_duration = func_start.elapsed();
@@ -301,6 +229,47 @@ pub fn load_adjacency_matrix<P: AsRef<Path> + Send + Sync>(
     );
 
     Ok(edges)
+}
+
+fn build_laplacian_from_edges(
+    edges: &[(u32, u32)],
+    start_node: usize,
+    end_node: usize,
+) -> Mat<f64> {
+    if end_node < start_node {
+        return Mat::<f64>::zeros(0, 0);
+    }
+
+    let size = end_node - start_node + 1;
+    let mut laplacian = Mat::<f64>::zeros(size, size);
+    let mut degrees = vec![0.0f64; size];
+
+    for &(from, to) in edges {
+        let from_usize = from as usize;
+        let to_usize = to as usize;
+        if from_usize < start_node
+            || from_usize > end_node
+            || to_usize < start_node
+            || to_usize > end_node
+        {
+            continue;
+        }
+
+        let r = from_usize - start_node;
+        let c = to_usize - start_node;
+
+        laplacian[(r, c)] -= 1.0;
+        laplacian[(c, r)] -= 1.0;
+
+        degrees[r] += 1.0;
+        degrees[c] += 1.0;
+    }
+
+    for (idx, degree) in degrees.into_iter().enumerate() {
+        *laplacian.get_mut(idx, idx) = degree;
+    }
+
+    laplacian
 }
 
 /// Fast Laplacian construction directly from GAM file, in parallel.
@@ -314,115 +283,71 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
     println!("    === fast_laplacian_from_gam BEGIN (PARALLEL) ===");
     let func_start = Instant::now();
 
+    if end_node < start_node {
+        println!("    Start node is greater than end node; returning empty Laplacian.");
+        return Ok(Array2::<f64>::zeros((0, 0)));
+    }
+
+    let start_u32: u32 = start_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "start_node exceeds u32"))?;
+    let end_u32: u32 = end_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "end_node exceeds u32"))?;
+
     let dim = end_node - start_node + 1;
     println!("    Allocating Laplacian: {} x {}", dim, dim);
 
-    // 1) Get file size
-    let file_size = std::fs::metadata(&path)?.len();
+    let file = File::open(&path)?;
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
     println!("    File size: {} bytes", file_size);
 
-    // 2) chunk_size multiple of 8
-    let mut chunk_size = 1_073_741_824u64; // 1 GB
-    if !chunk_size.is_multiple_of(8) {
-        chunk_size -= chunk_size % 8;
+    if file_size < 8 {
+        println!("    File smaller than single edge; returning zero Laplacian.");
+        return Ok(Array2::<f64>::zeros((dim, dim)));
     }
-    // 3) number of chunks
-    let num_chunks = if file_size == 0 {
-        0
-    } else {
-        file_size.div_ceil(chunk_size)
-    };
-    println!(
-        "    Using chunk_size = {} bytes, total chunks = {}",
-        chunk_size, num_chunks
-    );
 
-    // We'll create a parallel iterator over chunk indices
-    // Each chunk returns a partial Laplacian (dim x dim) + partial degrees,
-    // which we reduce into a final sum.
-    let (mut laplacian, degrees) = (0..num_chunks)
-        .into_par_iter()
-        .map(|chunk_idx| {
-            // Allocate partial structures for this chunk
-            let mut part_lap = Array2::<f64>::zeros((dim, dim));
-            let mut part_deg = Array1::<f64>::zeros(dim);
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    let total_bytes = mmap.len();
+    let valid_bytes = total_bytes - (total_bytes % 8);
 
-            let start_offset = chunk_idx * chunk_size;
-            let mut end_offset = start_offset + chunk_size;
-            if end_offset > file_size {
-                end_offset = file_size;
-            }
-            let length_to_read = end_offset - start_offset;
-            println!(
-                "        Chunk {}: offset=[{}..{}], length={}",
-                chunk_idx, start_offset, end_offset, length_to_read
-            );
-
-            // Open + seek
-            let file = File::open(&path).expect("Unable to open file in parallel Laplacian");
-            let mut reader = BufReader::new(file);
-            reader
-                .seek(io::SeekFrom::Start(start_offset))
-                .expect("Failed to seek in parallel Laplacian");
-
-            // Read chunk
-            let mut buf = vec![0u8; length_to_read as usize];
-            let mut total_read = 0usize;
-            while total_read < buf.len() {
-                let n = reader
-                    .read(&mut buf[total_read..])
-                    .expect("Failed to read chunk");
-                if n == 0 {
-                    break;
-                }
-                total_read += n;
-            }
-
-            // parse fully aligned edges
-            let valid_bytes = (total_read / 8) * 8;
-            let mut edge_count_local = 0usize;
-
-            let mut i = 0;
-            while i + 7 < valid_bytes {
-                let from = u32::from_le_bytes(buf[i..i + 4].try_into().unwrap()) as usize;
-                let to = u32::from_le_bytes(buf[i + 4..i + 8].try_into().unwrap()) as usize;
-                i += 8;
-                edge_count_local += 1;
-
-                // If both from, to in [start_node..end_node], accumulate
-                if (start_node..=end_node).contains(&from) && (start_node..=end_node).contains(&to)
-                {
-                    let r = from - start_node;
-                    let c = to - start_node;
-                    // undirected edge => symmetrical updates
-                    part_lap[[r, c]] -= 1.0;
-                    part_lap[[c, r]] -= 1.0;
-                    part_deg[r] += 1.0;
-                    part_deg[c] += 1.0;
-                }
-            }
-
-            println!(
-                "        Chunk {} done: parsed {} edges",
-                chunk_idx, edge_count_local
-            );
-            (part_lap, part_deg)
-        })
-        .reduce(
-            // Identity
-            || (Array2::<f64>::zeros((dim, dim)), Array1::<f64>::zeros(dim)),
-            // Combine partials
-            |(mut lap_a, mut deg_a), (lap_b, deg_b)| {
-                lap_a += &lap_b; // elementwise add
-                deg_a += &deg_b;
-                (lap_a, deg_a)
-            },
+    if valid_bytes != total_bytes {
+        println!(
+            "    ⚠️  Ignoring {} trailing bytes that do not form full edges.",
+            total_bytes - valid_bytes
         );
+    }
 
-    // Now fill diagonal with degrees
-    println!("    Summation done, filling diagonal...");
-    for i in 0..dim {
-        laplacian[[i, i]] = degrees[i];
+    let mut laplacian = Array2::<f64>::zeros((dim, dim));
+    let mut degrees = vec![0.0f64; dim];
+
+    for edge_bytes in mmap
+        .get(..valid_bytes)
+        .expect("valid_bytes already checked")
+        .chunks_exact(8)
+    {
+        let from = u32::from_le_bytes(edge_bytes[0..4].try_into().unwrap());
+        let to = u32::from_le_bytes(edge_bytes[4..8].try_into().unwrap());
+
+        if from >= start_u32 && from <= end_u32 && to >= start_u32 && to <= end_u32 {
+            let r = (from - start_u32) as usize;
+            let c = (to - start_u32) as usize;
+
+            unsafe {
+                *laplacian.uget_mut([r, c]) -= 1.0;
+                *laplacian.uget_mut([c, r]) -= 1.0;
+            }
+            degrees[r] += 1.0;
+            degrees[c] += 1.0;
+        }
+    }
+
+    println!("    Filling Laplacian diagonal with accumulated degrees...");
+    for (idx, degree) in degrees.iter().enumerate() {
+        unsafe {
+            *laplacian.uget_mut([idx, idx]) = *degree;
+        }
     }
 
     let func_duration = func_start.elapsed();
