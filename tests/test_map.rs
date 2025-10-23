@@ -245,3 +245,90 @@ fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+#[test]
+fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
+    let gbz_path = Path::new("data/hprc/hprc-v2.0-mc-grch38.gbz");
+    assert!(
+        gbz_path.exists(),
+        "Expected HPRC GBZ at {}",
+        gbz_path.display()
+    );
+
+    let binary = env!("CARGO_BIN_EXE_graphome");
+    let output = Command::new(binary)
+        .args([
+            "eigen-region",
+            "--gfa",
+            "s3://human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz",
+            "--region",
+            "chr1:103554644-103758692",
+            "--viz",
+        ])
+        .output()?;
+
+    assert!(
+        output.status.success(),
+        "graphome eigen-region command failed: {}\nStdout: {}\nStderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    
+    // Verify key output elements
+    assert!(
+        stdout.contains("EIGENANALYSIS RESULTS"),
+        "Output missing eigenanalysis results section"
+    );
+    assert!(
+        stdout.contains("Region: chr1:103554644-103758692"),
+        "Output missing region information"
+    );
+    assert!(
+        stdout.contains("Nodes:"),
+        "Output missing node count"
+    );
+    assert!(
+        stdout.contains("Edges:"),
+        "Output missing edge count"
+    );
+    assert!(
+        stdout.contains("NGEC:"),
+        "Output missing NGEC score"
+    );
+    assert!(
+        stdout.contains("Top 10 Eigenvalues"),
+        "Output missing eigenvalue list"
+    );
+    assert!(
+        stdout.contains("LAPLACIAN HEATMAP"),
+        "Output missing Laplacian heatmap (--viz flag)"
+    );
+    assert!(
+        stdout.contains("EIGENVALUE DISTRIBUTION"),
+        "Output missing eigenvalue distribution (--viz flag)"
+    );
+
+    // Verify stderr contains progress messages
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Found local copy of remote GBZ") || stderr.contains("Using GBZ"),
+        "Missing GBZ loading message"
+    );
+    assert!(
+        stderr.contains("unique nodes in region"),
+        "Missing node discovery message"
+    );
+    assert!(
+        stderr.contains("Extracting edges"),
+        "Missing edge extraction message"
+    );
+    assert!(
+        stderr.contains("Performing eigendecomposition"),
+        "Missing eigendecomposition message"
+    );
+
+    Ok(())
+}
