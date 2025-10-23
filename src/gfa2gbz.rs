@@ -35,6 +35,7 @@ use std::{
 use crate::progress::{byte_progress_bar, count_progress_bar};
 use indicatif::HumanBytes;
 
+use gbwt::support::StringArray;
 use simple_sds::int_vector::IntVector;
 use simple_sds::ops::Push;
 use simple_sds::serialize::Serialize;
@@ -1276,90 +1277,8 @@ fn write_gbwt_graph_data<W: Write>(w: &mut W, graph: &GBWTGraph) -> Result<(), s
  *   3) store an offset array with n+1 offsets
  **************************************************************************************************/
 fn write_string_array<W: Write>(w: &mut W, arr: &Vec<String>) -> Result<(), std::io::Error> {
-    // In the "simple-sds" approach, a "StringArray" is:
-    //   - The index (a "sparse vector" for starts)
-    //   - The alphabet
-    //   - The strings in a bit-packed form
-    // Step 1) collect all bytes
-    let mut data = Vec::new();
-    let mut offsets = Vec::with_capacity(arr.len() + 1);
-    offsets.push(0);
-    for s in arr {
-        data.extend_from_slice(s.as_bytes());
-        offsets.push(data.len());
-    }
-    // Now we do "alphabet compaction," i.e. gather all used bytes, build a mapping.
-    // Let's find which bytes appear.
-    let mut used = [false; 256];
-    for &b in &data {
-        used[b as usize] = true;
-    }
-    let mut alpha_map = vec![0; 256]; // maps byte-> rank
-    let mut alpha_vec = Vec::new();
-    let mut rank = 0;
-    for b in 0..256 {
-        if used[b] {
-            alpha_map[b] = rank;
-            alpha_vec.push(b as u8);
-            rank += 1;
-        }
-    }
-    // Now we build the packed array of width= bit_len(rank-1)
-    let sigma = rank;
-    if sigma == 0 {
-        // ?
-    }
-
-    // The "StringArray" structure in the spec sets bit i at offsets[i], then arr[i] is data from that offset to offsets[i+1].
-    // Build the bitvector of length data.len()+1. We'll set bit at offsets[i], for i in 0..arr.len().
-    // The last offset is data.len().
-    let bit_length = data.len() + 1;
-    let mut bits = vec![0u8; bit_length.div_ceil(8)];
-    for &ofs in &offsets[..arr.len()] {
-        bits[ofs >> 3] |= 1 << (ofs & 7);
-    }
-    // store the bitvector
-    let bit_len64 = bit_length as u64;
-    w.write_all(&bit_len64.to_le_bytes())?;
-    w.write_all(&bits)?;
-    // Then we store the "alphabet" as a plain vector of length = sigma
-    // then the "strings" as an intvector of length data.len(), width= bit_len(sigma-1)
-    let sigma_bytes = sigma as u64;
-    write_varuint(w, sigma_bytes)?;
-    for &b in &alpha_vec {
-        w.write_all(&[b])?;
-    }
-    // now build the packed array. width =
-    let wbits = if sigma <= 1 {
-        1
-    } else {
-        (64 - ((sigma - 1) as u64).leading_zeros()) as u8
-    };
-    // write length in varuint => data.len()
-    write_varuint(w, data.len() as u64)?;
-    write_varuint(w, wbits as u64)?;
-    // pack each data[i] => alpha_map[data[i]] in wbits
-    // We'll do a naive approach
-    let mut buff = 0u64;
-    let mut used_bits = 0;
-    let mut out_bytes = Vec::new();
-    for &byte in &data {
-        let mapped = alpha_map[byte as usize] as u64;
-        buff |= mapped << used_bits;
-        used_bits += wbits as usize;
-        while used_bits >= 8 {
-            out_bytes.push((buff & 0xFF) as u8);
-            buff >>= 8;
-            used_bits -= 8;
-        }
-    }
-    if used_bits > 0 {
-        out_bytes.push((buff & 0xFF) as u8);
-    }
-    // store out_bytes
-    write_varuint(w, out_bytes.len() as u64)?;
-    w.write_all(&out_bytes)?;
-
+    let string_array = StringArray::from(arr.as_slice());
+    string_array.serialize(w)?;
     Ok(())
 }
 
