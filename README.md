@@ -35,7 +35,7 @@ A minimal end-to-end example:
 graphome convert --input pangenome.gfa --output pangenome.gam
 
 # 2. Extract a 10k-node slice and run Laplacian eigendecomposition.
-graphome extract --input pangenome.gam --start-node 100000 --end-node 110000 --output ignore_me
+graphome extract --input pangenome.gam --start-node 100000 --end-node 110000
 
 # 3. Emit overlapping Laplacian windows for later downstream analysis.
 graphome extract-windows --input pangenome.gam --start-node 0 --end-node 200000 \
@@ -45,8 +45,6 @@ graphome extract-windows --input pangenome.gam --start-node 0 --end-node 200000 
 # place the resulting eigenvalues into per-window folders so that
 # `graphome analyze-windows` can read them when summarising NGEC.
 ```
-
-The `extract` command currently ignores the `--output` argument and writes results (CSV heatmaps, eigenvalues, eigenvectors) alongside the supplied `.gam` file. The placeholder value above satisfies the required flag.
 
 ## Command-Line Guide
 
@@ -69,7 +67,7 @@ The generated `.gam` file can be inspected with `python -m struct` snippets or a
 Load a node-inclusive range from a `.gam` file, compute the dense adjacency, Laplacian, eigendecomposition, NGEC score, and print ASCII heatmaps. Outputs are placed next to the `.gam` file: `laplacian.csv`, `eigenvalues.csv`, and `eigenvectors.csv`.
 
 ```bash
-graphome extract --input hprc-v1.0-pggb.gam --start-node 250000 --end-node 252000 --output unused.csv
+graphome extract --input hprc-v1.0-pggb.gam --start-node 250000 --end-node 252000
 ```
 
 ### `extract-matrices`
@@ -116,7 +114,7 @@ graphome map --gfa hprc-v1.0-pggb.gfa --paf hprc-v1.0-pggb.untangle.paf \
   coord2node grch38#chr1:100000-105000
 ```
 
-Results are printed to stdout, including merged interval summaries and counts of unique mappings.
+Results are printed to stdout, including merged interval summaries and counts of unique mappings. The `--paf` flag may be omitted when the GBZ already embeds the necessary mappings.
 
 ### `viz`
 
