@@ -7,7 +7,7 @@ set -e
 
 GBZ="${1:-s3://human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz}"
 OUTPUT_DIR="${2:-amy_analysis_results}"
-WINDOW_SIZE=5000
+WINDOW_SIZE=2000
 
 echo "=== AMY Gene Cluster NGEC Analysis ==="
 echo "GBZ: $GBZ"
@@ -18,9 +18,9 @@ echo ""
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
 
-# Define region
-START=103554644
-END=103758692
+# Define region (expanded 40kb in each direction from original 103554644-103758692)
+START=103514644
+END=103798692
 REGION_LENGTH=$((END - START))
 
 echo "Region: chr1:${START}-${END} (${REGION_LENGTH}bp)"
@@ -50,7 +50,7 @@ EOF
 
 NUM_WINDOWS=$(wc -l < "$WINDOWS_FILE")
 echo "Total windows: $NUM_WINDOWS"
-echo "Estimated runtime: ~$((NUM_WINDOWS * 30 / 60)) minutes"
+echo "Estimated runtime: ~$((NUM_WINDOWS * 20 / 60)) minutes (smaller windows = faster)"
 echo ""
 
 # Run eigen-region for each window

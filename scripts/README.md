@@ -32,7 +32,9 @@ bash scripts/run_amy_analysis.sh \
 
 ### Region Details
 
-**Full region:** chr1:103,554,644-103,758,692 (204kb)
+**Analysis region:** chr1:103,514,644-103,798,692 (284kb)
+- Original AMY cluster: 103,554,644-103,758,692 (204kb)
+- Expanded 40kb in each direction for context
 
 **Genes annotated:**
 - **AMY2B** (103554644-103579534) - Pancreatic amylase
@@ -62,8 +64,12 @@ To run manually:
 
 ### Analysis Details
 
-- **Window size:** 5kb
-- **Number of windows:** 41
+- **Window size:** 2kb (smaller windows = higher resolution)
+- **Number of windows:** 142
+- **Total region:** 284kb (AMY cluster + 40kb flanking each side)
 - **Metric:** NGEC (Normalized Graph Eigen-Complexity)
+  - Measures structural complexity of the graph
+  - Range: [0, 1]
+  - Higher values = more complex/diverse structure
 - **Method:** Laplacian eigendecomposition of subgraph for each window
-- **Runtime:** ~30 seconds per window, ~20 minutes total
+- **Runtime:** ~20 seconds per window, ~45 minutes total
