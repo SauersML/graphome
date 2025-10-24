@@ -1411,8 +1411,11 @@ fn find_candidate_paths_filtered(
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
     
-    // First, collect path IDs that match the sample filter
-    let mut matching_paths = Vec::new();
+    // First, collect path IDs that match the sample filter and scan for anchor in one pass
+    let mut path_results: Vec<(usize, bool, usize)> = Vec::new(); // (path_id, has_anchor, node_count)
+    
+    eprintln!("[INFO] Filtering and scanning paths for sample '{}'...", sample_filter);
+    
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         let sample_name = metadata.sample_name(path_name.sample());
         let haplotype = path_name.phase();
@@ -1420,37 +1423,33 @@ fn find_candidate_paths_filtered(
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
         
         if full_path_name.starts_with(sample_filter) {
-            matching_paths.push(path_id);
-        }
-    }
-    
-    eprintln!("[INFO] Found {} paths matching filter '{}', scanning for start anchor {}", 
-        matching_paths.len(), sample_filter, start_anchor_node);
-    
-    if matching_paths.is_empty() {
-        eprintln!("[WARNING] No paths match sample filter '{}'", sample_filter);
-        return candidates;
-    }
-    
-    let progress = (matching_paths.len().max(10) / 10).max(1);
-    
-    for (idx, &path_id) in matching_paths.iter().enumerate() {
-        if idx % progress == 0 {
-            eprintln!("[INFO] anchor-scan: {}/{} filtered paths, {} candidates", 
-                idx, matching_paths.len(), candidates.len());
-        }
-        
-        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-            for (node_id, _) in path_iter {
-                if node_id == start_anchor_node {
-                    candidates.insert(path_id);
-                    break; // Move to next path
+            // Scan this path for the anchor node in a single pass
+            let mut has_anchor = false;
+            let mut node_count = 0;
+            
+            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+                for (node_id, _) in path_iter {
+                    node_count += 1;
+                    if node_id == start_anchor_node {
+                        has_anchor = true;
+                        // Don't break - we want the full node count for sorting
+                    }
                 }
+            }
+            
+            path_results.push((path_id, has_anchor, node_count));
+            
+            if has_anchor {
+                candidates.insert(path_id);
+                eprintln!("[INFO] Found anchor in path {} ({}, {} nodes)", 
+                    path_id, full_path_name, node_count);
             }
         }
     }
     
-    eprintln!("[INFO] Found {} candidate paths containing start anchor", candidates.len());
+    eprintln!("[INFO] Scanned {} paths matching filter '{}', found {} with start anchor", 
+        path_results.len(), sample_filter, candidates.len());
+    
     candidates
 }
 
