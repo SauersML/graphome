@@ -21,6 +21,7 @@ import sys
 import os
 import tempfile
 import re
+import urllib.request
 from pathlib import Path
 
 # Expected BRCA1 coordinates - must match at least one of these assemblies
@@ -116,24 +117,64 @@ def blast_sequence(fasta_path):
         print("  macOS: brew install blast")
         sys.exit(1)
     
-    print("[INFO] Running BLAST against NCBI Genome database (this may take 2-5 minutes)...")
+    print("[INFO] Downloading reference sequences and running local BLAST...")
     
-    # Run BLAST against Genome database (assembled chromosomes) instead of nt (individual sequences)
-    # This ensures we get full chromosome coverage, not just BAC clones
+    # Download GRCh38 chr17 and T2T chr17 sequences locally for faster BLAST
+    # This avoids searching the entire refseq_genomic database remotely
+    import tempfile
+    import urllib.request
+    
+    blast_db_dir = tempfile.mkdtemp(prefix="blast_db_")
+    
+    # Download sequences
+    sequences = [
+        ("NC_000017.11", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_000017.11&rettype=fasta&retmode=text"),
+        ("NC_060941.1", "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=nuccore&id=NC_060941.1&rettype=fasta&retmode=text"),
+    ]
+    
+    combined_fasta = Path(blast_db_dir) / "chr17_refs.fasta"
+    
+    print("[INFO] Downloading reference sequences...")
+    with open(combined_fasta, 'w') as outf:
+        for acc, url in sequences:
+            print(f"  Downloading {acc}...")
+            try:
+                with urllib.request.urlopen(url, timeout=120) as response:
+                    outf.write(response.read().decode('utf-8'))
+            except Exception as e:
+                print(f"[ERROR] Failed to download {acc}: {e}")
+                sys.exit(1)
+    
+    # Create BLAST database
+    print("[INFO] Creating local BLAST database...")
+    makeblastdb_cmd = [
+        "makeblastdb",
+        "-in", str(combined_fasta),
+        "-dbtype", "nucl",
+        "-out", str(Path(blast_db_dir) / "chr17_db"),
+        "-title", "chr17_references"
+    ]
+    
+    stdout_db, stderr_db, returncode_db = run_command(makeblastdb_cmd, timeout=60)
+    if returncode_db != 0:
+        print(f"[ERROR] makeblastdb failed: {stderr_db}")
+        sys.exit(1)
+    
+    print("[INFO] Running BLAST against local database...")
+    
+    # Run BLAST against local database (much faster than remote)
     cmd = [
         "blastn",
         "-query", str(fasta_path),
-        "-db", "refseq_genomic",
-        "-remote",
-        "-entrez_query", "NC_000017.11[Accession] OR NC_060941.1[Accession]",  # GRCh38 chr17 or T2T chr17
+        "-db", str(Path(blast_db_dir) / "chr17_db"),
         "-outfmt", "6 qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle",
         "-max_target_seqs", "5",
         "-evalue", "1e-100",
-        "-word_size", "28",  # Larger word size for faster search
-        "-perc_identity", "95"  # Only high-identity hits
+        "-word_size", "28",
+        "-perc_identity", "95"
     ]
     
-    stdout, stderr, returncode = run_command(cmd, timeout=600)
+    stdout, stderr, returncode = run_command(cmd, timeout=1800)  # 30 minutes timeout
     
     if returncode != 0:
         print(f"[ERROR] BLAST failed with return code {returncode}")
