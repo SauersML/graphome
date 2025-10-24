@@ -1571,8 +1571,13 @@ fn compute_reference_anchors(
             continue;
         }
 
-        // Found matching reference path
+        // Only use haplotype 0 (primary reference haplotype)
         let haplotype = path_name.phase();
+        if haplotype != 0 {
+            continue;
+        }
+
+        // Found matching reference path
         eprintln!(
             "[INFO] Using reference path {}#{}#{} (path_id={}) for assembly '{}'",
             sample_name, haplotype, contig_name, path_id, assembly
