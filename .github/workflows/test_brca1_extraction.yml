@@ -1,0 +1,58 @@
+name: BRCA1 Extraction Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-brca1-extraction:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ncbi-blast+ python3 python3-pip
+    
+    - name: Install Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+    
+    - name: Build graphome
+      run: cargo build --release
+    
+    - name: Download HPRC GBZ file
+      run: |
+        mkdir -p data
+        wget -q --show-progress https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz -O data/hprc-v2.0-mc-grch38.gbz
+    
+    - name: Verify GBZ file size
+      run: |
+        FILE_SIZE=$(stat -c%s data/hprc-v2.0-mc-grch38.gbz)
+        EXPECTED_SIZE=5419804360
+        if [ "$FILE_SIZE" -ne "$EXPECTED_SIZE" ]; then
+          echo "Error: GBZ file size mismatch. Expected $EXPECTED_SIZE, got $FILE_SIZE"
+          exit 1
+        fi
+        echo "GBZ file verified: $FILE_SIZE bytes"
+    
+    - name: Run BRCA1 extraction test
+      run: |
+        python3 scripts/test_brca1_extraction.py
+    
+    - name: Upload test artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: brca1-test-results
+        path: |
+          /tmp/tmp*/
+        retention-days: 7
