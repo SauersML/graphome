@@ -16,7 +16,7 @@ use std::process::Command;
 
 use crate::io;
 use crate::mapped_gbz::MappedGBZ;
-use gbwt::{support, Orientation, GBZ};
+use gbwt::{Orientation, GBZ};
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::MmapOptions;
 use simple_sds::serialize;
@@ -42,7 +42,9 @@ struct RegionSlice {
     nodes: HashSet<usize>,                    // Node IDs in the slice
     node_lengths: HashMap<usize, usize>,      // Node ID -> length in bp
     edges: HashMap<usize, Vec<(usize, Orientation)>>, // Node ID -> successors
+    #[allow(dead_code)]
     start_anchor_node: usize,
+    #[allow(dead_code)]
     end_anchor_node: usize,
     total_bp: usize,                          // Total bp in slice
 }
@@ -50,6 +52,7 @@ struct RegionSlice {
 // Node-to-Path postings index
 // Maps node_id -> list of path_ids that contain that node
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct NodePathPostings {
     postings: HashMap<usize, Vec<usize>>,  // node_id -> sorted vec of path_ids
     total_nodes: usize,
@@ -432,7 +435,7 @@ pub fn coord_to_nodes_with_path(
 
 pub fn coord_to_nodes_with_path_filtered(
     gbz: &GBZ,
-    gbz_path: &str,
+    _gbz_path: &str,
     chr: &str,
     start: usize,
     end: usize,
@@ -1254,6 +1257,7 @@ impl Anchor {
     }
 }
 
+#[allow(dead_code)]
 impl NodePathPostings {
     fn build(gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> Self {
         let total_paths = metadata.paths();
@@ -1372,6 +1376,7 @@ impl NodePathPostings {
     }
 }
 
+#[allow(dead_code)]
 fn get_or_build_postings(gbz_path: &str, gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> NodePathPostings {
     let postings_path = format!("{}.postings", gbz_path);
     
@@ -1399,6 +1404,7 @@ fn get_or_build_postings(gbz_path: &str, gbz: &GBZ, metadata: &gbwt::gbwt::Metad
     postings
 }
 
+#[allow(dead_code)]
 fn find_candidate_paths_with_postings(
     postings: &NodePathPostings,
     start_anchor_node: usize,

@@ -37,6 +37,7 @@ fn reverse_complement_bytes(sequence: &[u8]) -> Vec<u8> {
 }
 
 /// Reverses and complements a DNA sequence (string version for compatibility)
+#[allow(dead_code)]
 fn reverse_complement(dna: &str) -> String {
     String::from_utf8(reverse_complement_bytes(dna.as_bytes())).unwrap()
 }
