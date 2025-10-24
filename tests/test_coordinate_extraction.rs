@@ -11,22 +11,28 @@ use std::process::Command;
 /// 4. Queries the same region via coordinate-based extraction
 /// 5. Asserts the 3kb string appears in the coordinate-extracted sequence
 #[test]
-#[ignore] // Requires GBZ file download
 fn test_coordinate_extraction_correctness() {
     // Setup paths
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let gbz_path = project_root.join("data/hprc-v2.0-mc-grch38.gbz");
-    let graphome_bin = project_root.join("target/release/graphome");
     
-    // Check if GBZ file exists
-    if !gbz_path.exists() {
+    // Try multiple possible GBZ locations
+    let gbz_path = if project_root.join("data/hprc/hprc-v2.0-mc-grch38.gbz").exists() {
+        project_root.join("data/hprc/hprc-v2.0-mc-grch38.gbz")
+    } else if project_root.join("data/hprc-v2.0-mc-grch38.gbz").exists() {
+        project_root.join("data/hprc-v2.0-mc-grch38.gbz")
+    } else {
         panic!(
-            "GBZ file not found at {:?}\n\
+            "GBZ file not found. Tried:\n\
+             - {:?}\n\
+             - {:?}\n\
              Download with:\n\
-             wget https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz -O data/hprc-v2.0-mc-grch38.gbz",
-            gbz_path
+             mkdir -p data/hprc && wget https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz -O data/hprc/hprc-v2.0-mc-grch38.gbz",
+            project_root.join("data/hprc/hprc-v2.0-mc-grch38.gbz"),
+            project_root.join("data/hprc-v2.0-mc-grch38.gbz")
         );
-    }
+    };
+    
+    let graphome_bin = project_root.join("target/release/graphome");
     
     // Check if binary is built
     if !graphome_bin.exists() {
