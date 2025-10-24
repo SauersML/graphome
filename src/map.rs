@@ -427,12 +427,26 @@ pub fn coord_to_nodes_with_path(
     start: usize,
     end: usize,
 ) -> Vec<Coord2NodeResult> {
+    coord_to_nodes_with_path_filtered(gbz, gbz_path, chr, start, end, None)
+}
+
+pub fn coord_to_nodes_with_path_filtered(
+    gbz: &GBZ,
+    gbz_path: &str,
+    chr: &str,
+    start: usize,
+    end: usize,
+    sample_filter: Option<&str>,
+) -> Vec<Coord2NodeResult> {
     let display_start = start.saturating_add(1);
     let display_end = end.saturating_add(1);
     eprintln!(
         "[INFO] Searching for region {}:{}-{} (0-based offsets {}..{})",
         chr, display_start, display_end, start, end
     );
+    if let Some(sample) = sample_filter {
+        eprintln!("[INFO] Filtering for sample: {}", sample);
+    }
     let mut results = Vec::new();
 
     let metadata = match gbz.metadata() {
@@ -454,7 +468,14 @@ pub fn coord_to_nodes_with_path(
         );
 
         // Find candidates by contig filtering (fast, no index needed)
-        let candidate_paths = find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id);
+        // BUT: if we have a sample filter, we need to search ALL paths because
+        // different samples may use different contig naming schemes
+        let candidate_paths = if let Some(filter) = sample_filter {
+            eprintln!("[INFO] Sample filter active - searching paths matching '{}' for start anchor", filter);
+            find_candidate_paths_filtered(gbz, metadata, start_anchor.node_id, filter)
+        } else {
+            find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
+        };
         
         if candidate_paths.is_empty() {
             eprintln!("[WARNING] no candidate paths contain the start anchor");
@@ -488,6 +509,14 @@ pub fn coord_to_nodes_with_path(
             let haplotype = path_name.phase();
             let contig_name = metadata.contig_name(path_name.contig());
             let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+
+            // Apply sample filter if provided
+            if let Some(filter) = sample_filter {
+                if !full_path_name.starts_with(filter) {
+                    eprintln!("[DEBUG] Skipping path {} (doesn't match filter {})", full_path_name, filter);
+                    continue;
+                }
+            }
 
             eprintln!("[INFO] Scanning path {} ({})", path_id, full_path_name);
 
@@ -634,6 +663,13 @@ pub fn coord_to_nodes_with_path(
 
             if !contig_matches(&contig_name, chr, &normalized_target_chr) {
                 continue;
+            }
+
+            // Apply sample filter if provided
+            if let Some(filter) = sample_filter {
+                if !full_path_name.starts_with(filter) {
+                    continue;
+                }
             }
 
             if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
@@ -1367,6 +1403,57 @@ fn find_candidate_paths_with_postings(
     candidates
 }
 
+fn find_candidate_paths_filtered(
+    gbz: &GBZ,
+    metadata: &gbwt::gbwt::Metadata,
+    start_anchor_node: usize,
+    sample_filter: &str,
+) -> HashSet<usize> {
+    let mut candidates = HashSet::new();
+    
+    // First, collect path IDs that match the sample filter
+    let mut matching_paths = Vec::new();
+    for (path_id, path_name) in metadata.path_iter().enumerate() {
+        let sample_name = metadata.sample_name(path_name.sample());
+        let haplotype = path_name.phase();
+        let contig_name = metadata.contig_name(path_name.contig());
+        let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+        
+        if full_path_name.starts_with(sample_filter) {
+            matching_paths.push(path_id);
+        }
+    }
+    
+    eprintln!("[INFO] Found {} paths matching filter '{}', scanning for start anchor {}", 
+        matching_paths.len(), sample_filter, start_anchor_node);
+    
+    if matching_paths.is_empty() {
+        eprintln!("[WARNING] No paths match sample filter '{}'", sample_filter);
+        return candidates;
+    }
+    
+    let progress = (matching_paths.len().max(10) / 10).max(1);
+    
+    for (idx, &path_id) in matching_paths.iter().enumerate() {
+        if idx % progress == 0 {
+            eprintln!("[INFO] anchor-scan: {}/{} filtered paths, {} candidates", 
+                idx, matching_paths.len(), candidates.len());
+        }
+        
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            for (node_id, _) in path_iter {
+                if node_id == start_anchor_node {
+                    candidates.insert(path_id);
+                    break; // Move to next path
+                }
+            }
+        }
+    }
+    
+    eprintln!("[INFO] Found {} candidate paths containing start anchor", candidates.len());
+    candidates
+}
+
 fn find_candidate_paths_by_contig(
     gbz: &GBZ,
     metadata: &gbwt::gbwt::Metadata,
@@ -1375,19 +1462,22 @@ fn find_candidate_paths_by_contig(
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
     
+    // Normalize the target contig name (e.g., "grch38#chr17" -> "chr17")
+    let target_contig = normalize_contig(chr);
+    
     // First, collect all path IDs for this contig
     let mut contig_paths = Vec::new();
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         let contig_name = metadata.contig_name(path_name.contig());
-        if contig_name == chr {
+        if contig_name == target_contig {
             contig_paths.push(path_id);
         }
     }
     
-    eprintln!("[INFO] Found {} paths on contig {}", contig_paths.len(), chr);
+    eprintln!("[INFO] Found {} paths on contig {}", contig_paths.len(), target_contig);
     
     if contig_paths.is_empty() {
-        eprintln!("[WARNING] No paths found for contig {}", chr);
+        eprintln!("[WARNING] No paths found for contig {}", target_contig);
         return candidates;
     }
     
@@ -1513,6 +1603,9 @@ fn compute_reference_anchors(
         return None;
     }
     
+    // Extract just the contig part from chr (e.g., "grch38#chr17" -> "chr17")
+    let target_contig = normalize_contig(chr);
+    
     // Find reference path for this contig by scanning metadata
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         // Check if this is a reference path for the requested contig
@@ -1521,7 +1614,7 @@ fn compute_reference_anchors(
         }
         
         let contig_name = metadata.contig_name(path_name.contig());
-        if contig_name != chr {
+        if contig_name != target_contig {
             continue;
         }
         
