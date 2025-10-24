@@ -229,23 +229,69 @@ def blast_sequence(fasta_path, target_assembly):
             print(f"  {fields[1]}: {fields[2]}% identity, coords {fields[6]}-{fields[7]}")
     print()
     
-    # Parse top hit
-    top_hit = stdout.strip().split('\n')[0].split('\t')
-    if len(top_hit) < 11:
-        print(f"[ERROR] Unexpected BLAST output format")
+    # Parse all hits and determine which map to the expected BRCA1 region
+    all_hits = []
+    for line in stdout.strip().split('\n'):
+        fields = line.split('\t')
+        if len(fields) >= 11:
+            all_hits.append({
+                'subject_id': fields[1],
+                'pident': float(fields[2]),
+                'align_length': int(fields[3]),
+                'qstart': int(fields[4]),
+                'qend': int(fields[5]),
+                'sstart': int(fields[6]),
+                'send': int(fields[7]),
+                'stitle': fields[10]
+            })
+    
+    if not all_hits:
+        print(f"[ERROR] No BLAST hits found")
         sys.exit(1)
     
-    subject_id = top_hit[1]
-    pident = float(top_hit[2])
-    align_length = int(top_hit[3])
-    qstart = int(top_hit[4])
-    qend = int(top_hit[5])
-    sstart = int(top_hit[6])
-    send = int(top_hit[7])
-    stitle = top_hit[10]
+    # Use top hit for coordinate/identity reporting
+    top_hit_data = all_hits[0]
+    subject_id = top_hit_data['subject_id']
+    pident = top_hit_data['pident']
+    stitle = top_hit_data['stitle']
+    qstart = top_hit_data['qstart']
+    qend = top_hit_data['qend']
+    sstart = top_hit_data['sstart']
+    send = top_hit_data['send']
+    align_length = top_hit_data['align_length']
     
-    # Calculate query coverage
-    query_coverage = (align_length / 126002.0) * 100.0  # Query length is ~126kb
+    # Determine expected coordinate range based on target assembly
+    if target_assembly == "grch38":
+        expected_start = GRCH38_START
+        expected_end = GRCH38_END
+    else:  # chm13
+        expected_start = T2T_START
+        expected_end = T2T_END
+    
+    # Sum alignment lengths for all hits that map to the expected BRCA1 region
+    # A hit is in the BRCA1 region if it overlaps with the expected coordinates
+    total_align_length = 0
+    brca1_hits = []
+    for hit in all_hits:
+        coord_start = min(hit['sstart'], hit['send'])
+        coord_end = max(hit['sstart'], hit['send'])
+        
+        # Check if this hit overlaps with expected BRCA1 region (with tolerance)
+        region_start = expected_start - COORD_TOLERANCE
+        region_end = expected_end + COORD_TOLERANCE
+        
+        # Overlap check: hit overlaps if it starts before region ends AND ends after region starts
+        if coord_start <= region_end and coord_end >= region_start:
+            total_align_length += hit['align_length']
+            brca1_hits.append(hit)
+    
+    if len(brca1_hits) > 1:
+        print(f"[INFO] Found {len(brca1_hits)} BLAST HSPs mapping to expected BRCA1 region")
+        for i, hit in enumerate(brca1_hits, 1):
+            print(f"  HSP {i}: {hit['align_length']} bp, {hit['pident']:.2f}% identity")
+    
+    # Calculate query coverage from sum of all BRCA1-region hits
+    query_coverage = (total_align_length / 126002.0) * 100.0  # Query length is ~126kb
     
     # Normalize coordinates
     coord_start = min(sstart, send)
