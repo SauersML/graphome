@@ -5,7 +5,7 @@ Integration test for BRCA1 extraction from pangenome GBZ.
 This test:
 1. Extracts BRCA1 region (chr17:43,044,295-43,170,245) for HG00290#1
 2. BLASTs the extracted sequence against NCBI nt database
-3. Verifies the top hit matches the expected BRCA1 coordinates on chr17
+3. Verifies the top hit matches BRCA1 coordinates on chr17 (either GRCh38 or T2T-CHM13)
 
 Requirements:
 - graphome binary built (target/release/graphome)
@@ -22,14 +22,29 @@ import tempfile
 import re
 from pathlib import Path
 
-# Expected BRCA1 coordinates (GRCh38/hg38)
-EXPECTED_CHR = "chr17"
-EXPECTED_START = 43044295
-EXPECTED_END = 43170245
-EXPECTED_LENGTH = EXPECTED_END - EXPECTED_START + 1  # ~126kb
+# Expected BRCA1 coordinates - must match at least one of these assemblies
+# BRCA1 is on the minus strand in both assemblies
+
+# GRCh38/hg38 (chr17, minus strand)
+# NCBI: NC_000017.11:43044295..43170327, complement
+GRCH38_CHR = "chr17"
+GRCH38_START = 43044295
+GRCH38_END = 43170327
+
+# T2T-CHM13 v2.0 (chr17, minus strand)
+# NCBI: NC_060941.1:43902857..44029084, complement
+T2T_CHR = "chr17"
+T2T_START = 43902857
+T2T_END = 44029084
+
+# Use GRCh38 for extraction (pangenome is based on GRCh38)
+EXTRACTION_START = GRCH38_START
+EXTRACTION_END = GRCH38_END
 
 # Tolerance for coordinate matching (BLAST alignment may not be exact at boundaries)
-COORD_TOLERANCE = 1000  # 1kb tolerance
+COORD_TOLERANCE = 500  # 500bp tolerance for start/end coordinates
+
+
 
 def run_command(cmd, cwd=None, timeout=300):
     """Run a shell command and return stdout, stderr, returncode."""
@@ -51,8 +66,7 @@ def extract_brca1(graphome_bin, gbz_path, output_dir):
         str(graphome_bin),
         "make-sequence",
         "--gfa", str(gbz_path),
-        "--paf", "/dev/null",
-        "--region", f"grch38#chr17:{EXPECTED_START}-{EXPECTED_END}",
+        "--region", f"grch38#chr17:{EXTRACTION_START}-{EXTRACTION_END}",
         "--sample", "HG00290#1",
         "--output", "HG00290_BRCA1"
     ]
@@ -179,7 +193,7 @@ def blast_sequence(fasta_path):
     }
 
 def verify_blast_results(blast_result):
-    """Verify BLAST results match expected BRCA1 coordinates."""
+    """Verify BLAST results match expected BRCA1 coordinates (GRCh38 or T2T-CHM13)."""
     print("\n=== Step 3: Verifying BLAST results ===")
     
     chromosome = blast_result['chromosome']
@@ -190,27 +204,36 @@ def verify_blast_results(blast_result):
     success = True
     
     # Check chromosome
-    if chromosome != EXPECTED_CHR:
-        print(f"[FAIL] Wrong chromosome: {chromosome} (expected {EXPECTED_CHR})")
+    if chromosome != GRCH38_CHR and chromosome != T2T_CHR:
+        print(f"[FAIL] Wrong chromosome: {chromosome} (expected chr17)")
         success = False
     else:
         print(f"[OK] Correct chromosome: {chromosome}")
     
-    # Check coordinates (with tolerance for alignment boundaries)
-    start_diff = abs(start - EXPECTED_START)
-    end_diff = abs(end - EXPECTED_END)
+    # Check if coordinates match either GRCh38 or T2T-CHM13 BRCA1 region
+    grch38_start_diff = abs(start - GRCH38_START)
+    grch38_end_diff = abs(end - GRCH38_END)
+    grch38_matches = (grch38_start_diff <= COORD_TOLERANCE and grch38_end_diff <= COORD_TOLERANCE)
     
-    if start_diff > COORD_TOLERANCE:
-        print(f"[FAIL] Start coordinate mismatch: {start:,} (expected {EXPECTED_START:,}, diff: {start_diff:,} bp)")
-        success = False
-    else:
-        print(f"[OK] Start coordinate matches: {start:,} (diff: {start_diff:,} bp)")
+    t2t_start_diff = abs(start - T2T_START)
+    t2t_end_diff = abs(end - T2T_END)
+    t2t_matches = (t2t_start_diff <= COORD_TOLERANCE and t2t_end_diff <= COORD_TOLERANCE)
     
-    if end_diff > COORD_TOLERANCE:
-        print(f"[FAIL] End coordinate mismatch: {end:,} (expected {EXPECTED_END:,}, diff: {end_diff:,} bp)")
-        success = False
+    if grch38_matches:
+        print(f"[OK] Coordinates match GRCh38 BRCA1 region:")
+        print(f"     Start: {start:,} (expected {GRCH38_START:,}, diff: {grch38_start_diff:,} bp)")
+        print(f"     End:   {end:,} (expected {GRCH38_END:,}, diff: {grch38_end_diff:,} bp)")
+    elif t2t_matches:
+        print(f"[OK] Coordinates match T2T-CHM13 BRCA1 region:")
+        print(f"     Start: {start:,} (expected {T2T_START:,}, diff: {t2t_start_diff:,} bp)")
+        print(f"     End:   {end:,} (expected {T2T_END:,}, diff: {t2t_end_diff:,} bp)")
     else:
-        print(f"[OK] End coordinate matches: {end:,} (diff: {end_diff:,} bp)")
+        print(f"[FAIL] Coordinates do not match BRCA1 region in either assembly:")
+        print(f"     BLAST result: {start:,} - {end:,}")
+        print(f"     GRCh38 BRCA1: {GRCH38_START:,} - {GRCH38_END:,} (diff: {grch38_start_diff:,} / {grch38_end_diff:,} bp)")
+        print(f"     T2T-CHM13 BRCA1: {T2T_START:,} - {T2T_END:,} (diff: {t2t_start_diff:,} / {t2t_end_diff:,} bp)")
+        print(f"     Tolerance: {COORD_TOLERANCE:,} bp")
+        success = False
     
     # Check identity
     if identity < 95.0:
