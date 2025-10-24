@@ -2,23 +2,23 @@
 """
 Integration test for BRCA1 extraction from pangenome GBZ.
 
-This test verifies the --assembly parameter works correctly by extracting BRCA1
-using GRCh38 coordinates and verifying the result matches T2T-CHM13 BRCA1.
+This test verifies the --assembly parameter works correctly with cross-validation:
 
-TEST: Extract with GRCh38, verify against CHM13
+TEST 1: Extract with CHM13, verify against GRCh38
+1. Extracts BRCA1 using --assembly chm13 with CHM13 coordinates (chr17:43,902,857-44,029,084)
+2. Verifies the code uses CHM13#0#chr17 reference path
+3. BLASTs the extracted sequence against GRCh38 chr17
+4. Verifies the top hit matches GRCh38 BRCA1 coordinates (chr17:43,044,295-43,170,327)
+5. Requires ≥98% query coverage and ≥98% identity
+
+TEST 2: Extract with GRCh38, verify against CHM13
 1. Extracts BRCA1 using --assembly grch38 with GRCh38 coordinates (chr17:43,044,295-43,170,327)
-2. Verifies the code uses GRCh38#0#chr17 reference path (correct anchor nodes)
+2. Verifies the code uses GRCh38#0#chr17 reference path
 3. BLASTs the extracted sequence against T2T-CHM13 chr17
-4. Verifies the top hit matches T2T-CHM13 BRCA1 coordinates (chr17:43,902,857-44,029,084)
-5. This proves we extracted the correct BRCA1 region (not chr17:69M or other wrong location)
-6. Requires >95% query coverage and >95% identity
+4. Verifies the top hit matches CHM13 BRCA1 coordinates (chr17:43,902,857-44,029,084)
+5. Requires ≥98% query coverage and ≥98% identity
 
-Note: HG00290's BRCA1 sequence is more similar to T2T-CHM13 than GRCh38 (99.95% identity),
-which is why we BLAST against CHM13 to verify correct extraction.
-
-Known limitation: CHM13 extraction currently has issues with anchor node disambiguation
-when nodes appear in multiple locations (segmental duplications). This will be addressed
-in a future update with coordinate-based validation.
+This cross-validation proves that both assembly parameters extract the correct BRCA1 region.
 
 Requirements:
 - graphome binary built (target/release/graphome)
@@ -53,6 +53,10 @@ T2T_END = 44029084
 
 # Tolerance for coordinate matching (BLAST alignment may not be exact at boundaries)
 COORD_TOLERANCE = 500  # 500bp tolerance for start/end coordinates
+
+# Minimum thresholds for test success
+MIN_COVERAGE = 98.0  # Minimum query coverage percentage
+MIN_IDENTITY = 98.0  # Minimum sequence identity percentage
 
 
 
@@ -266,7 +270,7 @@ def blast_sequence(fasta_path, target_assembly):
 
 def verify_blast_results(blast_result, expected_assembly):
     """Verify BLAST results match expected BRCA1 coordinates for the specified assembly."""
-    print(f"\n=== Verifying BLAST results for {expected_assembly.upper()} extraction ===")
+    print(f"\n=== Verifying BLAST results for {expected_assembly.upper()} reference ===")
     
     chromosome = blast_result['chromosome']
     start = blast_result['start']
@@ -276,13 +280,13 @@ def verify_blast_results(blast_result, expected_assembly):
     
     success = True
     
-    # Check query coverage (should be ~100% for full chromosome alignment)
-    if query_coverage < 95.0:
-        print(f"[FAIL] Low query coverage: {query_coverage:.2f}% (expected >95%)")
+    # Check query coverage (must be ≥98%)
+    if query_coverage < MIN_COVERAGE:
+        print(f"[FAIL] Low query coverage: {query_coverage:.2f}% (required ≥{MIN_COVERAGE}%)")
         print("       This suggests the sequence doesn't fully align to the reference")
         success = False
     else:
-        print(f"[OK] High query coverage: {query_coverage:.2f}%")
+        print(f"[OK] Query coverage: {query_coverage:.2f}% (≥{MIN_COVERAGE}%)")
     
     # Check chromosome
     if chromosome != "chr17":
@@ -317,12 +321,12 @@ def verify_blast_results(blast_result, expected_assembly):
         print(f"     Tolerance: {COORD_TOLERANCE:,} bp")
         success = False
     
-    # Check identity
-    if identity < 95.0:
-        print(f"[FAIL] Low sequence identity: {identity:.2f}% (expected >95%)")
+    # Check identity (must be ≥98%)
+    if identity < MIN_IDENTITY:
+        print(f"[FAIL] Low sequence identity: {identity:.2f}% (required ≥{MIN_IDENTITY}%)")
         success = False
     else:
-        print(f"[OK] High sequence identity: {identity:.2f}%")
+        print(f"[OK] Sequence identity: {identity:.2f}% (≥{MIN_IDENTITY}%)")
     
     return success
 
@@ -355,11 +359,34 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         print(f"\n[INFO] Working directory: {tmpdir}")
         
-        # Extract using GRCh38 coordinates, BLAST against T2T-CHM13
-        # This verifies that using --assembly grch38 with GRCh38 coords extracts the correct
-        # BRCA1 region (which happens to match T2T better for HG00290)
+        all_success = True
+        
+        # TEST 1: Extract with CHM13, BLAST against GRCh38
         print("\n" + "=" * 80)
-        print("TEST: Extract with GRCh38, verify against T2T-CHM13")
+        print("TEST 1: Extract with CHM13, verify against GRCh38")
+        print("=" * 80)
+        
+        chm13_fasta = extract_brca1(
+            graphome_bin, gbz_path, tmpdir,
+            assembly="chm13",
+            region_start=T2T_START,
+            region_end=T2T_END,
+            output_prefix="HG00290_BRCA1_CHM13"
+        )
+        
+        # BLAST against GRCh38
+        chm13_blast = blast_sequence(chm13_fasta, target_assembly="grch38")
+        chm13_success = verify_blast_results(chm13_blast, expected_assembly="grch38")
+        
+        if chm13_success:
+            print("\n✅ TEST 1 PASSED: CHM13 extraction matches GRCh38 BRCA1")
+        else:
+            print("\n❌ TEST 1 FAILED: CHM13 extraction did not match GRCh38 BRCA1")
+            all_success = False
+        
+        # TEST 2: Extract with GRCh38, BLAST against CHM13
+        print("\n" + "=" * 80)
+        print("TEST 2: Extract with GRCh38, verify against CHM13")
         print("=" * 80)
         
         grch38_fasta = extract_brca1(
@@ -370,18 +397,24 @@ def main():
             output_prefix="HG00290_BRCA1_GRCh38"
         )
         
-        # BLAST against T2T-CHM13 (HG00290's BRCA1 is more similar to T2T)
+        # BLAST against T2T-CHM13
         grch38_blast = blast_sequence(grch38_fasta, target_assembly="chm13")
-        success = verify_blast_results(grch38_blast, expected_assembly="chm13")
+        grch38_success = verify_blast_results(grch38_blast, expected_assembly="chm13")
+        
+        if grch38_success:
+            print("\n✅ TEST 2 PASSED: GRCh38 extraction matches CHM13 BRCA1")
+        else:
+            print("\n❌ TEST 2 FAILED: GRCh38 extraction did not match CHM13 BRCA1")
+            all_success = False
         
         # Final summary
         print("\n" + "=" * 80)
-        if success:
-            print("✅ TEST PASSED: BRCA1 extraction verified via BLAST")
+        if all_success:
+            print("✅ ALL TESTS PASSED: Both extractions verified via BLAST")
             print("=" * 80)
             sys.exit(0)
         else:
-            print("❌ TEST FAILED: BLAST verification failed")
+            print("❌ SOME TESTS FAILED: Check results above")
             print("=" * 80)
             sys.exit(1)
 
