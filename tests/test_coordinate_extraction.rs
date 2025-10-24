@@ -58,7 +58,8 @@ fn test_coordinate_extraction_correctness() {
         .args(&[
             "make-sequence",
             "--gfa", gbz_path.to_str().unwrap(),
-            "--region", "grch38#chr22:10000000-10100000",
+            "--assembly", "grch38",
+            "--region", "chr22:10000000-10100000",
             "--sample", test_sample,
             "--output", full_output.to_str().unwrap(),
         ])
@@ -170,7 +171,7 @@ fn test_coordinate_extraction_correctness() {
     // Add 1kb tolerance on each side for the query
     let query_start = genomic_start.saturating_sub(1000) + 1;  // 1-based, with 1kb buffer
     let query_end = genomic_end + 1000;  // 1kb buffer on end
-    let query_region = format!("grch38#chr22:{}-{}", query_start, query_end);
+    let query_region = format!("chr22:{}-{}", query_start, query_end);
     
     println!("Query region (with 1kb tolerance): {}", query_region);
     
@@ -183,6 +184,7 @@ fn test_coordinate_extraction_correctness() {
         .args(&[
             "make-sequence",
             "--gfa", gbz_path.to_str().unwrap(),
+            "--assembly", "grch38",
             "--region", &query_region,
             "--sample", test_sample,
             "--output", query_output.to_str().unwrap(),

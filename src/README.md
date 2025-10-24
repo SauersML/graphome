@@ -61,7 +61,7 @@ Usage examples:
 ### `make_sequence.rs`
 Write the FASTA-format DNA sequence corresponding to a coordinate range in a .gfa sample.
 ```
-./target/release/graphome make-sequence --gfa ../hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf --region "grch38#chr19:44905791-44909393" --sample HG00438 --output sequence
+./target/release/graphome make-sequence --gfa ../hprc-v1.0-pggb.gfa --paf ../hprc-v1.0-pggb.all.vs.grch38.untangle-m10000-s0-j0.paf --assembly grch38 --region "chr19:44905791-44909393" --sample HG00438 --output sequence
 ```
 
 

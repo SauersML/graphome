@@ -90,6 +90,8 @@ fn chr22_sparse_sampling_regression() -> Result<(), Box<dyn std::error::Error>> 
         .arg(&temp_gfa)
         .arg("--paf")
         .arg(&temp_paf)
+        .arg("--assembly")
+        .arg("grch38")
         .arg("--region")
         .arg(REGION)
         .arg("--sample")

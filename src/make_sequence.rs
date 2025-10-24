@@ -161,6 +161,7 @@ fn extract_node_sequences_from_gfa(
 pub fn extract_sequence(
     graph_path: &str,
     paf_path: &str,
+    assembly: &str,
     region: &str,
     sample_name: &str,
     output_path: &str,
@@ -201,7 +202,7 @@ pub fn extract_sequence(
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
         let nodes =
-            map::coord_to_nodes_with_path_filtered(&gbz, &chr, start, end, Some(sample_name));
+            map::coord_to_nodes_with_path_filtered(&gbz, assembly, &chr, start, end, Some(sample_name));
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());
@@ -375,11 +376,12 @@ pub fn extract_sequence(
 pub fn run_make_sequence(
     graph_path: &str,
     paf_path: &str,
+    assembly: &str,
     region: &str,
     sample_name: &str,
     output_path: &str,
 ) {
-    match extract_sequence(graph_path, paf_path, region, sample_name, output_path) {
+    match extract_sequence(graph_path, paf_path, assembly, region, sample_name, output_path) {
         Ok(_) => {
             eprintln!(
                 "[INFO] Successfully extracted sequence for region {}",

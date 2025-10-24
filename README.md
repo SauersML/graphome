@@ -142,11 +142,20 @@ graphome embed --input hprc-v1.0-pggb.gam --start-node 100 --end-node 600
 
 Extract FASTA sequences corresponding to a coordinate interval. The command queries the GBZ index (building one if needed) and stitches node sequences, falling back to the source GFA when GBZ data are incomplete.
 
+**Important:** You must specify the reference assembly that your coordinates are based on using the `--assembly` flag. This ensures the correct reference path is used to determine anchor nodes. Common values are `grch38` (or `hg38`) and `chm13` (or `t2t`).
+
 ```bash
 graphome make-sequence --gfa hprc-v1.0-pggb.gfa --paf hprc-v1.0-pggb.untangle.paf \
-  --region grch38#chr1:100000-120000 \
+  --assembly grch38 \
+  --region chr1:100000-120000 \
   --sample HG002 --output sequences/
-# Produces sequences/grch38_chr1_100000-120000_HG002.fa
+# Produces sequences/chr1_100000-120000_HG002.fa
+
+# For T2T-CHM13 coordinates:
+graphome make-sequence --gfa hprc-v1.0-pggb.gbz \
+  --assembly chm13 \
+  --region chr17:43902857-44029084 \
+  --sample HG00290 --output brca1_chm13.fa
 ```
 
 ### `gfa2gbz`

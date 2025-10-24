@@ -186,7 +186,10 @@ struct MakeSequenceArgs {
     /// The path to the PAF file (optional for GBZ files, required for GFA files)
     #[arg(long, value_name = "PAF")]
     paf: Option<PathBuf>,
-    /// The region in hg38, e.g. grch38#chr1:100000-200000
+    /// Reference assembly for coordinates (e.g., grch38, chm13)
+    #[arg(long, value_name = "ASSEMBLY")]
+    assembly: String,
+    /// The genomic region, e.g. chr1:100000-200000
     #[arg(long, value_name = "REGION")]
     region: String,
     /// Sample name to use in the output file
@@ -308,6 +311,7 @@ fn main() -> io::Result<()> {
             let MakeSequenceArgs {
                 gfa,
                 paf,
+                assembly,
                 region,
                 sample,
                 output,
@@ -315,7 +319,7 @@ fn main() -> io::Result<()> {
             let gfa_path = path_to_string(&gfa);
             let paf_path = paf.as_ref().map(|p| path_to_string(p)).unwrap_or_default();
             let output_path = path_to_string(&output);
-            make_sequence::run_make_sequence(&gfa_path, &paf_path, &region, &sample, &output_path);
+            make_sequence::run_make_sequence(&gfa_path, &paf_path, &assembly, &region, &sample, &output_path);
         }
         Command::Gfa2gbz(args) => {
             let Gfa2gbzArgs { input } = args;

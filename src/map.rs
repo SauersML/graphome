@@ -412,11 +412,13 @@ pub fn coord_to_nodes_with_path(
     start: usize,
     end: usize,
 ) -> Vec<Coord2NodeResult> {
-    coord_to_nodes_with_path_filtered(gbz, chr, start, end, None)
+    // Default to GRCh38 for backward compatibility
+    coord_to_nodes_with_path_filtered(gbz, "grch38", chr, start, end, None)
 }
 
 pub fn coord_to_nodes_with_path_filtered(
     gbz: &GBZ,
+    assembly: &str,
     chr: &str,
     start: usize,
     end: usize,
@@ -425,8 +427,8 @@ pub fn coord_to_nodes_with_path_filtered(
     let display_start = start.saturating_add(1);
     let display_end = end.saturating_add(1);
     eprintln!(
-        "[INFO] Searching for region {}:{}-{} (0-based offsets {}..{})",
-        chr, display_start, display_end, start, end
+        "[INFO] Searching for region {}:{}-{} (0-based offsets {}..{}) in assembly '{}'",
+        chr, display_start, display_end, start, end, assembly
     );
     if let Some(sample) = sample_filter {
         eprintln!("[INFO] Filtering for sample: {}", sample);
@@ -444,7 +446,7 @@ pub fn coord_to_nodes_with_path_filtered(
     let normalized_target_chr = normalize_contig(chr).to_string();
 
     if let Some((start_anchor, end_anchor)) =
-        compute_reference_anchors(gbz, metadata, chr, start, end)
+        compute_reference_anchors(gbz, metadata, assembly, chr, start, end)
     {
         eprintln!(
             "[INFO] Using reference anchors node {} -> node {} for {}:{}-{}",
@@ -1513,6 +1515,7 @@ fn build_region_slice(
 fn compute_reference_anchors(
     gbz: &GBZ,
     metadata: &gbwt::gbwt::Metadata,
+    assembly: &str,
     chr: &str,
     start: usize,
     end: usize,
@@ -1530,8 +1533,16 @@ fn compute_reference_anchors(
         return None;
     }
 
+    // Normalize assembly name for matching (case-insensitive)
+    let normalized_assembly = assembly.to_lowercase();
+    
     // Extract just the contig part from chr (e.g., "grch38#chr17" -> "chr17")
     let target_contig = normalize_contig(chr);
+
+    eprintln!(
+        "[INFO] Looking for reference path matching assembly '{}' and contig '{}'",
+        assembly, target_contig
+    );
 
     // Find reference path for this contig by scanning metadata
     for (path_id, path_name) in metadata.path_iter().enumerate() {
@@ -1544,6 +1555,28 @@ fn compute_reference_anchors(
         if contig_name != target_contig {
             continue;
         }
+
+        // Check if sample name matches the requested assembly
+        let sample_name = metadata.sample_name(path_name.sample());
+        let sample_normalized = sample_name.to_lowercase();
+        
+        // Match assembly: grch38, hg38, chm13, t2t, etc.
+        let assembly_matches = sample_normalized.contains(&normalized_assembly)
+            || (normalized_assembly == "hg38" && sample_normalized.contains("grch38"))
+            || (normalized_assembly == "grch38" && sample_normalized.contains("hg38"))
+            || (normalized_assembly == "t2t" && sample_normalized.contains("chm13"))
+            || (normalized_assembly == "chm13" && sample_normalized.contains("t2t"));
+        
+        if !assembly_matches {
+            continue;
+        }
+
+        // Found matching reference path
+        let haplotype = path_name.phase();
+        eprintln!(
+            "[INFO] Using reference path {}#{}#{} (path_id={}) for assembly '{}'",
+            sample_name, haplotype, contig_name, path_id, assembly
+        );
 
         // Walk this single reference path to find anchors
         let Some(path_iter) = gbz.path(path_id, Orientation::Forward) else {

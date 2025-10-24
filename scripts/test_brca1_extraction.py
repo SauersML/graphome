@@ -68,7 +68,8 @@ def extract_brca1(graphome_bin, gbz_path, output_dir):
         str(graphome_bin),
         "make-sequence",
         "--gfa", str(gbz_path),
-        "--region", f"grch38#chr17:{EXTRACTION_START}-{EXTRACTION_END}",
+        "--assembly", "grch38",
+        "--region", f"chr17:{EXTRACTION_START}-{EXTRACTION_END}",
         "--sample", "HG00290#1",
         "--output", "HG00290_BRCA1"
     ]
