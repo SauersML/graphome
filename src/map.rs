@@ -451,15 +451,23 @@ pub fn coord_to_nodes_with_path_filtered(
             start_anchor.node_id, end_anchor.node_id, chr, start, end
         );
 
-        // Find candidates by contig filtering (fast, no index needed)
-        // BUT: if we have a sample filter, we need to search ALL paths because
-        // different samples may use different contig naming schemes
+        // Find candidate paths that contain the start anchor. When a sample filter is
+        // provided we still restrict the contig to match the requested region to avoid
+        // accidentally extracting haplotypes from unrelated chromosomes that share the
+        // same anchor nodes.
         let candidate_paths = if let Some(filter) = sample_filter {
             eprintln!(
                 "[INFO] Sample filter active - searching paths matching '{}' for start anchor",
                 filter
             );
-            find_candidate_paths_filtered(gbz, metadata, start_anchor.node_id, filter)
+            find_candidate_paths_filtered(
+                gbz,
+                metadata,
+                start_anchor.node_id,
+                filter,
+                chr,
+                &normalized_target_chr,
+            )
         } else {
             find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
         };
@@ -1297,6 +1305,8 @@ fn find_candidate_paths_filtered(
     metadata: &gbwt::gbwt::Metadata,
     start_anchor_node: usize,
     sample_filter: &str,
+    requested_chr: &str,
+    normalized_target_chr: &str,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
 
@@ -1314,7 +1324,10 @@ fn find_candidate_paths_filtered(
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
-        if full_path_name.starts_with(sample_filter) {
+
+        if full_path_name.starts_with(sample_filter)
+            && contig_matches(&contig_name, requested_chr, normalized_target_chr)
+        {
             // Scan this path for the anchor node in a single pass
             let mut has_anchor = false;
             let mut node_count = 0;
