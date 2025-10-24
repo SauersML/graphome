@@ -465,8 +465,6 @@ pub fn coord_to_nodes_with_path_filtered(
                 metadata,
                 start_anchor.node_id,
                 filter,
-                chr,
-                &normalized_target_chr,
             )
         } else {
             find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
@@ -1305,8 +1303,6 @@ fn find_candidate_paths_filtered(
     metadata: &gbwt::gbwt::Metadata,
     start_anchor_node: usize,
     sample_filter: &str,
-    _requested_chr: &str,
-    _normalized_target_chr: &str,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
 
