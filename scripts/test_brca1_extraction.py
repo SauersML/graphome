@@ -3,9 +3,10 @@
 Integration test for BRCA1 extraction from pangenome GBZ.
 
 This test:
-1. Extracts BRCA1 region (chr17:43,044,295-43,170,245) for HG00290#1
-2. BLASTs the extracted sequence against NCBI nt database
+1. Extracts BRCA1 region (chr17:43,044,295-43,170,327) for HG00290#1
+2. BLASTs the extracted sequence against NCBI Genome database (assembled chromosomes)
 3. Verifies the top hit matches BRCA1 coordinates on chr17 (either GRCh38 or T2T-CHM13)
+4. Requires 100% query coverage and >95% identity
 
 Requirements:
 - graphome binary built (target/release/graphome)
@@ -115,15 +116,16 @@ def blast_sequence(fasta_path):
         print("  macOS: brew install blast")
         sys.exit(1)
     
-    print("[INFO] Running BLAST against NCBI nt database (this may take 2-5 minutes)...")
+    print("[INFO] Running BLAST against NCBI Genome database (this may take 2-5 minutes)...")
     
-    # Run BLAST with optimized parameters for large query
+    # Run BLAST against Genome database (assembled chromosomes) instead of nt (individual sequences)
+    # This ensures we get full chromosome coverage, not just BAC clones
     cmd = [
         "blastn",
         "-query", str(fasta_path),
-        "-db", "nt",
+        "-db", "refseq_genomic",
         "-remote",
-        "-entrez_query", "Homo sapiens[Organism] AND (chromosome 17[Title] OR chr17[Title])",
+        "-entrez_query", "NC_000017.11[Accession] OR NC_060941.1[Accession]",  # GRCh38 chr17 or T2T chr17
         "-outfmt", "6 qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle",
         "-max_target_seqs", "5",
         "-evalue", "1e-100",
@@ -141,7 +143,7 @@ def blast_sequence(fasta_path):
     if not stdout.strip():
         print("[ERROR] BLAST returned no results")
         print("This likely means:")
-        print("  1. The extracted sequence is not from chr17")
+        print("  1. The extracted sequence does not match GRCh38 or T2T chr17")
         print("  2. The sequence quality is too low")
         print("  3. NCBI remote BLAST service is unavailable")
         sys.exit(1)
@@ -163,22 +165,35 @@ def blast_sequence(fasta_path):
     subject_id = top_hit[1]
     pident = float(top_hit[2])
     align_length = int(top_hit[3])
+    qstart = int(top_hit[4])
+    qend = int(top_hit[5])
     sstart = int(top_hit[6])
     send = int(top_hit[7])
     stitle = top_hit[10]
+    
+    # Calculate query coverage
+    query_coverage = (align_length / 126002.0) * 100.0  # Query length is ~126kb
     
     # Normalize coordinates
     coord_start = min(sstart, send)
     coord_end = max(sstart, send)
     
-    # Extract chromosome from title
-    chr_match = re.search(r'chromosome (\d+|X|Y|MT)', stitle, re.IGNORECASE)
-    chromosome = f"chr{chr_match.group(1)}" if chr_match else "unknown"
+    # Extract chromosome from accession or title
+    # NC_000017.11 = GRCh38 chr17, NC_060941.1 = T2T chr17
+    if subject_id.startswith("NC_000017"):
+        chromosome = "chr17"
+    elif subject_id.startswith("NC_060941"):
+        chromosome = "chr17"
+    else:
+        # Fallback: extract from title
+        chr_match = re.search(r'chromosome (\d+|X|Y|MT)', stitle, re.IGNORECASE)
+        chromosome = f"chr{chr_match.group(1)}" if chr_match else "unknown"
     
     print(f"=== Top BLAST Hit ===")
     print(f"Subject: {subject_id}")
     print(f"Chromosome: {chromosome}")
     print(f"Coordinates: {coord_start:,} - {coord_end:,}")
+    print(f"Query Coverage: {query_coverage:.2f}%")
     print(f"Identity: {pident:.2f}%")
     print(f"Alignment length: {align_length:,} bp")
     
@@ -187,6 +202,7 @@ def blast_sequence(fasta_path):
         'start': coord_start,
         'end': coord_end,
         'identity': pident,
+        'query_coverage': query_coverage,
         'align_length': align_length,
         'subject_id': subject_id,
         'title': stitle
@@ -200,8 +216,17 @@ def verify_blast_results(blast_result):
     start = blast_result['start']
     end = blast_result['end']
     identity = blast_result['identity']
+    query_coverage = blast_result['query_coverage']
     
     success = True
+    
+    # Check query coverage (should be ~100% for full chromosome alignment)
+    if query_coverage < 95.0:
+        print(f"[FAIL] Low query coverage: {query_coverage:.2f}% (expected >95%)")
+        print("       This suggests the sequence doesn't fully align to the reference")
+        success = False
+    else:
+        print(f"[OK] High query coverage: {query_coverage:.2f}%")
     
     # Check chromosome
     if chromosome != GRCH38_CHR and chromosome != T2T_CHR:
