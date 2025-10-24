@@ -5,6 +5,7 @@ use std::io::{self, BufWriter, Write};
 use std::num::NonZeroUsize;
 use std::path::Path;
 
+use crate::coords;
 use crate::io::GfaReader;
 use crate::map::{self, Coord2NodeResult};
 use gbwt::GBZ;
@@ -165,9 +166,12 @@ pub fn extract_sequence(
     output_path: &str,
 ) -> Result<(), std::io::Error> {
     let input_is_gbz = GBZ::is_gbz(graph_path);
-    
+
     if input_is_gbz {
-        eprintln!("[INFO] Building data structures from GBZ file: '{}'", graph_path);
+        eprintln!(
+            "[INFO] Building data structures from GBZ file: '{}'",
+            graph_path
+        );
     } else {
         eprintln!(
             "[INFO] Building data structures from GFA='{}' PAF='{}'",
@@ -177,6 +181,12 @@ pub fn extract_sequence(
 
     // Parse the region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = map::parse_region(region) {
+        let (user_start, user_end) = coords::user_region_bounds(region).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("Could not parse region format: {}", region),
+            )
+        })?;
         // start and end are already 0-based half-open from parse_region
         // Convert coordinates to nodes
         let gbz_path = if input_is_gbz {
@@ -295,13 +305,17 @@ pub fn extract_sequence(
             // Write FASTA output (streaming)
             let output_file = format!(
                 "{}_{}_{}_{}-{}.fa",
-                output_path, sample_name, safe_path_name, start, end
+                output_path, sample_name, safe_path_name, user_start, user_end
             );
             let file = File::create(&output_file)?;
             let mut writer = BufWriter::new(file);
 
             // Write FASTA header
-            writeln!(writer, ">{}_{}: {}-{}", sample_name, chr, start, end)?;
+            writeln!(
+                writer,
+                ">{}_{}:{}-{}",
+                sample_name, chr, user_start, user_end
+            )?;
 
             let mut current_line_len = 0usize;
             let mut total_bases = 0usize;
