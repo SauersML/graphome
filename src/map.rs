@@ -1632,7 +1632,6 @@ fn compute_reference_anchors(
             path_id,
             sample_name: sample_name.to_string(),
             contig_name: contig_name.to_string(),
-            base_contig: base_contig.to_string(),
             fragment_start,
             fragment_length,
         });
@@ -1801,7 +1800,6 @@ struct FragmentInfo {
     path_id: usize,
     sample_name: String,
     contig_name: String,
-    base_contig: String,
     fragment_start: usize,
     fragment_length: usize,
 }
