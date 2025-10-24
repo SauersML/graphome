@@ -34,14 +34,14 @@ struct FixStats {
 }
 
 // Region slice: nodes and edges reachable between start and end anchors within bp cap
-use std::collections::{HashSet, HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone)]
 struct RegionSlice {
-    nodes: HashSet<usize>,                    // Node IDs in the slice
-    node_lengths: HashMap<usize, usize>,      // Node ID -> length in bp
+    nodes: HashSet<usize>,                            // Node IDs in the slice
+    node_lengths: HashMap<usize, usize>,              // Node ID -> length in bp
     edges: HashMap<usize, Vec<(usize, Orientation)>>, // Node ID -> successors
-    total_bp: usize,                          // Total bp in slice
+    total_bp: usize,                                  // Total bp in slice
 }
 
 // We'll keep these big data structures in memory for queries.
@@ -451,16 +451,27 @@ pub fn coord_to_nodes_with_path_filtered(
             start_anchor.node_id, end_anchor.node_id, chr, start, end
         );
 
-        // Find candidates by contig filtering (fast, no index needed)
-        // BUT: if we have a sample filter, we need to search ALL paths because
-        // different samples may use different contig naming schemes
+        // Find candidate paths that contain the start anchor. When a sample filter is
+        // provided we still restrict the contig to match the requested region to avoid
+        // accidentally extracting haplotypes from unrelated chromosomes that share the
+        // same anchor nodes.
         let candidate_paths = if let Some(filter) = sample_filter {
-            eprintln!("[INFO] Sample filter active - searching paths matching '{}' for start anchor", filter);
-            find_candidate_paths_filtered(gbz, metadata, start_anchor.node_id, filter)
+            eprintln!(
+                "[INFO] Sample filter active - searching paths matching '{}' for start anchor",
+                filter
+            );
+            find_candidate_paths_filtered(
+                gbz,
+                metadata,
+                start_anchor.node_id,
+                filter,
+                chr,
+                &normalized_target_chr,
+            )
         } else {
             find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
         };
-        
+
         if candidate_paths.is_empty() {
             eprintln!("[WARNING] no candidate paths contain the start anchor");
             return results;
@@ -469,12 +480,12 @@ pub fn coord_to_nodes_with_path_filtered(
         // Build bounded slice once
         let bp_cap = (end - start) + 50_000;
         let region_slice = build_region_slice(gbz, &start_anchor, &end_anchor, bp_cap);
-        
+
         if region_slice.nodes.is_empty() {
             eprintln!("[WARNING] Region slice is empty");
             return results;
         }
-        
+
         eprintln!(
             "[INFO] Built region slice: {} nodes, {} bp total",
             region_slice.nodes.len(),
@@ -497,7 +508,10 @@ pub fn coord_to_nodes_with_path_filtered(
             // Apply sample filter if provided
             if let Some(filter) = sample_filter {
                 if !full_path_name.starts_with(filter) {
-                    eprintln!("[DEBUG] Skipping path {} (doesn't match filter {})", full_path_name, filter);
+                    eprintln!(
+                        "[DEBUG] Skipping path {} (doesn't match filter {})",
+                        full_path_name, filter
+                    );
                     continue;
                 }
             }
@@ -510,7 +524,7 @@ pub fn coord_to_nodes_with_path_filtered(
                 let mut path_results = Vec::new();
                 let same_anchor_node = start_anchor.node_id == end_anchor.node_id;
                 let mut total_bp = 0usize;
-                
+
                 const MAX_NODES_PER_PATH: usize = 100000;
                 const MAX_BP_PER_PATH: usize = 10_000_000;
 
@@ -522,7 +536,7 @@ pub fn coord_to_nodes_with_path_filtered(
                         );
                         break;
                     }
-                    
+
                     if total_bp >= MAX_BP_PER_PATH {
                         eprintln!(
                             "[WARNING] Path {} exceeded max bp cap ({}), stopping",
@@ -541,7 +555,7 @@ pub fn coord_to_nodes_with_path_filtered(
                         Some(len) if len > 0 => len,
                         _ => continue,
                     };
-                    
+
                     total_bp += node_len;
 
                     if !collecting {
@@ -604,7 +618,7 @@ pub fn coord_to_nodes_with_path_filtered(
                 }
 
                 let is_complete = !collecting;
-                
+
                 if collecting {
                     eprintln!(
                         "[WARNING] INCOMPLETE: End anchor node {} not found on path {}; extracted {} nodes (region may span multiple contigs)",
@@ -620,7 +634,7 @@ pub fn coord_to_nodes_with_path_filtered(
                 if node_count > 0 {
                     results.extend(path_results);
                     paths_with_results += 1;
-                    
+
                     // If we found a complete extraction, stop searching other paths
                     if is_complete {
                         eprintln!(
@@ -641,7 +655,9 @@ pub fn coord_to_nodes_with_path_filtered(
 
         eprintln!(
             "[INFO] Summary: {} paths yielded sequences, {} paths skipped, {} total results",
-            paths_with_results, paths_skipped, results.len()
+            paths_with_results,
+            paths_skipped,
+            results.len()
         );
 
         results
@@ -1242,25 +1258,32 @@ fn find_candidate_paths_filtered(
     metadata: &gbwt::gbwt::Metadata,
     start_anchor_node: usize,
     sample_filter: &str,
+    requested_chr: &str,
+    normalized_target_chr: &str,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
-    
+
     // First, collect path IDs that match the sample filter and scan for anchor in one pass
     let mut path_results: Vec<(usize, bool, usize)> = Vec::new(); // (path_id, has_anchor, node_count)
-    
-    eprintln!("[INFO] Filtering and scanning paths for sample '{}'...", sample_filter);
-    
+
+    eprintln!(
+        "[INFO] Filtering and scanning paths for sample '{}'...",
+        sample_filter
+    );
+
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         let sample_name = metadata.sample_name(path_name.sample());
         let haplotype = path_name.phase();
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
-        
-        if full_path_name.starts_with(sample_filter) {
+
+        if full_path_name.starts_with(sample_filter)
+            && contig_matches(&contig_name, requested_chr, normalized_target_chr)
+        {
             // Scan this path for the anchor node in a single pass
             let mut has_anchor = false;
             let mut node_count = 0;
-            
+
             if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
                 for (node_id, _) in path_iter {
                     node_count += 1;
@@ -1270,20 +1293,26 @@ fn find_candidate_paths_filtered(
                     }
                 }
             }
-            
+
             path_results.push((path_id, has_anchor, node_count));
-            
+
             if has_anchor {
                 candidates.insert(path_id);
-                eprintln!("[INFO] Found anchor in path {} ({}, {} nodes)", 
-                    path_id, full_path_name, node_count);
+                eprintln!(
+                    "[INFO] Found anchor in path {} ({}, {} nodes)",
+                    path_id, full_path_name, node_count
+                );
             }
         }
     }
-    
-    eprintln!("[INFO] Scanned {} paths matching filter '{}', found {} with start anchor", 
-        path_results.len(), sample_filter, candidates.len());
-    
+
+    eprintln!(
+        "[INFO] Scanned {} paths matching filter '{}', found {} with start anchor",
+        path_results.len(),
+        sample_filter,
+        candidates.len()
+    );
+
     candidates
 }
 
@@ -1294,10 +1323,10 @@ fn find_candidate_paths_by_contig(
     start_anchor_node: usize,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
-    
+
     // Normalize the target contig name (e.g., "grch38#chr17" -> "chr17")
     let target_contig = normalize_contig(chr);
-    
+
     // First, collect all path IDs for this contig
     let mut contig_paths = Vec::new();
     for (path_id, path_name) in metadata.path_iter().enumerate() {
@@ -1306,38 +1335,58 @@ fn find_candidate_paths_by_contig(
             contig_paths.push(path_id);
         }
     }
-    
-    eprintln!("[INFO] Found {} paths on contig {}", contig_paths.len(), target_contig);
-    
+
+    eprintln!(
+        "[INFO] Found {} paths on contig {}",
+        contig_paths.len(),
+        target_contig
+    );
+
     if contig_paths.is_empty() {
         eprintln!("[WARNING] No paths found for contig {}", target_contig);
         return candidates;
     }
-    
+
     // Expected hits from search state
-    let expected_hits =
-        gbz.search_state(start_anchor_node, Orientation::Forward).map(|s| s.len()).unwrap_or(0) +
-        gbz.search_state(start_anchor_node, Orientation::Reverse).map(|s| s.len()).unwrap_or(0);
-    
-    eprintln!("[INFO] Scanning {} contig-filtered paths for start anchor {} (expect ~{} hits)", 
-        contig_paths.len(), start_anchor_node, expected_hits);
-    
+    let expected_hits = gbz
+        .search_state(start_anchor_node, Orientation::Forward)
+        .map(|s| s.len())
+        .unwrap_or(0)
+        + gbz
+            .search_state(start_anchor_node, Orientation::Reverse)
+            .map(|s| s.len())
+            .unwrap_or(0);
+
+    eprintln!(
+        "[INFO] Scanning {} contig-filtered paths for start anchor {} (expect ~{} hits)",
+        contig_paths.len(),
+        start_anchor_node,
+        expected_hits
+    );
+
     let progress = (contig_paths.len().max(20) / 20).max(1);
-    
+
     'paths: for (idx, &path_id) in contig_paths.iter().enumerate() {
         if idx % progress == 0 {
-            eprintln!("[INFO] anchor-scan: {}/{} contig paths, {} candidates", 
-                idx, contig_paths.len(), candidates.len());
+            eprintln!(
+                "[INFO] anchor-scan: {}/{} contig paths, {} candidates",
+                idx,
+                contig_paths.len(),
+                candidates.len()
+            );
         }
-        
+
         if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
             for (node_id, _) in path_iter {
                 if node_id == start_anchor_node {
                     candidates.insert(path_id);
-                    
+
                     // Early exit if we've found all expected hits
                     if candidates.len() >= expected_hits {
-                        eprintln!("[INFO] Reached expected hits ({}), stopping scan", expected_hits);
+                        eprintln!(
+                            "[INFO] Reached expected hits ({}), stopping scan",
+                            expected_hits
+                        );
                         break 'paths;
                     }
                     break; // Move to next path
@@ -1345,8 +1394,11 @@ fn find_candidate_paths_by_contig(
             }
         }
     }
-    
-    eprintln!("[INFO] Found {} candidate paths containing start anchor", candidates.len());
+
+    eprintln!(
+        "[INFO] Found {} candidate paths containing start anchor",
+        candidates.len()
+    );
     candidates
 }
 
@@ -1362,44 +1414,44 @@ fn build_region_slice(
         edges: HashMap::new(),
         total_bp: 0,
     };
-    
+
     let mut queue = VecDeque::new();
     let mut dist: HashMap<(usize, Orientation), usize> = HashMap::new();
-    
+
     // Seed both orientations
     queue.push_back((start_anchor.node_id, Orientation::Forward, 0usize));
     dist.insert((start_anchor.node_id, Orientation::Forward), 0);
     queue.push_back((start_anchor.node_id, Orientation::Reverse, 0usize));
     dist.insert((start_anchor.node_id, Orientation::Reverse), 0);
-    
+
     while let Some((node_id, orient, d)) = queue.pop_front() {
         if d > bp_cap {
             continue;
         }
-        
+
         let node_len = match gbz.sequence_len(node_id) {
             Some(len) if len > 0 => len,
             _ => continue,
         };
-        
+
         // Only account bp once per node
         if slice.nodes.insert(node_id) {
             slice.node_lengths.insert(node_id, node_len);
             slice.total_bp += node_len;
         }
-        
+
         // Still add edges (for debug/traversal guards)
         if let Some(successors) = gbz.successors(node_id, orient) {
             let succs: Vec<_> = successors.collect();
             if !succs.is_empty() {
                 slice.edges.insert(node_id, succs.clone());
             }
-            
+
             // Stop expanding beyond the end anchor node (but still record that node)
             if node_id == end_anchor.node_id {
                 continue;
             }
-            
+
             let base = d + node_len;
             for (sid, sori) in succs {
                 let key = (sid, sori);
@@ -1410,7 +1462,7 @@ fn build_region_slice(
             }
         }
     }
-    
+
     slice
 }
 
@@ -1428,56 +1480,56 @@ fn compute_reference_anchors(
     } else {
         ref_samples
     };
-    
+
     if ref_samples.is_empty() {
         eprintln!("[WARNING] No reference samples found");
         return None;
     }
-    
+
     // Extract just the contig part from chr (e.g., "grch38#chr17" -> "chr17")
     let target_contig = normalize_contig(chr);
-    
+
     // Find reference path for this contig by scanning metadata
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         // Check if this is a reference path for the requested contig
         if !ref_samples.contains(&path_name.sample()) {
             continue;
         }
-        
+
         let contig_name = metadata.contig_name(path_name.contig());
         if contig_name != target_contig {
             continue;
         }
-        
+
         // Walk this single reference path to find anchors
         let Some(path_iter) = gbz.path(path_id, Orientation::Forward) else {
             continue;
         };
-        
+
         let mut first_anchor: Option<Anchor> = None;
         let mut last_anchor: Option<Anchor> = None;
         let mut position = 0usize;
-        
+
         for (node_id, orientation) in path_iter {
             let node_len = match gbz.sequence_len(node_id) {
                 Some(len) if len > 0 => len,
                 _ => continue,
             };
-            
+
             let node_start = position;
             let node_end = node_start + node_len;
             position = node_end;
-            
+
             // Skip nodes before the region
             if node_end <= start {
                 continue;
             }
-            
+
             // Stop after the region
             if node_start >= end {
                 break;
             }
-            
+
             // This node overlaps the region
             let overlap_start = start.max(node_start);
             let overlap_end = end.min(node_end);
@@ -1495,18 +1547,18 @@ fn compute_reference_anchors(
                 oriented_start,
                 oriented_end,
             );
-            
+
             if first_anchor.is_none() {
                 first_anchor = Some(anchor.clone());
             }
             last_anchor = Some(anchor);
         }
-        
+
         if let (Some(first), Some(last)) = (first_anchor, last_anchor) {
             return Some((first, last));
         }
     }
-    
+
     None
 }
 
