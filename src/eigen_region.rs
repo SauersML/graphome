@@ -201,7 +201,8 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
 
     // Print results
     println!("\n=== EIGENANALYSIS RESULTS ===");
-    println!("Region: {}:{}-{}", chr, start, end);
+    // Convert back to 1-based coordinates for display (parse_region returns 0-based)
+    println!("Region: {}:{}-{}", chr, start + 1, end);
     println!("Nodes: {}", sorted_nodes.len());
     println!("Edges: {}", edges.len());
     println!("Eigenvalues: {}", eigenvalues.len());
