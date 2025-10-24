@@ -462,12 +462,7 @@ pub fn coord_to_nodes_with_path_filtered(
                 "[INFO] Sample filter active - searching paths matching '{}' for start anchor",
                 filter
             );
-            find_candidate_paths_filtered(
-                gbz,
-                metadata,
-                start_anchor.node_id,
-                filter,
-            )
+            find_candidate_paths_filtered(gbz, metadata, start_anchor.node_id, filter)
         } else {
             find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
         };
@@ -540,9 +535,9 @@ pub fn coord_to_nodes_with_path_filtered(
                             continue;
                         }
                     };
-                    
+
                     path_position += node_len; // Track cumulative position
-                    
+
                     if node_count >= MAX_NODES_PER_PATH {
                         eprintln!(
                             "[WARNING] Path {} exceeded max nodes cap ({}), stopping",
@@ -577,7 +572,7 @@ pub fn coord_to_nodes_with_path_filtered(
                         collecting = !same_anchor_node;
                         match_start_pos = path_position - node_len; // Record where this match starts
                         match_node_count = 0;
-                        
+
                         let (start_off_start, _) =
                             start_anchor.to_path_offsets(node_len, orientation);
                         let mut path_off_end = node_len;
@@ -622,10 +617,10 @@ pub fn coord_to_nodes_with_path_filtered(
                         });
                         node_count += 1;
                         match_node_count += 1;
-                        
+
                         // Record this complete match
                         matches.push((match_start_pos, path_position, match_node_count));
-                        
+
                         collecting = false; // Reset to look for more matches
                         continue; // Don't break - keep looking for more occurrences
                     }
@@ -647,12 +642,16 @@ pub fn coord_to_nodes_with_path_filtered(
                 if matches.len() > 1 {
                     eprintln!(
                         "[WARNING] Found {} occurrences of anchor pair in path {}:",
-                        matches.len(), full_path_name
+                        matches.len(),
+                        full_path_name
                     );
                     for (i, (start_pos, end_pos, nodes)) in matches.iter().enumerate() {
                         eprintln!(
                             "[WARNING]   Match {}: position {}-{} ({} nodes)",
-                            i + 1, start_pos, end_pos, nodes
+                            i + 1,
+                            start_pos,
+                            end_pos,
+                            nodes
                         );
                     }
                     eprintln!(
@@ -1577,7 +1576,7 @@ fn compute_reference_anchors(
 
     // Normalize assembly name for matching (case-insensitive)
     let normalized_assembly = assembly.to_lowercase();
-    
+
     // Extract just the contig part from chr (e.g., "grch38#chr17" -> "chr17")
     let target_contig = normalize_contig(chr);
 
@@ -1586,9 +1585,19 @@ fn compute_reference_anchors(
         assembly, target_contig
     );
 
+    // Prefer the reference position index for determining fragment spans.
+    let mut reference_index_entries = gbz.reference_positions(1024, true);
+    if reference_index_entries.is_empty() {
+        reference_index_entries = gbz.reference_positions(1024, false);
+    }
+    let reference_index: HashMap<usize, gbwt::gbz::ReferencePath> = reference_index_entries
+        .into_iter()
+        .map(|entry| (entry.id, entry))
+        .collect();
+
     // Build fragment table for all matching reference paths
     let mut fragments = Vec::new();
-    
+
     for (path_id, path_name) in metadata.path_iter().enumerate() {
         // Check if this is a reference path
         if !ref_samples.contains(&path_name.sample()) {
@@ -1604,7 +1613,7 @@ fn compute_reference_anchors(
             base_contig_name.to_string()
         };
         let base_contig = strip_fragment_suffix(&contig_name);
-        
+
         // Check if base contig matches (ignoring fragment suffix)
         if base_contig != target_contig {
             continue;
@@ -1613,14 +1622,14 @@ fn compute_reference_anchors(
         // Check if sample name matches the requested assembly
         let sample_name = metadata.sample_name(path_name.sample());
         let sample_normalized = sample_name.to_lowercase();
-        
+
         // Match assembly: grch38, hg38, chm13, t2t, etc.
         let assembly_matches = sample_normalized.contains(&normalized_assembly)
             || (normalized_assembly == "hg38" && sample_normalized.contains("grch38"))
             || (normalized_assembly == "grch38" && sample_normalized.contains("hg38"))
             || (normalized_assembly == "t2t" && sample_normalized.contains("chm13"))
             || (normalized_assembly == "chm13" && sample_normalized.contains("t2t"));
-        
+
         if !assembly_matches {
             continue;
         }
@@ -1631,10 +1640,17 @@ fn compute_reference_anchors(
             continue;
         }
 
-        // Parse fragment offset and calculate length
-        let fragment_start = parse_fragment_offset(&contig_name);
-        let fragment_length = calculate_path_length(gbz, path_id);
-        
+        // Determine fragment start from structured metadata and get its length.
+        let fragment_start = path_name.fragment();
+        let fragment_length = reference_index
+            .get(&path_id)
+            .map(|entry| entry.len)
+            .unwrap_or_else(|| calculate_path_length(gbz, path_id));
+
+        if fragment_length == 0 {
+            continue;
+        }
+
         fragments.push(FragmentInfo {
             path_id,
             sample_name: sample_name.to_string(),
@@ -1650,7 +1666,8 @@ fn compute_reference_anchors(
     }
 
     // Filter to fragments that intersect the requested region [start, end)
-    let mut intersecting: Vec<_> = fragments.iter()
+    let mut intersecting: Vec<_> = fragments
+        .iter()
         .filter(|frag| {
             let frag_end = frag.fragment_start + frag.fragment_length;
             // Check if [frag_start, frag_end) intersects [start, end)
@@ -1659,7 +1676,10 @@ fn compute_reference_anchors(
         .collect();
 
     if intersecting.is_empty() {
-        eprintln!("[WARNING] No fragments intersect requested region {}:{}-{}", chr, start, end);
+        eprintln!(
+            "[WARNING] No fragments intersect requested region {}:{}-{}",
+            chr, start, end
+        );
         eprintln!("[WARNING] Available fragments:");
         for frag in &fragments {
             let frag_end = frag.fragment_start + frag.fragment_length;
@@ -1676,11 +1696,15 @@ fn compute_reference_anchors(
 
     // Use the longest intersecting fragment
     let fragment = intersecting[0];
-    
+
     eprintln!(
         "[INFO] Using reference path {}#0#{} (path_id={}) spanning {}-{} for assembly '{}'",
-        fragment.sample_name, fragment.contig_name, fragment.path_id,
-        fragment.fragment_start, fragment.fragment_start + fragment.fragment_length, assembly
+        fragment.sample_name,
+        fragment.contig_name,
+        fragment.path_id,
+        fragment.fragment_start,
+        fragment.fragment_start + fragment.fragment_length,
+        assembly
     );
 
     // Convert global coordinates to local coordinates within this fragment
@@ -1689,7 +1713,7 @@ fn compute_reference_anchors(
     } else {
         0
     };
-    
+
     let local_end = if end <= fragment.fragment_start + fragment.fragment_length {
         end - fragment.fragment_start
     } else {
@@ -1740,13 +1764,8 @@ fn compute_reference_anchors(
 
         let oriented_start = overlap_start - node_start;
         let oriented_end = overlap_end - node_start;
-        let anchor = Anchor::from_reference(
-            node_id,
-            node_len,
-            orientation,
-            oriented_start,
-            oriented_end,
-        );
+        let anchor =
+            Anchor::from_reference(node_id, node_len, orientation, oriented_start, oriented_end);
 
         if first_anchor.is_none() {
             first_anchor = Some(anchor.clone());
@@ -1766,20 +1785,7 @@ fn normalize_contig(name: &str) -> &str {
     after_hash.split('@').next().unwrap_or(after_hash)
 }
 
-/// Parse fragment offset from contig name like "chr17[12285]" -> 12285
-/// Returns 0 if no bracket offset found (complete path)
-fn parse_fragment_offset(contig_name: &str) -> usize {
-    if let Some(start) = contig_name.find('[') {
-        if let Some(end) = contig_name.find(']') {
-            if let Ok(offset) = contig_name[start + 1..end].parse::<usize>() {
-                return offset;
-            }
-        }
-    }
-    0
-}
-
-/// Strip bracket suffix from contig name: "chr17[12285]" -> "chr17"
+/// Strip optional fragment suffix from contig name: "chr17[12285]" -> "chr17"
 fn strip_fragment_suffix(contig_name: &str) -> &str {
     if let Some(bracket_pos) = contig_name.find('[') {
         &contig_name[..bracket_pos]
