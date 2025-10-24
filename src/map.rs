@@ -1305,8 +1305,8 @@ fn find_candidate_paths_filtered(
     metadata: &gbwt::gbwt::Metadata,
     start_anchor_node: usize,
     sample_filter: &str,
-    requested_chr: &str,
-    normalized_target_chr: &str,
+    _requested_chr: &str,
+    _normalized_target_chr: &str,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
 
@@ -1324,10 +1324,10 @@ fn find_candidate_paths_filtered(
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
-
-        if full_path_name.starts_with(sample_filter)
-            && contig_matches(&contig_name, requested_chr, normalized_target_chr)
-        {
+        // Only filter by sample - the anchor nodes themselves determine the correct chromosome
+        // Different samples may use different contig naming (e.g., chr17 vs CM089988.1)
+        // but they share the same nodes in the pangenome graph
+        if full_path_name.starts_with(sample_filter) {
             // Scan this path for the anchor node in a single pass
             let mut has_anchor = false;
             let mut node_count = 0;
