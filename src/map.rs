@@ -667,61 +667,108 @@ pub fn coord_to_nodes_with_path_filtered(
             chr, start, end
         );
 
-        for (path_id, path_name) in metadata.path_iter().enumerate() {
-            let sample_name = metadata.sample_name(path_name.sample());
-            let haplotype = path_name.phase();
-            let contig_name = metadata.contig_name(path_name.contig());
-            let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+        let matched_filter = scan_paths_for_region(
+            gbz,
+            metadata,
+            chr,
+            &normalized_target_chr,
+            start,
+            end,
+            sample_filter,
+            &mut results,
+        );
 
-            if !contig_matches(&contig_name, chr, &normalized_target_chr) {
-                continue;
-            }
-
-            // Apply sample filter if provided
-            if let Some(filter) = sample_filter {
-                if !full_path_name.starts_with(filter) {
-                    continue;
+        if results.is_empty() {
+            if let Some(filter_value) = sample_filter {
+                if !matched_filter {
+                    eprintln!(
+                        "[WARNING] Sample filter '{}' did not match any paths; retrying without filter",
+                        filter_value
+                    );
+                    scan_paths_for_region(
+                        gbz,
+                        metadata,
+                        chr,
+                        &normalized_target_chr,
+                        start,
+                        end,
+                        None,
+                        &mut results,
+                    );
                 }
-            }
-
-            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-                let mut node_count = 0usize;
-                let mut position = 0usize;
-
-                for (node_id, orientation) in path_iter {
-                    if let Some(node_len) = gbz.sequence_len(node_id) {
-                        let node_start = position;
-                        let node_end = node_start + node_len;
-
-                        if node_start < end && node_end > start {
-                            let overlap_start = start.max(node_start);
-                            let overlap_end = end.min(node_end);
-
-                            if overlap_start < overlap_end {
-                                results.push(Coord2NodeResult {
-                                    path_name: full_path_name.clone(),
-                                    node_id: node_id.to_string(),
-                                    node_orient: orientation == Orientation::Forward,
-                                    path_off_start: overlap_start - node_start,
-                                    path_off_end: overlap_end - node_start,
-                                });
-                                node_count += 1;
-                            }
-                        }
-
-                        position += node_len;
-                    }
-                }
-
-                eprintln!(
-                    "[INFO] Fallback scan found {} nodes in path {}",
-                    node_count, full_path_name
-                );
             }
         }
 
         results
     }
+}
+
+fn scan_paths_for_region(
+    gbz: &GBZ,
+    metadata: &gbwt::gbwt::Metadata,
+    chr: &str,
+    normalized_target_chr: &str,
+    start: usize,
+    end: usize,
+    sample_filter: Option<&str>,
+    results: &mut Vec<Coord2NodeResult>,
+) -> bool {
+    let mut matched_filter = false;
+
+    for (path_id, path_name) in metadata.path_iter().enumerate() {
+        let sample_name = metadata.sample_name(path_name.sample());
+        let haplotype = path_name.phase();
+        let contig_name = metadata.contig_name(path_name.contig());
+        let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+
+        if !contig_matches(&contig_name, chr, normalized_target_chr) {
+            continue;
+        }
+
+        if let Some(filter_value) = sample_filter {
+            if !full_path_name.starts_with(filter_value) {
+                continue;
+            }
+            matched_filter = true;
+        }
+
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            let mut node_count = 0usize;
+            let mut position = 0usize;
+
+            for (node_id, orientation) in path_iter {
+                if let Some(node_len) = gbz.sequence_len(node_id) {
+                    let node_start = position;
+                    let node_end = node_start + node_len;
+
+                    if node_start < end && node_end > start {
+                        let overlap_start = start.max(node_start);
+                        let overlap_end = end.min(node_end);
+
+                        if overlap_start < overlap_end {
+                            results.push(Coord2NodeResult {
+                                path_name: full_path_name.clone(),
+                                node_id: node_id.to_string(),
+                                node_orient: orientation == Orientation::Forward,
+                                path_off_start: overlap_start - node_start,
+                                path_off_end: overlap_end - node_start,
+                            });
+                            node_count += 1;
+                        }
+                    }
+
+                    position += node_len;
+                }
+            }
+
+            eprintln!(
+                "[INFO] Fallback scan found {} nodes in path {}",
+                node_count, full_path_name
+            );
+        }
+    }
+
+    matched_filter
 }
 
 /// Validates and fixes path names in a GFA file for PanSN naming compliance.
@@ -1276,6 +1323,7 @@ fn find_candidate_paths_filtered(
         let haplotype = path_name.phase();
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
+
 
         if full_path_name.starts_with(sample_filter)
             && contig_matches(&contig_name, requested_chr, normalized_target_chr)
