@@ -36,12 +36,6 @@ fn reverse_complement_bytes(sequence: &[u8]) -> Vec<u8> {
     rc
 }
 
-/// Reverses and complements a DNA sequence (string version for compatibility)
-#[allow(dead_code)]
-fn reverse_complement(dna: &str) -> String {
-    String::from_utf8(reverse_complement_bytes(dna.as_bytes())).unwrap()
-}
-
 fn write_wrapped_segment<W: Write>(
     writer: &mut W,
     segment: &[u8],
@@ -197,7 +191,7 @@ pub fn extract_sequence(
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
         let nodes =
-            map::coord_to_nodes_with_path_filtered(&gbz, &gbz_path, &chr, start, end, Some(sample_name));
+            map::coord_to_nodes_with_path_filtered(&gbz, &chr, start, end, Some(sample_name));
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());

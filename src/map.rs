@@ -10,7 +10,7 @@
 //      which do node->hg38 or hg38->node queries.
 
 use std::fs::{self, File};
-use std::io::{BufWriter, Write, Read};
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::process::Command;
 
@@ -35,28 +35,13 @@ struct FixStats {
 
 // Region slice: nodes and edges reachable between start and end anchors within bp cap
 use std::collections::{HashSet, HashMap, VecDeque};
-use std::io::BufReader;
 
 #[derive(Debug, Clone)]
 struct RegionSlice {
     nodes: HashSet<usize>,                    // Node IDs in the slice
     node_lengths: HashMap<usize, usize>,      // Node ID -> length in bp
     edges: HashMap<usize, Vec<(usize, Orientation)>>, // Node ID -> successors
-    #[allow(dead_code)]
-    start_anchor_node: usize,
-    #[allow(dead_code)]
-    end_anchor_node: usize,
     total_bp: usize,                          // Total bp in slice
-}
-
-// Node-to-Path postings index
-// Maps node_id -> list of path_ids that contain that node
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-struct NodePathPostings {
-    postings: HashMap<usize, Vec<usize>>,  // node_id -> sorted vec of path_ids
-    total_nodes: usize,
-    total_paths: usize,
 }
 
 // We'll keep these big data structures in memory for queries.
@@ -418,24 +403,20 @@ pub fn coord_to_nodes_mapped(
 }
 
 pub fn coord_to_nodes(gbz: &GBZ, chr: &str, start: usize, end: usize) -> Vec<Coord2NodeResult> {
-    // This is a compatibility wrapper that doesn't have access to gbz_path
-    // It will work but won't benefit from postings caching
-    coord_to_nodes_with_path(gbz, "", chr, start, end)
+    coord_to_nodes_with_path(gbz, chr, start, end)
 }
 
 pub fn coord_to_nodes_with_path(
     gbz: &GBZ,
-    gbz_path: &str,
     chr: &str,
     start: usize,
     end: usize,
 ) -> Vec<Coord2NodeResult> {
-    coord_to_nodes_with_path_filtered(gbz, gbz_path, chr, start, end, None)
+    coord_to_nodes_with_path_filtered(gbz, chr, start, end, None)
 }
 
 pub fn coord_to_nodes_with_path_filtered(
     gbz: &GBZ,
-    _gbz_path: &str,
     chr: &str,
     start: usize,
     end: usize,
@@ -1256,171 +1237,6 @@ impl Anchor {
         }
     }
 }
-
-#[allow(dead_code)]
-impl NodePathPostings {
-    fn build(gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> Self {
-        let total_paths = metadata.paths();
-        eprintln!("[INFO] Building node→path postings index from {} paths...", total_paths);
-        
-        let mut postings: HashMap<usize, Vec<usize>> = HashMap::new();
-        let progress = (total_paths.max(20) / 20).max(1);
-
-        for (path_id, _) in metadata.path_iter().enumerate() {
-            if path_id % progress == 0 {
-                eprintln!("[INFO] postings build: {}/{} paths processed", path_id, total_paths);
-            }
-
-            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-                for (node_id, _) in path_iter {
-                    postings
-                        .entry(node_id)
-                        .or_insert_with(Vec::new)
-                        .push(path_id);
-                }
-            }
-        }
-
-        // Convert HashSets to sorted Vecs for efficient storage
-        let postings_vec: HashMap<usize, Vec<usize>> = postings
-            .into_iter()
-            .map(|(node_id, mut paths)| {
-                paths.sort_unstable();
-                paths.dedup();
-                (node_id, paths)
-            })
-            .collect();
-        
-        let total_nodes = postings_vec.len();
-        eprintln!("[INFO] Built postings index: {} nodes, {} paths", total_nodes, total_paths);
-        
-        NodePathPostings {
-            postings: postings_vec,
-            total_nodes,
-            total_paths,
-        }
-    }
-    
-    fn get_paths(&self, node_id: usize) -> Option<&[usize]> {
-        self.postings.get(&node_id).map(|v| v.as_slice())
-    }
-    
-    fn save_to_file(&self, path: &str) -> std::io::Result<()> {
-        eprintln!("[INFO] Saving postings index to {}...", path);
-        let file = File::create(path)?;
-        let mut writer = BufWriter::new(file);
-        
-        // Write header: total_nodes, total_paths
-        writer.write_all(&self.total_nodes.to_le_bytes())?;
-        writer.write_all(&self.total_paths.to_le_bytes())?;
-        
-        // Write number of entries
-        let num_entries = self.postings.len();
-        writer.write_all(&num_entries.to_le_bytes())?;
-        
-        // Write each entry: node_id, num_paths, [path_ids...]
-        for (&node_id, paths) in &self.postings {
-            writer.write_all(&node_id.to_le_bytes())?;
-            writer.write_all(&paths.len().to_le_bytes())?;
-            for &path_id in paths {
-                writer.write_all(&path_id.to_le_bytes())?;
-            }
-        }
-        
-        writer.flush()?;
-        eprintln!("[INFO] Postings index saved");
-        Ok(())
-    }
-    
-    fn load_from_file(path: &str) -> std::io::Result<Self> {
-        eprintln!("[INFO] Loading postings index from {}...", path);
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
-        
-        // Read header
-        let mut buf = [0u8; 8];
-        reader.read_exact(&mut buf)?;
-        let total_nodes = usize::from_le_bytes(buf);
-        reader.read_exact(&mut buf)?;
-        let total_paths = usize::from_le_bytes(buf);
-        
-        // Read number of entries
-        reader.read_exact(&mut buf)?;
-        let num_entries = usize::from_le_bytes(buf);
-        
-        let mut postings = HashMap::with_capacity(num_entries);
-        
-        // Read each entry
-        for _ in 0..num_entries {
-            reader.read_exact(&mut buf)?;
-            let node_id = usize::from_le_bytes(buf);
-            
-            reader.read_exact(&mut buf)?;
-            let num_paths = usize::from_le_bytes(buf);
-            
-            let mut paths = Vec::with_capacity(num_paths);
-            for _ in 0..num_paths {
-                reader.read_exact(&mut buf)?;
-                paths.push(usize::from_le_bytes(buf));
-            }
-            
-            postings.insert(node_id, paths);
-        }
-        
-        eprintln!("[INFO] Loaded postings index: {} nodes, {} paths", total_nodes, total_paths);
-        Ok(NodePathPostings {
-            postings,
-            total_nodes,
-            total_paths,
-        })
-    }
-}
-
-#[allow(dead_code)]
-fn get_or_build_postings(gbz_path: &str, gbz: &GBZ, metadata: &gbwt::gbwt::Metadata) -> NodePathPostings {
-    let postings_path = format!("{}.postings", gbz_path);
-    
-    // Try to load existing postings
-    if Path::new(&postings_path).exists() {
-        match NodePathPostings::load_from_file(&postings_path) {
-            Ok(postings) => {
-                eprintln!("[INFO] Using cached postings index");
-                return postings;
-            }
-            Err(e) => {
-                eprintln!("[WARNING] Failed to load postings index: {}; rebuilding...", e);
-            }
-        }
-    }
-    
-    // Build new postings
-    let postings = NodePathPostings::build(gbz, metadata);
-    
-    // Try to save for future use
-    if let Err(e) = postings.save_to_file(&postings_path) {
-        eprintln!("[WARNING] Failed to save postings index: {}", e);
-    }
-    
-    postings
-}
-
-#[allow(dead_code)]
-fn find_candidate_paths_with_postings(
-    postings: &NodePathPostings,
-    start_anchor_node: usize,
-) -> HashSet<usize> {
-    let candidates: HashSet<usize> = if let Some(paths) = postings.get_paths(start_anchor_node) {
-        eprintln!("[INFO] Found {} candidate paths from postings index for node {}", 
-            paths.len(), start_anchor_node);
-        paths.iter().copied().collect()
-    } else {
-        eprintln!("[WARNING] Start anchor node {} not found in postings index", start_anchor_node);
-        HashSet::new()
-    };
-    
-    candidates
-}
-
 fn find_candidate_paths_filtered(
     gbz: &GBZ,
     metadata: &gbwt::gbwt::Metadata,
@@ -1544,8 +1360,6 @@ fn build_region_slice(
         nodes: HashSet::new(),
         node_lengths: HashMap::new(),
         edges: HashMap::new(),
-        start_anchor_node: start_anchor.node_id,
-        end_anchor_node: end_anchor.node_id,
         total_bp: 0,
     };
     
