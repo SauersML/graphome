@@ -4,17 +4,14 @@ Integration test for BRCA1 extraction from pangenome GBZ.
 
 This test:
 1. Extracts BRCA1 region (chr17:43,044,295-43,170,245) for HG00290#1
-2. Verifies extraction completed successfully (both anchors found)
-3. Verifies sequence length is approximately correct (~126kb)
-
-Note: This test does NOT verify sequence correctness via BLAST because:
-- Remote BLAST is unreliable (timeouts, CPU limits)
-- Local BLAST requires downloading GRCh38 genome (~3GB)
-- Sequence comparison fails due to indels (HG00290 has variants vs GRCh38)
+2. BLASTs the extracted sequence against NCBI nt database
+3. Verifies the top hit matches the expected BRCA1 coordinates on chr17
 
 Requirements:
 - graphome binary built (target/release/graphome)
 - HPRC GBZ file (data/hprc-v2.0-mc-grch38.gbz)
+- NCBI BLAST+ installed (blastn command)
+- Internet connection for remote BLAST
 - Python 3
 """
 
@@ -91,53 +88,136 @@ def extract_brca1(graphome_bin, gbz_path, output_dir):
     
     return fasta_path
 
-def read_fasta_sequence(fasta_path):
-    """Read sequence from FASTA file (excluding header)."""
-    with open(fasta_path, 'r') as f:
-        lines = f.readlines()
-    # Skip header line, join sequence lines, remove whitespace
-    sequence = ''.join(line.strip() for line in lines if not line.startswith('>'))
-    return sequence.upper()
+def blast_sequence(fasta_path):
+    """BLAST the extracted sequence against NCBI to verify coordinates."""
+    print("\n=== Step 2: BLASTing sequence against NCBI ===")
+    
+    # Check if blastn is available
+    try:
+        subprocess.run(["blastn", "-version"], capture_output=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        print("[ERROR] blastn not found. Please install NCBI BLAST+")
+        print("  Ubuntu/Debian: sudo apt-get install ncbi-blast+")
+        print("  macOS: brew install blast")
+        sys.exit(1)
+    
+    print("[INFO] Running BLAST against NCBI nt database (this may take 2-5 minutes)...")
+    
+    # Run BLAST with optimized parameters for large query
+    cmd = [
+        "blastn",
+        "-query", str(fasta_path),
+        "-db", "nt",
+        "-remote",
+        "-entrez_query", "Homo sapiens[Organism] AND (chromosome 17[Title] OR chr17[Title])",
+        "-outfmt", "6 qseqid sseqid pident length qstart qend sstart send evalue bitscore stitle",
+        "-max_target_seqs", "5",
+        "-evalue", "1e-100",
+        "-word_size", "28",  # Larger word size for faster search
+        "-perc_identity", "95"  # Only high-identity hits
+    ]
+    
+    stdout, stderr, returncode = run_command(cmd, timeout=600)
+    
+    if returncode != 0:
+        print(f"[ERROR] BLAST failed with return code {returncode}")
+        print(f"STDERR: {stderr}")
+        sys.exit(1)
+    
+    if not stdout.strip():
+        print("[ERROR] BLAST returned no results")
+        print("This likely means:")
+        print("  1. The extracted sequence is not from chr17")
+        print("  2. The sequence quality is too low")
+        print("  3. NCBI remote BLAST service is unavailable")
+        sys.exit(1)
+    
+    print("[OK] BLAST completed successfully")
+    print("\n=== BLAST Results (top 5 hits) ===")
+    for line in stdout.strip().split('\n')[:5]:
+        fields = line.split('\t')
+        if len(fields) >= 11:
+            print(f"  {fields[1]}: {fields[2]}% identity, coords {fields[6]}-{fields[7]}")
+    print()
+    
+    # Parse top hit
+    top_hit = stdout.strip().split('\n')[0].split('\t')
+    if len(top_hit) < 11:
+        print(f"[ERROR] Unexpected BLAST output format")
+        sys.exit(1)
+    
+    subject_id = top_hit[1]
+    pident = float(top_hit[2])
+    align_length = int(top_hit[3])
+    sstart = int(top_hit[6])
+    send = int(top_hit[7])
+    stitle = top_hit[10]
+    
+    # Normalize coordinates
+    coord_start = min(sstart, send)
+    coord_end = max(sstart, send)
+    
+    # Extract chromosome from title
+    chr_match = re.search(r'chromosome (\d+|X|Y|MT)', stitle, re.IGNORECASE)
+    chromosome = f"chr{chr_match.group(1)}" if chr_match else "unknown"
+    
+    print(f"=== Top BLAST Hit ===")
+    print(f"Subject: {subject_id}")
+    print(f"Chromosome: {chromosome}")
+    print(f"Coordinates: {coord_start:,} - {coord_end:,}")
+    print(f"Identity: {pident:.2f}%")
+    print(f"Alignment length: {align_length:,} bp")
+    
+    return {
+        'chromosome': chromosome,
+        'start': coord_start,
+        'end': coord_end,
+        'identity': pident,
+        'align_length': align_length,
+        'subject_id': subject_id,
+        'title': stitle
+    }
 
-def verify_extraction(fasta_path):
-    """Verify extraction quality."""
-    print("\n=== Step 2: Verifying extraction ===")
+def verify_blast_results(blast_result):
+    """Verify BLAST results match expected BRCA1 coordinates."""
+    print("\n=== Step 3: Verifying BLAST results ===")
     
-    # Read sequence
-    sequence = read_fasta_sequence(fasta_path)
-    seq_length = len(sequence)
-    
-    print(f"Sequence length: {seq_length:,} bp")
-    
-    # Check length is approximately correct for BRCA1 (~126kb)
-    expected_length = EXPECTED_LENGTH
-    length_diff = abs(seq_length - expected_length)
-    length_diff_pct = (length_diff / expected_length) * 100
+    chromosome = blast_result['chromosome']
+    start = blast_result['start']
+    end = blast_result['end']
+    identity = blast_result['identity']
     
     success = True
     
-    if length_diff_pct > 5.0:
-        print(f"[FAIL] Length differs too much: {seq_length:,} bp (expected ~{expected_length:,} bp, diff: {length_diff_pct:.1f}%)")
+    # Check chromosome
+    if chromosome != EXPECTED_CHR:
+        print(f"[FAIL] Wrong chromosome: {chromosome} (expected {EXPECTED_CHR})")
         success = False
     else:
-        print(f"[OK] Length is correct: {seq_length:,} bp (expected ~{expected_length:,} bp, diff: {length_diff_pct:.1f}%)")
+        print(f"[OK] Correct chromosome: {chromosome}")
     
-    # Check for valid DNA sequence
-    valid_bases = set('ACGT')
-    invalid_bases = set(sequence) - valid_bases
-    if invalid_bases:
-        print(f"[WARNING] Found invalid bases: {invalid_bases}")
+    # Check coordinates (with tolerance for alignment boundaries)
+    start_diff = abs(start - EXPECTED_START)
+    end_diff = abs(end - EXPECTED_END)
+    
+    if start_diff > COORD_TOLERANCE:
+        print(f"[FAIL] Start coordinate mismatch: {start:,} (expected {EXPECTED_START:,}, diff: {start_diff:,} bp)")
+        success = False
     else:
-        print(f"[OK] All bases are valid DNA (ACGT)")
+        print(f"[OK] Start coordinate matches: {start:,} (diff: {start_diff:,} bp)")
     
-    # Check GC content (should be reasonable for human genome, ~40-60%)
-    gc_count = sequence.count('G') + sequence.count('C')
-    gc_content = (gc_count / seq_length) * 100
-    
-    if gc_content < 30 or gc_content > 70:
-        print(f"[WARNING] Unusual GC content: {gc_content:.1f}% (expected 40-60%)")
+    if end_diff > COORD_TOLERANCE:
+        print(f"[FAIL] End coordinate mismatch: {end:,} (expected {EXPECTED_END:,}, diff: {end_diff:,} bp)")
+        success = False
     else:
-        print(f"[OK] GC content is reasonable: {gc_content:.1f}%")
+        print(f"[OK] End coordinate matches: {end:,} (diff: {end_diff:,} bp)")
+    
+    # Check identity
+    if identity < 95.0:
+        print(f"[FAIL] Low sequence identity: {identity:.2f}% (expected >95%)")
+        success = False
+    else:
+        print(f"[OK] High sequence identity: {identity:.2f}%")
     
     return success
 
@@ -173,16 +253,19 @@ def main():
         # Step 1: Extract BRCA1 for HG00290#1
         sample_fasta = extract_brca1(graphome_bin, gbz_path, tmpdir)
         
-        # Step 2: Verify extraction quality
-        success = verify_extraction(sample_fasta)
+        # Step 2: BLAST the sequence
+        blast_result = blast_sequence(sample_fasta)
+        
+        # Step 3: Verify BLAST results
+        success = verify_blast_results(blast_result)
         
         print("\n" + "=" * 80)
         if success:
-            print("✅ TEST PASSED: BRCA1 extraction completed successfully")
+            print("✅ TEST PASSED: BRCA1 extraction verified via BLAST")
             print("=" * 80)
             sys.exit(0)
         else:
-            print("❌ TEST FAILED: Extraction verification failed")
+            print("❌ TEST FAILED: BLAST verification failed")
             print("=" * 80)
             sys.exit(1)
 
