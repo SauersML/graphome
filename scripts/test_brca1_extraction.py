@@ -4,21 +4,34 @@ Integration test for BRCA1 extraction from pangenome GBZ.
 
 This test verifies the --assembly parameter works correctly with cross-validation:
 
-TEST 1: Extract with CHM13, verify against GRCh38
+TEST 1: Extract sample HG00290#1 with CHM13, verify against GRCh38
 1. Extracts BRCA1 using --assembly chm13 with CHM13 coordinates (chr17:43,902,857-44,029,084)
 2. Verifies the code uses CHM13#0#chr17 reference path
 3. BLASTs the extracted sequence against GRCh38 chr17
 4. Verifies the top hit matches GRCh38 BRCA1 coordinates (chr17:43,044,295-43,170,327)
 5. Requires ≥98% query coverage and ≥98% identity
 
-TEST 2: Extract with GRCh38, verify against CHM13
+TEST 2: Extract sample HG00290#1 with GRCh38, verify against CHM13
 1. Extracts BRCA1 using --assembly grch38 with GRCh38 coordinates (chr17:43,044,295-43,170,327)
 2. Verifies the code uses GRCh38#0#chr17 reference path
 3. BLASTs the extracted sequence against T2T-CHM13 chr17
 4. Verifies the top hit matches CHM13 BRCA1 coordinates (chr17:43,902,857-44,029,084)
 5. Requires ≥98% query coverage and ≥98% identity
 
-This cross-validation proves that both assembly parameters extract the correct BRCA1 region.
+TEST 3: Extract reference GRCh38#0 with GRCh38, verify against CHM13
+1. Extracts BRCA1 reference using --assembly grch38 with GRCh38 coordinates
+2. BLASTs against T2T-CHM13 chr17
+3. Verifies the top hit matches CHM13 BRCA1 coordinates
+4. Requires ≥98% query coverage and ≥98% identity
+
+TEST 4: Extract reference CHM13#0 with CHM13, verify against GRCh38
+1. Extracts BRCA1 reference using --assembly chm13 with CHM13 coordinates
+2. BLASTs against GRCh38 chr17
+3. Verifies the top hit matches GRCh38 BRCA1 coordinates
+4. Requires ≥98% query coverage and ≥98% identity
+
+This cross-validation proves that both assembly parameters extract the correct BRCA1 region
+for both sample haplotypes and reference sequences.
 
 Requirements:
 - graphome binary built (target/release/graphome)
@@ -72,9 +85,9 @@ def run_command(cmd, cwd=None, timeout=300):
     )
     return result.stdout, result.stderr, result.returncode
 
-def extract_brca1(graphome_bin, gbz_path, output_dir, assembly, region_start, region_end, output_prefix):
-    """Extract BRCA1 region for HG00290#1 using specified assembly."""
-    print(f"\n=== Extracting BRCA1 sequence using {assembly.upper()} coordinates ===")
+def extract_brca1(graphome_bin, gbz_path, output_dir, assembly, region_start, region_end, output_prefix, sample="HG00290#1"):
+    """Extract BRCA1 region for specified sample using specified assembly."""
+    print(f"\n=== Extracting BRCA1 sequence using {assembly.upper()} coordinates for sample {sample} ===")
     
     cmd = [
         str(graphome_bin),
@@ -82,7 +95,7 @@ def extract_brca1(graphome_bin, gbz_path, output_dir, assembly, region_start, re
         "--gfa", str(gbz_path),
         "--assembly", assembly,
         "--region", f"chr17:{region_start}-{region_end}",
-        "--sample", "HG00290#1",
+        "--sample", sample,
         "--output", output_prefix
     ]
     
@@ -360,10 +373,11 @@ def main():
         print(f"\n[INFO] Working directory: {tmpdir}")
         
         all_success = True
+        test_results = []
         
-        # TEST 1: Extract with CHM13, BLAST against GRCh38
+        # TEST 1: Extract sample HG00290#1 with CHM13, BLAST against GRCh38
         print("\n" + "=" * 80)
-        print("TEST 1: Extract with CHM13, verify against GRCh38")
+        print("TEST 1: Extract sample HG00290#1 with CHM13, verify against GRCh38")
         print("=" * 80)
         
         chm13_fasta = extract_brca1(
@@ -371,12 +385,14 @@ def main():
             assembly="chm13",
             region_start=T2T_START,
             region_end=T2T_END,
-            output_prefix="HG00290_BRCA1_CHM13"
+            output_prefix="HG00290_BRCA1_CHM13",
+            sample="HG00290#1"
         )
         
         # BLAST against GRCh38
         chm13_blast = blast_sequence(chm13_fasta, target_assembly="grch38")
         chm13_success = verify_blast_results(chm13_blast, expected_assembly="grch38")
+        test_results.append(("TEST 1 (HG00290#1 CHM13→GRCh38)", chm13_success))
         
         if chm13_success:
             print("\n✅ TEST 1 PASSED: CHM13 extraction matches GRCh38 BRCA1")
@@ -384,9 +400,9 @@ def main():
             print("\n❌ TEST 1 FAILED: CHM13 extraction did not match GRCh38 BRCA1")
             all_success = False
         
-        # TEST 2: Extract with GRCh38, BLAST against CHM13
+        # TEST 2: Extract sample HG00290#1 with GRCh38, BLAST against CHM13
         print("\n" + "=" * 80)
-        print("TEST 2: Extract with GRCh38, verify against CHM13")
+        print("TEST 2: Extract sample HG00290#1 with GRCh38, verify against CHM13")
         print("=" * 80)
         
         grch38_fasta = extract_brca1(
@@ -394,12 +410,14 @@ def main():
             assembly="grch38",
             region_start=GRCH38_START,
             region_end=GRCH38_END,
-            output_prefix="HG00290_BRCA1_GRCh38"
+            output_prefix="HG00290_BRCA1_GRCh38",
+            sample="HG00290#1"
         )
         
         # BLAST against T2T-CHM13
         grch38_blast = blast_sequence(grch38_fasta, target_assembly="chm13")
         grch38_success = verify_blast_results(grch38_blast, expected_assembly="chm13")
+        test_results.append(("TEST 2 (HG00290#1 GRCh38→CHM13)", grch38_success))
         
         if grch38_success:
             print("\n✅ TEST 2 PASSED: GRCh38 extraction matches CHM13 BRCA1")
@@ -407,14 +425,73 @@ def main():
             print("\n❌ TEST 2 FAILED: GRCh38 extraction did not match CHM13 BRCA1")
             all_success = False
         
+        # TEST 3: Extract reference GRCh38#0 with GRCh38, BLAST against CHM13
+        print("\n" + "=" * 80)
+        print("TEST 3: Extract reference GRCh38#0 with GRCh38, verify against CHM13")
+        print("=" * 80)
+        
+        grch38_ref_fasta = extract_brca1(
+            graphome_bin, gbz_path, tmpdir,
+            assembly="grch38",
+            region_start=GRCH38_START,
+            region_end=GRCH38_END,
+            output_prefix="GRCh38_REF_BRCA1",
+            sample="GRCh38#0"
+        )
+        
+        # BLAST against T2T-CHM13
+        grch38_ref_blast = blast_sequence(grch38_ref_fasta, target_assembly="chm13")
+        grch38_ref_success = verify_blast_results(grch38_ref_blast, expected_assembly="chm13")
+        test_results.append(("TEST 3 (GRCh38#0 GRCh38→CHM13)", grch38_ref_success))
+        
+        if grch38_ref_success:
+            print("\n✅ TEST 3 PASSED: GRCh38 reference extraction matches CHM13 BRCA1")
+        else:
+            print("\n❌ TEST 3 FAILED: GRCh38 reference extraction did not match CHM13 BRCA1")
+            all_success = False
+        
+        # TEST 4: Extract reference CHM13#0 with CHM13, BLAST against GRCh38
+        print("\n" + "=" * 80)
+        print("TEST 4: Extract reference CHM13#0 with CHM13, verify against GRCh38")
+        print("=" * 80)
+        
+        chm13_ref_fasta = extract_brca1(
+            graphome_bin, gbz_path, tmpdir,
+            assembly="chm13",
+            region_start=T2T_START,
+            region_end=T2T_END,
+            output_prefix="CHM13_REF_BRCA1",
+            sample="CHM13#0"
+        )
+        
+        # BLAST against GRCh38
+        chm13_ref_blast = blast_sequence(chm13_ref_fasta, target_assembly="grch38")
+        chm13_ref_success = verify_blast_results(chm13_ref_blast, expected_assembly="grch38")
+        test_results.append(("TEST 4 (CHM13#0 CHM13→GRCh38)", chm13_ref_success))
+        
+        if chm13_ref_success:
+            print("\n✅ TEST 4 PASSED: CHM13 reference extraction matches GRCh38 BRCA1")
+        else:
+            print("\n❌ TEST 4 FAILED: CHM13 reference extraction did not match GRCh38 BRCA1")
+            all_success = False
+        
         # Final summary
         print("\n" + "=" * 80)
+        print("TEST SUMMARY")
+        print("=" * 80)
+        for test_name, success in test_results:
+            status = "✅ PASSED" if success else "❌ FAILED"
+            print(f"{status}: {test_name}")
+        print("=" * 80)
+        
         if all_success:
-            print("✅ ALL TESTS PASSED: Both extractions verified via BLAST")
+            print("✅ ALL TESTS PASSED: All extractions verified via BLAST")
             print("=" * 80)
             sys.exit(0)
         else:
-            print("❌ SOME TESTS FAILED: Check results above")
+            passed = sum(1 for _, s in test_results if s)
+            total = len(test_results)
+            print(f"❌ SOME TESTS FAILED: {passed}/{total} tests passed")
             print("=" * 80)
             sys.exit(1)
 
