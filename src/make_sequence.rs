@@ -169,19 +169,29 @@ pub fn extract_sequence(
     sample_name: &str,
     output_path: &str,
 ) -> Result<(), std::io::Error> {
-    eprintln!(
-        "[INFO] Building data structures from graph='{}' PAF='{}'",
-        graph_path, paf_path
-    );
+    let input_is_gbz = GBZ::is_gbz(graph_path);
+    
+    if input_is_gbz {
+        eprintln!("[INFO] Building data structures from GBZ file: '{}'", graph_path);
+    } else {
+        eprintln!(
+            "[INFO] Building data structures from GFA='{}' PAF='{}'",
+            graph_path, paf_path
+        );
+    }
 
     // Parse the region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = map::parse_region(region) {
         // start and end are already 0-based half-open from parse_region
         // Convert coordinates to nodes
-        let input_is_gbz = GBZ::is_gbz(graph_path);
         let gbz_path = if input_is_gbz {
             graph_path.to_string()
         } else {
+            if paf_path.is_empty() {
+                eprintln!("[ERROR] PAF file is required when using GFA input");
+                eprintln!("  Provide --paf <path> or convert to GBZ first with: graphome gfa2gbz");
+                std::process::exit(1);
+            }
             map::make_gbz_exist(graph_path, paf_path)
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");

@@ -183,9 +183,9 @@ struct MakeSequenceArgs {
     /// The path to the graph file (GFA or GBZ)
     #[arg(long, value_name = "GRAPH")]
     gfa: PathBuf,
-    /// The path to the PAF file
+    /// The path to the PAF file (optional for GBZ files, required for GFA files)
     #[arg(long, value_name = "PAF")]
-    paf: PathBuf,
+    paf: Option<PathBuf>,
     /// The region in hg38, e.g. grch38#chr1:100000-200000
     #[arg(long, value_name = "REGION")]
     region: String,
@@ -313,7 +313,7 @@ fn main() -> io::Result<()> {
                 output,
             } = args;
             let gfa_path = path_to_string(&gfa);
-            let paf_path = path_to_string(&paf);
+            let paf_path = paf.as_ref().map(|p| path_to_string(p)).unwrap_or_default();
             let output_path = path_to_string(&output);
             make_sequence::run_make_sequence(&gfa_path, &paf_path, &region, &sample, &output_path);
         }
