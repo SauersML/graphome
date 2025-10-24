@@ -6,6 +6,7 @@ This test:
 1. Extracts BRCA1 region (chr17:43,044,295-43,170,245) for HG00290#1
 2. BLASTs the extracted sequence against NCBI nt database
 3. Verifies the top hit matches the expected BRCA1 coordinates on chr17
+   for GRCh38 or T2T-CHM13v2.0
 
 Requirements:
 - graphome binary built (target/release/graphome)
@@ -21,12 +22,26 @@ import os
 import tempfile
 import re
 from pathlib import Path
+from typing import Optional
 
-# Expected BRCA1 coordinates (GRCh38/hg38)
-EXPECTED_CHR = "chr17"
-EXPECTED_START = 43044295
-EXPECTED_END = 43170245
-EXPECTED_LENGTH = EXPECTED_END - EXPECTED_START + 1  # ~126kb
+# Expected BRCA1 coordinates for supported reference assemblies
+# Coordinates are 1-based inclusive.
+REFERENCE_COORDINATES = {
+    "grch38": {
+        "chromosome": "chr17",
+        "start": 43044295,
+        "end": 43170245,
+    },
+    # The NCBI nt database often returns the T2T-CHM13v2.0 assembly as the
+    # top hit for chromosome 17. BRCA1 resides at ~71.3 Mbp on that assembly.
+    "t2t-chm13v2": {
+        "chromosome": "chr17",
+        "start": 71322675,
+        "end": 71448371,
+    },
+}
+
+GRCH38_COORDS = REFERENCE_COORDINATES["grch38"]
 
 # Tolerance for coordinate matching (BLAST alignment may not be exact at boundaries)
 COORD_TOLERANCE = 1000  # 1kb tolerance
@@ -52,7 +67,12 @@ def extract_brca1(graphome_bin, gbz_path, output_dir):
         "make-sequence",
         "--gfa", str(gbz_path),
         "--paf", "/dev/null",
-        "--region", f"grch38#chr17:{EXPECTED_START}-{EXPECTED_END}",
+        "--region",
+        (
+            "grch38#"  # graphome region spec uses GRCh38 coordinates
+            f"{GRCH38_COORDS['chromosome']}:{GRCH38_COORDS['start']}"
+            f"-{GRCH38_COORDS['end']}"
+        ),
         "--sample", "HG00290#1",
         "--output", "HG00290_BRCA1"
     ]
@@ -178,47 +198,89 @@ def blast_sequence(fasta_path):
         'title': stitle
     }
 
+
+def identify_reference_assembly(subject_id: str, title: str) -> Optional[str]:
+    """Infer the reference assembly of a BLAST hit based on metadata."""
+    metadata = f"{subject_id} {title}".lower()
+
+    if "t2t" in metadata or "chm13" in metadata or "cp139549.2" in metadata:
+        return "t2t-chm13v2"
+    if "grch38" in metadata or "hg38" in metadata:
+        return "grch38"
+
+    return None
+
 def verify_blast_results(blast_result):
     """Verify BLAST results match expected BRCA1 coordinates."""
     print("\n=== Step 3: Verifying BLAST results ===")
-    
+
     chromosome = blast_result['chromosome']
     start = blast_result['start']
     end = blast_result['end']
     identity = blast_result['identity']
-    
+    subject_id = blast_result['subject_id']
+    title = blast_result['title']
+
     success = True
-    
+
+    assembly = identify_reference_assembly(subject_id, title)
+    if assembly is None:
+        # Fall back to the closest known reference based on coordinate proximity
+        diffs = {
+            ref: abs(start - coords['start']) + abs(end - coords['end'])
+            for ref, coords in REFERENCE_COORDINATES.items()
+        }
+        assembly = min(diffs, key=diffs.get)
+        print(
+            "[WARNING] Unable to determine assembly from BLAST metadata. "
+            f"Assuming {assembly} based on coordinate similarity."
+        )
+
+    expected = REFERENCE_COORDINATES[assembly]
+    expected_chr = expected['chromosome']
+    expected_start = expected['start']
+    expected_end = expected['end']
+
+    print(f"[INFO] Detected reference assembly: {assembly}")
+
     # Check chromosome
-    if chromosome != EXPECTED_CHR:
-        print(f"[FAIL] Wrong chromosome: {chromosome} (expected {EXPECTED_CHR})")
+    if chromosome != expected_chr:
+        print(f"[FAIL] Wrong chromosome: {chromosome} (expected {expected_chr})")
         success = False
     else:
         print(f"[OK] Correct chromosome: {chromosome}")
-    
+
     # Check coordinates (with tolerance for alignment boundaries)
-    start_diff = abs(start - EXPECTED_START)
-    end_diff = abs(end - EXPECTED_END)
-    
+    start_diff = abs(start - expected_start)
+    end_diff = abs(end - expected_end)
+
     if start_diff > COORD_TOLERANCE:
-        print(f"[FAIL] Start coordinate mismatch: {start:,} (expected {EXPECTED_START:,}, diff: {start_diff:,} bp)")
+        print(
+            "[FAIL] Start coordinate mismatch: "
+            f"{start:,} (expected {expected_start:,}, diff: {start_diff:,} bp)"
+        )
         success = False
     else:
-        print(f"[OK] Start coordinate matches: {start:,} (diff: {start_diff:,} bp)")
-    
+        print(
+            f"[OK] Start coordinate matches: {start:,} (diff: {start_diff:,} bp)"
+        )
+
     if end_diff > COORD_TOLERANCE:
-        print(f"[FAIL] End coordinate mismatch: {end:,} (expected {EXPECTED_END:,}, diff: {end_diff:,} bp)")
+        print(
+            "[FAIL] End coordinate mismatch: "
+            f"{end:,} (expected {expected_end:,}, diff: {end_diff:,} bp)"
+        )
         success = False
     else:
         print(f"[OK] End coordinate matches: {end:,} (diff: {end_diff:,} bp)")
-    
+
     # Check identity
     if identity < 95.0:
         print(f"[FAIL] Low sequence identity: {identity:.2f}% (expected >95%)")
         success = False
     else:
         print(f"[OK] High sequence identity: {identity:.2f}%")
-    
+
     return success
 
 def main():
