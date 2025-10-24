@@ -1595,7 +1595,14 @@ fn compute_reference_anchors(
             continue;
         }
 
-        let contig_name = metadata.contig_name(path_name.contig());
+        // Get the full contig name including subrange if present
+        let base_contig_name = metadata.contig_name(path_name.contig());
+        let fragment = path_name.fragment();
+        let contig_name = if fragment > 0 {
+            format!("{}[{}]", base_contig_name, fragment)
+        } else {
+            base_contig_name.to_string()
+        };
         let base_contig = strip_fragment_suffix(&contig_name);
         
         // Check if base contig matches (ignoring fragment suffix)
