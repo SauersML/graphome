@@ -2,14 +2,14 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Test that coordinate-based extraction returns consistent sequences.
+/// Test that coordinate-based extraction returns the correct sequence.
 /// 
 /// This test:
-/// 1. Extracts a specific region (chr22:10000000-10005000) via coordinates
-/// 2. Extracts the same region again via coordinates
-/// 3. Verifies both extractions produce identical sequences
-/// 
-/// This validates that coordinate-based extraction is deterministic and correct.
+/// 1. Extracts entire chr22 for GRCh38#0
+/// 2. Looks at the string and picks a 5kb region
+/// 3. Extracts the middle 3kb (omitting 1kb flanks)
+/// 4. Queries the same coordinate range in a NEW command
+/// 5. Asserts the 3kb string appears in the queried result
 #[test]
 fn test_coordinate_extraction_correctness() {
     // Setup paths
@@ -46,152 +46,189 @@ fn test_coordinate_extraction_correctness() {
     let test_dir = project_root.join("target/test_coordinate_extraction");
     fs::create_dir_all(&test_dir).expect("Failed to create test directory");
     
-    // Use a region known to have real sequence data (not N's)
-    // chr22:10000000-10005000 is in a gene-rich region
-    let test_region = "grch38#chr22:10000000-10005000";
     let test_sample = "GRCh38#0";
     
-    println!("=== Step 1: Extract test region (first extraction) ===");
-    println!("Region: {}", test_region);
-    println!("Sample: {}", test_sample);
+    println!("=== Step 1: Extract a large region of chr22 for GRCh38#0 ===");
     
-    let output1 = test_dir.join("extraction1");
+    // Extract 1Mb region of chr22 (positions 10M-11M)
+    // This is large enough to test coordinate extraction correctness
+    let extraction_start = 10_000_000;
+    let extraction_end = 11_000_000;
+    let full_output = test_dir.join("chr22_full");
     let status = Command::new(&graphome_bin)
         .args(&[
             "make-sequence",
             "--gfa", gbz_path.to_str().unwrap(),
-            "--region", test_region,
+            "--region", &format!("grch38#chr22:{}-{}", extraction_start, extraction_end),
             "--sample", test_sample,
-            "--output", output1.to_str().unwrap(),
+            "--output", full_output.to_str().unwrap(),
         ])
         .status()
-        .expect("Failed to execute make-sequence (first extraction)");
+        .expect("Failed to execute make-sequence for chr22 region");
     
-    assert!(status.success(), "First extraction failed");
+    assert!(status.success(), "Chr22 region extraction failed");
     
     // Find the output FASTA file
-    let fasta1 = fs::read_dir(&test_dir)
+    let full_fasta = fs::read_dir(&test_dir)
         .expect("Failed to read test directory")
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("extraction1") && n.ends_with(".fa"))
+                .map(|n| n.starts_with("chr22_full") && n.ends_with(".fa"))
                 .unwrap_or(false)
         })
-        .expect("No FASTA file found for first extraction");
+        .expect("No FASTA file found for full chr22");
     
-    println!("Found first extraction: {:?}", fasta1);
+    println!("Found full chr22 FASTA: {:?}", full_fasta);
     
-    // Read the first sequence
-    let content1 = fs::read_to_string(&fasta1)
-        .expect("Failed to read first FASTA");
+    // Read the full sequence
+    let full_content = fs::read_to_string(&full_fasta)
+        .expect("Failed to read full chr22 FASTA");
     
-    let seq1: String = content1
+    let full_seq: String = full_content
         .lines()
         .filter(|line| !line.starts_with('>'))
         .collect::<Vec<_>>()
         .join("")
         .to_uppercase();
     
-    println!("First extraction length: {} bp", seq1.len());
-    println!("First 100bp: {}", &seq1[..100.min(seq1.len())]);
+    println!("Full chr22 length: {} bp", full_seq.len());
     
-    // Verify we got real sequence data (not all N's)
-    let n_count = seq1.chars().filter(|&c| c == 'N').count();
-    let n_percentage = (n_count as f64 / seq1.len() as f64) * 100.0;
+    println!("\n=== Step 2: Look at the string and pick a 5kb region ===");
+    
+    // Pick a 5kb region in the middle of the extracted sequence
+    // We extracted 10M-11M, so pick a region around 10.5M
+    // String position 500,000 = genomic position 10,500,000
+    let start_pos = 500_000;
+    let region_size = 5_000;
+    
+    // Make sure we have enough sequence
+    assert!(
+        full_seq.len() >= start_pos + region_size,
+        "Full sequence too short: {} bp (need at least {} bp)",
+        full_seq.len(),
+        start_pos + region_size
+    );
+    
+    // Extract 5kb region from the string
+    let region_5kb = &full_seq[start_pos..(start_pos + region_size)];
+    assert_eq!(region_5kb.len(), region_size, "5kb region should be {} bp", region_size);
+    
+    println!("Picked 5kb region at string position {}-{}", start_pos, start_pos + region_size);
+    println!("5kb region length: {} bp", region_5kb.len());
+    println!("First 60bp: {}", &region_5kb[..60]);
+    
+    // Verify it's not all N's
+    let n_count = region_5kb.chars().filter(|&c| c == 'N').count();
+    let n_percentage = (n_count as f64 / region_5kb.len() as f64) * 100.0;
     println!("N content: {:.1}%", n_percentage);
     
     assert!(
         n_percentage < 50.0,
-        "Extracted sequence is mostly N's ({:.1}%), choose a different test region",
+        "Picked region is mostly N's ({:.1}%), choose a different position",
         n_percentage
     );
     
-    println!("\n=== Step 2: Extract same region (second extraction) ===");
+    println!("\n=== Step 3: Extract middle 3kb (omitting 1kb flanks) ===");
     
-    let output2 = test_dir.join("extraction2");
+    let flank_size = 1_000;
+    let middle_3kb = &region_5kb[flank_size..(region_size - flank_size)];
+    assert_eq!(middle_3kb.len(), 3_000, "Middle region should be 3000 bp");
+    
+    println!("Middle 3kb length: {} bp", middle_3kb.len());
+    println!("First 60bp: {}", &middle_3kb[..60]);
+    println!("Last 60bp: {}", &middle_3kb[middle_3kb.len()-60..]);
+    
+    println!("\n=== Step 4: Query the same coordinate range in a NEW command ===");
+    
+    // The coordinate range we want to query
+    // We extracted starting at genomic position 10M, so:
+    // String position start_pos corresponds to genomic coordinate (extraction_start + start_pos)
+    let genomic_start = extraction_start + start_pos;
+    let query_start = genomic_start + 1;  // Convert to 1-based
+    let query_end = genomic_start + region_size;  // End is inclusive in 1-based
+    let query_region = format!("grch38#chr22:{}-{}", query_start, query_end);
+    
+    println!("Querying region: {}", query_region);
+    
+    let query_output = test_dir.join("chr22_query");
     let status = Command::new(&graphome_bin)
         .args(&[
             "make-sequence",
             "--gfa", gbz_path.to_str().unwrap(),
-            "--region", test_region,
+            "--region", &query_region,
             "--sample", test_sample,
-            "--output", output2.to_str().unwrap(),
+            "--output", query_output.to_str().unwrap(),
         ])
         .status()
-        .expect("Failed to execute make-sequence (second extraction)");
+        .expect("Failed to execute make-sequence for query");
     
-    assert!(status.success(), "Second extraction failed");
+    assert!(status.success(), "Query extraction failed");
     
     // Find the output FASTA file
-    let fasta2 = fs::read_dir(&test_dir)
+    let query_fasta = fs::read_dir(&test_dir)
         .expect("Failed to read test directory")
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.starts_with("extraction2") && n.ends_with(".fa"))
+                .map(|n| n.starts_with("chr22_query") && n.ends_with(".fa"))
                 .unwrap_or(false)
         })
-        .expect("No FASTA file found for second extraction");
+        .expect("No FASTA file found for query");
     
-    println!("Found second extraction: {:?}", fasta2);
+    println!("Found query FASTA: {:?}", query_fasta);
     
-    // Read the second sequence
-    let content2 = fs::read_to_string(&fasta2)
-        .expect("Failed to read second FASTA");
+    // Read the query sequence
+    let query_content = fs::read_to_string(&query_fasta)
+        .expect("Failed to read query FASTA");
     
-    let seq2: String = content2
+    let query_seq: String = query_content
         .lines()
         .filter(|line| !line.starts_with('>'))
         .collect::<Vec<_>>()
         .join("")
         .to_uppercase();
     
-    println!("Second extraction length: {} bp", seq2.len());
-    println!("First 100bp: {}", &seq2[..100.min(seq2.len())]);
+    println!("Query sequence length: {} bp", query_seq.len());
+    println!("First 60bp: {}", &query_seq[..60.min(query_seq.len())]);
     
-    println!("\n=== Step 3: Verify both extractions are identical ===");
+    println!("\n=== Step 5: Assert the 3kb string appears in the queried result ===");
     
-    // Check lengths match
-    assert_eq!(
-        seq1.len(),
-        seq2.len(),
-        "Extraction lengths differ: {} vs {} bp",
-        seq1.len(),
-        seq2.len()
-    );
-    
-    // Check sequences match exactly
-    if seq1 == seq2 {
-        println!("✅ SUCCESS: Both extractions produced identical sequences");
-        println!("   Length: {} bp", seq1.len());
-        println!("   Coordinate-based extraction is deterministic and correct");
+    // Check if the middle 3kb appears in the query result
+    if query_seq.contains(middle_3kb) {
+        println!("✅ SUCCESS: Middle 3kb found in query result");
+        
+        // Find position
+        if let Some(pos) = query_seq.find(middle_3kb) {
+            println!("   Position in query result: {} bp", pos);
+            println!("   Expected position: ~{} bp (accounting for 1kb flank)", flank_size);
+        }
+        
+        println!("\n   Coordinate-based extraction is CORRECT!");
     } else {
-        // Find first difference
-        let mut first_diff = None;
-        for (i, (c1, c2)) in seq1.chars().zip(seq2.chars()).enumerate() {
-            if c1 != c2 {
-                first_diff = Some((i, c1, c2));
-                break;
+        // Print diagnostic information
+        println!("❌ FAILURE: Middle 3kb NOT found in query result");
+        println!("\nDiagnostics:");
+        println!("  Expected (middle 3kb) length: {} bp", middle_3kb.len());
+        println!("  Actual (query) length: {} bp", query_seq.len());
+        println!("  Expected first 100bp: {}", &middle_3kb[..100]);
+        println!("  Actual first 100bp:   {}", &query_seq[..100.min(query_seq.len())]);
+        
+        // Check if sequences are similar but not exact
+        let mut matches = 0;
+        let compare_len = middle_3kb.len().min(query_seq.len());
+        for (c1, c2) in middle_3kb.chars().zip(query_seq.chars()).take(compare_len) {
+            if c1 == c2 {
+                matches += 1;
             }
         }
+        let similarity = (matches as f64 / compare_len as f64) * 100.0;
+        println!("  Similarity: {:.1}%", similarity);
         
-        if let Some((pos, c1, c2)) = first_diff {
-            println!("❌ FAILURE: Sequences differ at position {}", pos);
-            println!("   First extraction: {}", c1);
-            println!("   Second extraction: {}", c2);
-            
-            // Show context
-            let start = pos.saturating_sub(50);
-            let end = (pos + 50).min(seq1.len());
-            println!("\n   Context (first):  {}", &seq1[start..end]);
-            println!("   Context (second): {}", &seq2[start..end]);
-        }
-        
-        panic!("Coordinate extractions produced different sequences");
+        panic!("Coordinate extraction did not return the expected sequence");
     }
 }
