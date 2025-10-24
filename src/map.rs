@@ -619,20 +619,32 @@ pub fn coord_to_nodes_with_path_filtered(
                     node_count += 1;
                 }
 
+                let is_complete = !collecting;
+                
                 if collecting {
                     eprintln!(
-                        "[WARNING] End anchor node {} not found on path {}; extracted {} nodes",
+                        "[WARNING] INCOMPLETE: End anchor node {} not found on path {}; extracted {} nodes (region may span multiple contigs)",
                         end_anchor.node_id, full_path_name, node_count
+                    );
+                } else if node_count > 0 {
+                    eprintln!(
+                        "[INFO] COMPLETE: Found both anchors in path {} ({} nodes)",
+                        full_path_name, node_count
                     );
                 }
 
                 if node_count > 0 {
-                    eprintln!(
-                        "[INFO] Found {} nodes in path {}",
-                        node_count, full_path_name
-                    );
                     results.extend(path_results);
                     paths_with_results += 1;
+                    
+                    // If we found a complete extraction, stop searching other paths
+                    if is_complete {
+                        eprintln!(
+                            "[INFO] Found complete region in path {}, stopping search",
+                            full_path_name
+                        );
+                        break;
+                    }
                 } else {
                     eprintln!(
                         "[WARNING] Path {} contains start anchor but no nodes collected (may not reach end anchor within slice)",
