@@ -2,4 +2,5 @@ Cargo.lock
 target/
 *.gbz
 *.fixed.gfa
+*.fa
 .devcontainer/
