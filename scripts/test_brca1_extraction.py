@@ -141,6 +141,13 @@ def blast_sequence(fasta_path, target_assembly):
     """BLAST the extracted sequence against specified reference assembly."""
     print(f"\n=== BLASTing sequence against {target_assembly.upper()} reference ===")
     
+    # Read query sequence to get actual length
+    with open(fasta_path, 'r') as f:
+        query_content = f.read()
+    query_seq = ''.join(line.strip() for line in query_content.split('\n') if not line.startswith('>'))
+    actual_query_length = len(query_seq)
+    print(f"[INFO] Query sequence length: {actual_query_length} bp")
+    
     # Check if blastn is available
     try:
         subprocess.run(["blastn", "-version"], capture_output=True, check=True)
@@ -310,10 +317,10 @@ def blast_sequence(fasta_path, target_assembly):
         
         # Sum non-overlapping coverage
         total_query_coverage = sum(end - start + 1 for start, end in merged)
-        query_coverage = (total_query_coverage / 126002.0) * 100.0
+        query_coverage = (total_query_coverage / actual_query_length) * 100.0
     else:
         # Fallback to single hit
-        query_coverage = (align_length / 126002.0) * 100.0
+        query_coverage = (align_length / actual_query_length) * 100.0
     
     # Calculate combined coordinate range from all BRCA1 hits
     if brca1_hits:
