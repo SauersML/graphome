@@ -52,14 +52,15 @@ fn test_coordinate_extraction_correctness() {
     
     println!("=== Step 1: Extract FIRST 100kb of chr22 for GRCh38#0 ===");
     
-    // Extract first 100kb of chr22 starting at 10M (gene-rich region, not N's)
+    // Extract 100kb of chr22 starting at 20M (gene-rich region with actual sequence)
+    // chr22:20000000-20100000 is in a well-sequenced region
     let full_output = test_dir.join("chr22_100kb");
     let status = Command::new(&graphome_bin)
         .args(&[
             "make-sequence",
             "--gfa", gbz_path.to_str().unwrap(),
             "--assembly", "grch38",
-            "--region", "chr22:10000000-10100000",
+            "--region", "chr22:20000000-20100000",
             "--sample", test_sample,
             "--output", full_output.to_str().unwrap(),
         ])
