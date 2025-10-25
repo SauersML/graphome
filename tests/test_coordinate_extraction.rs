@@ -117,36 +117,37 @@ fn test_coordinate_extraction_correctness() {
     
     println!("\n=== Step 3: Pick a 5kb region from the string ===");
     
-    // Pick a 5kb region in the middle of the extracted sequence
-    let start_pos = full_seq.len() / 2 - 2500;  // Center the 5kb region
     let region_size = 5_000;
     
-    // Make sure we have enough sequence
+    // Scan for a 5kb region with <50% N's
+    let mut start_pos = 0;
+    let mut region_5kb = "";
+    let mut found_good_region = false;
+    
+    while start_pos + region_size <= full_seq.len() {
+        let candidate = &full_seq[start_pos..(start_pos + region_size)];
+        let n_count = candidate.chars().filter(|&c| c == 'N').count();
+        let n_percentage = (n_count as f64 / region_size as f64) * 100.0;
+        
+        if n_percentage < 50.0 {
+            region_5kb = candidate;
+            found_good_region = true;
+            println!("Found good 5kb region at string position {}-{}", start_pos, start_pos + region_size);
+            println!("5kb region length: {} bp", region_5kb.len());
+            println!("First 60bp: {}", &region_5kb[..60]);
+            println!("N content: {:.1}%", n_percentage);
+            break;
+        }
+        
+        start_pos += 1000;  // Skip ahead 1kb at a time
+    }
+    
     assert!(
-        full_seq.len() >= start_pos + region_size,
-        "Full sequence too short: {} bp (need at least {} bp)",
-        full_seq.len(),
-        start_pos + region_size
+        found_good_region,
+        "Could not find a 5kb region with <50% N's in the entire sequence"
     );
     
-    // Extract 5kb region from the string
-    let region_5kb = &full_seq[start_pos..(start_pos + region_size)];
     assert_eq!(region_5kb.len(), region_size, "5kb region should be {} bp", region_size);
-    
-    println!("Picked 5kb region at string position {}-{}", start_pos, start_pos + region_size);
-    println!("5kb region length: {} bp", region_5kb.len());
-    println!("First 60bp: {}", &region_5kb[..60]);
-    
-    // Verify it's not all N's
-    let n_count = region_5kb.chars().filter(|&c| c == 'N').count();
-    let n_percentage = (n_count as f64 / region_5kb.len() as f64) * 100.0;
-    println!("N content: {:.1}%", n_percentage);
-    
-    assert!(
-        n_percentage < 50.0,
-        "Picked region is mostly N's ({:.1}%), choose a different position",
-        n_percentage
-    );
     
     println!("\n=== Step 4: Extract middle 3kb (omitting 1kb flanks) ===");
     
