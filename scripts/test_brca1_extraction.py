@@ -268,9 +268,8 @@ def blast_sequence(fasta_path, target_assembly):
         expected_start = T2T_START
         expected_end = T2T_END
     
-    # Sum alignment lengths for all hits that map to the expected BRCA1 region
+    # Find first 2 HSPs that map to the expected BRCA1 region
     # A hit is in the BRCA1 region if it overlaps with the expected coordinates
-    total_align_length = 0
     brca1_hits = []
     for hit in all_hits:
         coord_start = min(hit['sstart'], hit['send'])
@@ -282,16 +281,39 @@ def blast_sequence(fasta_path, target_assembly):
         
         # Overlap check: hit overlaps if it starts before region ends AND ends after region starts
         if coord_start <= region_end and coord_end >= region_start:
-            total_align_length += hit['align_length']
             brca1_hits.append(hit)
+            if len(brca1_hits) == 2:  # Only take first 2 HSPs
+                break
     
     if len(brca1_hits) > 1:
         print(f"[INFO] Found {len(brca1_hits)} BLAST HSPs mapping to expected BRCA1 region")
         for i, hit in enumerate(brca1_hits, 1):
             print(f"  HSP {i}: {hit['align_length']} bp, {hit['pident']:.2f}% identity")
     
-    # Calculate query coverage from sum of all BRCA1-region hits
-    query_coverage = (total_align_length / 126002.0) * 100.0  # Query length is ~126kb
+    # Calculate non-redundant query coverage from first 2 BRCA1 HSPs
+    if brca1_hits:
+        # Collect all query intervals covered
+        query_intervals = []
+        for hit in brca1_hits:
+            qstart = min(hit['qstart'], hit['qend'])
+            qend = max(hit['qstart'], hit['qend'])
+            query_intervals.append((qstart, qend))
+        
+        # Merge overlapping intervals to get non-redundant coverage
+        query_intervals.sort()
+        merged = [query_intervals[0]]
+        for start, end in query_intervals[1:]:
+            if start <= merged[-1][1]:  # Overlaps with previous interval
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+        
+        # Sum non-overlapping coverage
+        total_query_coverage = sum(end - start + 1 for start, end in merged)
+        query_coverage = (total_query_coverage / 126002.0) * 100.0
+    else:
+        # Fallback to single hit
+        query_coverage = (align_length / 126002.0) * 100.0
     
     # Calculate combined coordinate range from all BRCA1 hits
     if brca1_hits:
