@@ -46,6 +46,11 @@ fn test_coordinate_extraction_correctness() {
     }
     
     let test_dir = project_root.join("target/test_coordinate_extraction");
+    
+    // Clean up old test files to avoid stale artifacts
+    if test_dir.exists() {
+        fs::remove_dir_all(&test_dir).expect("Failed to remove old test directory");
+    }
     fs::create_dir_all(&test_dir).expect("Failed to create test directory");
     
     let test_sample = "GRCh38#0";
