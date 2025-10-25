@@ -293,9 +293,16 @@ def blast_sequence(fasta_path, target_assembly):
     # Calculate query coverage from sum of all BRCA1-region hits
     query_coverage = (total_align_length / 126002.0) * 100.0  # Query length is ~126kb
     
-    # Normalize coordinates
-    coord_start = min(sstart, send)
-    coord_end = max(sstart, send)
+    # Calculate combined coordinate range from all BRCA1 hits
+    if brca1_hits:
+        all_starts = [min(hit['sstart'], hit['send']) for hit in brca1_hits]
+        all_ends = [max(hit['sstart'], hit['send']) for hit in brca1_hits]
+        coord_start = min(all_starts)
+        coord_end = max(all_ends)
+    else:
+        # Fallback to top hit if no BRCA1 hits found
+        coord_start = min(sstart, send)
+        coord_end = max(sstart, send)
     
     # Extract chromosome from accession or title
     # NC_000017.11 = GRCh38 chr17, NC_060941.1 = T2T chr17
