@@ -253,7 +253,10 @@ impl FeatureBuilder {
                 SnarlOptResult { cost: 1, selected }
             }
             SnarlType::Acyclic if snarl.children.is_empty() => {
-                let cost = snarl.allele_count - 1;
+                let cost = snarl
+                    .allele_count
+                    .checked_sub(1)
+                    .expect("validated leaf allele_count must be > 0");
                 let selected = if cost == 0 {
                     Vec::new()
                 } else {
@@ -276,9 +279,14 @@ impl FeatureBuilder {
                 SnarlOptResult { cost, selected }
             }
             SnarlType::Acyclic => {
-                let flat_cost = snarl.allele_count - 1;
+                let flat_cost = snarl
+                    .allele_count
+                    .checked_sub(1)
+                    .expect("validated compound allele_count must be > 0");
                 let k_skel = snarl.skeleton_allele_count.unwrap_or(1);
-                let skeleton_cost = k_skel - 1;
+                let skeleton_cost = k_skel
+                    .checked_sub(1)
+                    .expect("validated skeleton_allele_count must be > 0");
 
                 let mut child_cost = 0usize;
                 for child in &snarl.children {
@@ -318,7 +326,20 @@ impl FeatureBuilder {
                         let skeleton_freq = snarl
                             .skeleton_allele_frequencies
                             .clone()
-                            .unwrap_or_default();
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "compound snarl {} requires skeleton_allele_frequencies when k_skel > 1",
+                                    snarl.id
+                                )
+                            });
+                        assert_eq!(
+                            skeleton_freq.len(),
+                            k_skel,
+                            "snarl {} skeleton_allele_frequencies length {} does not match k_skel {}",
+                            snarl.id,
+                            skeleton_freq.len(),
+                            k_skel
+                        );
                         selected.push(SelectedSite {
                             snarl_id: snarl.id.clone(),
                             kind: FeatureKind::Skeleton,
@@ -359,10 +380,20 @@ impl FeatureBuilder {
     fn snarl_cost(&self, snarl: &Snarl) -> usize {
         match snarl.snarl_type {
             SnarlType::Cyclic => 1,
-            SnarlType::Acyclic if snarl.children.is_empty() => snarl.allele_count - 1,
+            SnarlType::Acyclic if snarl.children.is_empty() => snarl
+                .allele_count
+                .checked_sub(1)
+                .expect("validated leaf allele_count must be > 0"),
             SnarlType::Acyclic => {
-                let flat_cost = snarl.allele_count - 1;
-                let skeleton_cost = snarl.skeleton_allele_count.unwrap_or(1) - 1;
+                let flat_cost = snarl
+                    .allele_count
+                    .checked_sub(1)
+                    .expect("validated compound allele_count must be > 0");
+                let skeleton_cost = snarl
+                    .skeleton_allele_count
+                    .unwrap_or(1)
+                    .checked_sub(1)
+                    .expect("validated skeleton_allele_count must be > 0");
                 let child_cost: usize = snarl
                     .children
                     .iter()
@@ -407,11 +438,43 @@ impl FeatureBuilder {
                 snarl_id: parent_snarl_id.to_owned(),
                 allowed_parent_skeleton_alleles: allowed,
             });
+        } else {
+            // Even without parent skeleton branching, child traversal is still conditional
+            // on traversing the parent span.
+            conditions.push(TraversalCondition {
+                snarl_id: parent_snarl_id.to_owned(),
+                allowed_parent_skeleton_alleles: vec![0],
+            });
         }
         conditions
     }
 
     fn validate_snarl(&self, snarl: &Snarl) {
+        self.validate_snarl_inner(snarl, None);
+    }
+
+    fn validate_snarl_inner(&self, snarl: &Snarl, parent: Option<(&str, usize)>) {
+        if let Some((parent_id, parent_k_skel)) = parent {
+            if parent_k_skel > 1 {
+                let allowed = snarl.parent_skeleton_alleles.as_ref().unwrap_or_else(|| {
+                    panic!(
+                        "child snarl {} of {} must define parent_skeleton_alleles when parent k_skel > 1",
+                        snarl.id, parent_id
+                    )
+                });
+                for &allele in allowed {
+                    assert!(
+                        allele < parent_k_skel,
+                        "child snarl {} has invalid parent_skeleton_allele {} for parent {} (k_skel={})",
+                        snarl.id,
+                        allele,
+                        parent_id,
+                        parent_k_skel
+                    );
+                }
+            }
+        }
+
         match snarl.snarl_type {
             SnarlType::Cyclic => {
                 assert!(
@@ -441,16 +504,15 @@ impl FeatureBuilder {
                     "acyclic snarl {} must have allele_count > 0",
                     snarl.id
                 );
-                if !snarl.allele_frequencies.is_empty() {
-                    assert_eq!(
-                        snarl.allele_frequencies.len(),
-                        snarl.allele_count,
-                        "snarl {} allele_frequencies length {} does not match allele_count {}",
-                        snarl.id,
-                        snarl.allele_frequencies.len(),
-                        snarl.allele_count
-                    );
-                }
+                assert_eq!(
+                    snarl.allele_frequencies.len(),
+                    snarl.allele_count,
+                    "snarl {} must provide allele_frequencies for all alleles (got {}, expected {})",
+                    snarl.id,
+                    snarl.allele_frequencies.len(),
+                    snarl.allele_count
+                );
+                validate_frequency_vector(&snarl.id, "allele_frequencies", &snarl.allele_frequencies);
                 if snarl.children.is_empty() {
                     assert!(
                         snarl.skeleton_allele_count.is_none(),
@@ -469,7 +531,13 @@ impl FeatureBuilder {
                         "compound snarl {} must have skeleton_allele_count > 0",
                         snarl.id
                     );
-                    if let Some(freq) = &snarl.skeleton_allele_frequencies {
+                    if k_skel > 1 {
+                        let freq = snarl.skeleton_allele_frequencies.as_ref().unwrap_or_else(|| {
+                            panic!(
+                                "compound snarl {} must provide skeleton_allele_frequencies when k_skel > 1",
+                                snarl.id
+                            )
+                        });
                         assert_eq!(
                             freq.len(),
                             k_skel,
@@ -478,13 +546,26 @@ impl FeatureBuilder {
                             freq.len(),
                             k_skel
                         );
+                        validate_frequency_vector(&snarl.id, "skeleton_allele_frequencies", freq);
+                    } else if let Some(freq) = &snarl.skeleton_allele_frequencies {
+                        assert_eq!(
+                            freq.len(),
+                            1,
+                            "snarl {} with k_skel=1 may only carry one skeleton frequency",
+                            snarl.id
+                        );
+                        validate_frequency_vector(&snarl.id, "skeleton_allele_frequencies", freq);
                     }
                 }
             }
         }
 
+        let parent_k_skel = match snarl.snarl_type {
+            SnarlType::Acyclic if !snarl.children.is_empty() => snarl.skeleton_allele_count.unwrap_or(1),
+            _ => 1,
+        };
         for child in &snarl.children {
-            self.validate_snarl(child);
+            self.validate_snarl_inner(child, Some((&snarl.id, parent_k_skel)));
         }
     }
 }
@@ -599,4 +680,37 @@ pub fn reference_allele_index(allele_frequencies: &[f64]) -> Option<usize> {
         }
     }
     best_idx
+}
+
+fn validate_frequency_vector(snarl_id: &str, field: &str, freqs: &[f64]) {
+    assert!(
+        !freqs.is_empty(),
+        "snarl {} {} must not be empty",
+        snarl_id,
+        field
+    );
+    let mut sum = 0.0f64;
+    for (idx, value) in freqs.iter().copied().enumerate() {
+        assert!(
+            value.is_finite(),
+            "snarl {} {}[{}] must be finite",
+            snarl_id,
+            field,
+            idx
+        );
+        assert!(
+            value >= 0.0,
+            "snarl {} {}[{}] must be non-negative",
+            snarl_id,
+            field,
+            idx
+        );
+        sum += value;
+    }
+    assert!(
+        sum > 0.0,
+        "snarl {} {} must have positive total mass",
+        snarl_id,
+        field
+    );
 }

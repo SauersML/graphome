@@ -12,12 +12,18 @@ use gbwt::Orientation;
 use std::io::Write;
 use tempfile::NamedTempFile;
 
+fn leaf_with_freq(id: impl Into<String>, allele_frequencies: Vec<f64>) -> Snarl {
+    Snarl::leaf(id, allele_frequencies.len()).with_allele_frequencies(allele_frequencies)
+}
+
 #[test]
 fn ld_block_prefers_flattening() {
     let children = (0..50)
-        .map(|i| Snarl::leaf(format!("leaf_{i}"), 2))
+        .map(|i| leaf_with_freq(format!("leaf_{i}"), vec![0.5, 0.5]))
         .collect();
-    let root = Snarl::compound("ld_block", 2, 2, children);
+    let root = Snarl::compound("ld_block", 2, 2, children)
+        .with_allele_frequencies(vec![0.5, 0.5])
+        .with_skeleton_allele_frequencies(vec![0.5, 0.5]);
 
     let schema = FeatureBuilder::new().optimize(&[root]);
 
@@ -30,8 +36,10 @@ fn ld_block_prefers_flattening() {
 
 #[test]
 fn nested_tie_prefers_decomposition() {
-    let inner = Snarl::leaf("inner_snp", 2).with_parent_skeleton_alleles(vec![1]);
-    let root = Snarl::compound("outer_sv", 3, 2, vec![inner]);
+    let inner = leaf_with_freq("inner_snp", vec![0.6, 0.4]).with_parent_skeleton_alleles(vec![1]);
+    let root = Snarl::compound("outer_sv", 3, 2, vec![inner])
+        .with_allele_frequencies(vec![0.4, 0.35, 0.25])
+        .with_skeleton_allele_frequencies(vec![0.7, 0.3]);
 
     let schema = FeatureBuilder::new().optimize(&[root]);
 
@@ -109,9 +117,7 @@ fn zero_allele_count_panics() {
 
 #[test]
 fn metadata_fields_are_propagated() {
-    let leaf = Snarl::leaf("leaf", 2)
-        .with_allele_frequencies(vec![0.7, 0.3])
-        .with_genomic_region("chr1:10-20");
+    let leaf = leaf_with_freq("leaf", vec![0.7, 0.3]).with_genomic_region("chr1:10-20");
     let schema = FeatureBuilder::new().optimize(&[leaf]);
     assert_eq!(schema.sites.len(), 1);
     assert_eq!(schema.sites[0].allele_frequencies, vec![0.7, 0.3]);
@@ -123,7 +129,7 @@ fn metadata_fields_are_propagated() {
 
 #[test]
 fn skeleton_allele_frequencies_are_used_for_skeleton_site() {
-    let inner = Snarl::leaf("inner", 2).with_parent_skeleton_alleles(vec![1]);
+    let inner = leaf_with_freq("inner", vec![0.8, 0.2]).with_parent_skeleton_alleles(vec![1]);
     let root = Snarl::compound("outer", 4, 2, vec![inner])
         .with_allele_frequencies(vec![0.6, 0.2, 0.15, 0.05])
         .with_skeleton_allele_frequencies(vec![0.9, 0.1]);
@@ -136,12 +142,15 @@ fn skeleton_allele_frequencies_are_used_for_skeleton_site() {
 
 #[test]
 fn nested_conditions_compose_across_multiple_levels() {
-    let grandchild = Snarl::leaf("grandchild", 2).with_parent_skeleton_alleles(vec![0]);
+    let grandchild = leaf_with_freq("grandchild", vec![0.6, 0.4]).with_parent_skeleton_alleles(vec![0]);
     let child = Snarl::compound("child", 3, 2, vec![grandchild])
+        .with_allele_frequencies(vec![0.5, 0.3, 0.2])
         .with_parent_skeleton_alleles(vec![1])
         .with_skeleton_allele_frequencies(vec![0.8, 0.2]);
     let root =
-        Snarl::compound("root", 4, 2, vec![child]).with_skeleton_allele_frequencies(vec![0.5, 0.5]);
+        Snarl::compound("root", 4, 2, vec![child])
+            .with_allele_frequencies(vec![0.25, 0.25, 0.25, 0.25])
+            .with_skeleton_allele_frequencies(vec![0.5, 0.5]);
     let schema = FeatureBuilder::new().optimize(&[root]);
 
     let grandchild_site = schema
@@ -166,13 +175,19 @@ fn nested_conditions_compose_across_multiple_levels() {
 
 #[test]
 fn child_not_conditioned_when_parent_has_no_skeleton_choice() {
-    let child = Snarl::leaf("child", 2).with_parent_skeleton_alleles(vec![0]);
-    let root = Snarl::compound("root", 5, 1, vec![child]);
+    let child = leaf_with_freq("child", vec![0.7, 0.3]);
+    let root = Snarl::compound("root", 5, 1, vec![child]).with_allele_frequencies(vec![0.2; 5]);
     let schema = FeatureBuilder::new().optimize(&[root]);
 
     assert_eq!(schema.sites.len(), 1);
     assert_eq!(schema.sites[0].snarl_id, "child");
-    assert!(schema.sites[0].conditional_on.is_empty());
+    assert_eq!(
+        schema.sites[0].conditional_on,
+        vec![TraversalCondition {
+            snarl_id: "root".to_string(),
+            allowed_parent_skeleton_alleles: vec![0]
+        }]
+    );
 }
 
 #[test]
@@ -319,4 +334,16 @@ fn loads_topology_from_tsv() {
     assert_eq!(roots[0].children.len(), 1);
     assert_eq!(roots[0].children[0].id, "inner");
     assert_eq!(roots[0].children[0].genomic_region.as_deref(), Some("chr1:3-8"));
+}
+
+#[test]
+fn allows_empty_parent_skeleton_alleles_for_never_traversed_child() {
+    let child = leaf_with_freq("child", vec![1.0]).with_parent_skeleton_alleles(vec![]);
+    let root = Snarl::compound("root", 2, 2, vec![child])
+        .with_allele_frequencies(vec![0.5, 0.5])
+        .with_skeleton_allele_frequencies(vec![0.5, 0.5]);
+    let schema = FeatureBuilder::new().optimize(&[root]);
+    // Child has no variation and should not become a selected feature.
+    assert_eq!(schema.sites.len(), 1);
+    assert_eq!(schema.sites[0].snarl_id, "root");
 }

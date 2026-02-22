@@ -145,9 +145,16 @@ pub fn load_topology_tsv(path: &str) -> io::Result<Vec<SnarlTopology>> {
     }
 
     let mut built = HashMap::new();
+    let mut visiting = BTreeSet::new();
     let mut roots = Vec::new();
     for root_id in root_ids {
-        roots.push(build_topology_node(&root_id, &row_map, &child_map, &mut built)?);
+        roots.push(build_topology_node(
+            &root_id,
+            &row_map,
+            &child_map,
+            &mut built,
+            &mut visiting,
+        )?);
     }
     Ok(roots)
 }
@@ -158,7 +165,10 @@ pub fn extract_haplotype_walks_from_gbz(gbz: &GBZ) -> Vec<HaplotypeWalk> {
     };
 
     let mut walks = Vec::new();
-    for (path_id, path_name) in metadata.path_iter().enumerate() {
+    for path_id in 0..metadata.paths() {
+        let Some(path_name) = metadata.path(path_id) else {
+            continue;
+        };
         let sample_name = metadata.sample_name(path_name.sample());
         let phase = path_name.phase();
         let contig_name = metadata.contig_name(path_name.contig());
@@ -296,11 +306,19 @@ fn build_topology_node(
     rows: &HashMap<String, TopologyRow>,
     child_map: &HashMap<String, Vec<String>>,
     cache: &mut HashMap<String, SnarlTopology>,
+    visiting: &mut BTreeSet<String>,
 ) -> io::Result<SnarlTopology> {
     if let Some(cached) = cache.get(id) {
         return Ok(cached.clone());
     }
+    if !visiting.insert(id.to_string()) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("cycle detected in topology at snarl {}", id),
+        ));
+    }
     let Some(row) = rows.get(id) else {
+        visiting.remove(id);
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!("missing row for snarl id {}", id),
@@ -310,7 +328,13 @@ fn build_topology_node(
     let mut children = Vec::new();
     if let Some(child_ids) = child_map.get(&row.id) {
         for child_id in child_ids {
-            children.push(build_topology_node(child_id, rows, child_map, cache)?);
+            children.push(build_topology_node(
+                child_id,
+                rows,
+                child_map,
+                cache,
+                visiting,
+            )?);
         }
     }
     let topology = SnarlTopology {
@@ -322,6 +346,7 @@ fn build_topology_node(
         children,
     };
     cache.insert(id.to_string(), topology.clone());
+    visiting.remove(id);
     Ok(topology)
 }
 
@@ -635,14 +660,38 @@ fn step_signature(steps: &[HaplotypeStep]) -> String {
 }
 
 fn find_span(steps: &[HaplotypeStep], entry_node: usize, exit_node: usize) -> Option<(usize, usize)> {
+    let forward = find_ordered_span(steps, entry_node, exit_node);
+    let reverse = find_ordered_span(steps, exit_node, entry_node);
+
+    match (forward, reverse) {
+        (Some(fwd), Some(rev)) => {
+            let fwd_len = fwd.1.saturating_sub(fwd.0);
+            let rev_len = rev.1.saturating_sub(rev.0);
+            if fwd_len <= rev_len {
+                Some(fwd)
+            } else {
+                Some(rev)
+            }
+        }
+        (Some(fwd), None) => Some(fwd),
+        (None, Some(rev)) => Some(rev),
+        (None, None) => None,
+    }
+}
+
+fn find_ordered_span(
+    steps: &[HaplotypeStep],
+    start_node: usize,
+    end_node: usize,
+) -> Option<(usize, usize)> {
     let mut best_span: Option<(usize, usize)> = None;
     for start_idx in 0..steps.len() {
-        if steps[start_idx].node_id != entry_node {
+        if steps[start_idx].node_id != start_node {
             continue;
         }
         let mut found_end = None;
         for (offset, step) in steps[start_idx..].iter().enumerate() {
-            if step.node_id == exit_node {
+            if step.node_id == end_node {
                 found_end = Some(start_idx + offset);
                 break;
             }
