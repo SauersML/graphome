@@ -82,3 +82,7 @@ path = "tests/test_map.rs"
 [[test]]
 name = "test_sparse_sampling"
 path = "tests/test_sparse_sampling.rs"
+
+[[test]]
+name = "test_pangenome_features"
+path = "tests/test_pangenome_features.rs"

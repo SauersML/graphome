@@ -15,3 +15,5 @@ pub mod progress;
 pub mod video;
 pub mod viz;
 pub mod window;
+
+pub mod pangenome_features;
