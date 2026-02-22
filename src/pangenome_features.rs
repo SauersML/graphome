@@ -6,12 +6,16 @@ pub enum SnarlType {
     Cyclic,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Snarl {
     pub id: String,
     pub snarl_type: SnarlType,
     pub allele_count: usize,
+    pub allele_frequencies: Vec<f64>,
+    pub genomic_region: Option<String>,
     pub skeleton_allele_count: Option<usize>,
+    pub skeleton_allele_frequencies: Option<Vec<f64>>,
+    pub parent_skeleton_alleles: Option<Vec<usize>>,
     pub children: Vec<Snarl>,
 }
 
@@ -21,7 +25,11 @@ impl Snarl {
             id: id.into(),
             snarl_type: SnarlType::Acyclic,
             allele_count,
+            allele_frequencies: Vec::new(),
+            genomic_region: None,
             skeleton_allele_count: None,
+            skeleton_allele_frequencies: None,
+            parent_skeleton_alleles: None,
             children: Vec::new(),
         }
     }
@@ -31,7 +39,11 @@ impl Snarl {
             id: id.into(),
             snarl_type: SnarlType::Cyclic,
             allele_count: 0,
+            allele_frequencies: Vec::new(),
+            genomic_region: None,
             skeleton_allele_count: None,
+            skeleton_allele_frequencies: None,
+            parent_skeleton_alleles: None,
             children: Vec::new(),
         }
     }
@@ -46,9 +58,36 @@ impl Snarl {
             id: id.into(),
             snarl_type: SnarlType::Acyclic,
             allele_count,
+            allele_frequencies: Vec::new(),
+            genomic_region: None,
             skeleton_allele_count: Some(skeleton_allele_count),
+            skeleton_allele_frequencies: None,
+            parent_skeleton_alleles: None,
             children,
         }
+    }
+
+    pub fn with_allele_frequencies(mut self, allele_frequencies: Vec<f64>) -> Self {
+        self.allele_frequencies = allele_frequencies;
+        self
+    }
+
+    pub fn with_genomic_region(mut self, genomic_region: impl Into<String>) -> Self {
+        self.genomic_region = Some(genomic_region.into());
+        self
+    }
+
+    pub fn with_parent_skeleton_alleles(mut self, parent_skeleton_alleles: Vec<usize>) -> Self {
+        self.parent_skeleton_alleles = Some(parent_skeleton_alleles);
+        self
+    }
+
+    pub fn with_skeleton_allele_frequencies(
+        mut self,
+        skeleton_allele_frequencies: Vec<f64>,
+    ) -> Self {
+        self.skeleton_allele_frequencies = Some(skeleton_allele_frequencies);
+        self
     }
 }
 
@@ -67,15 +106,17 @@ pub enum SiteClass {
     Cyclic,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FeatureSite {
     pub snarl_id: String,
     pub kind: FeatureKind,
     pub class: SiteClass,
     pub allele_count: usize,
+    pub allele_frequencies: Vec<f64>,
+    pub genomic_region: Option<String>,
     pub depth: usize,
     pub parent_snarl_id: Option<String>,
-    pub conditional_on: Option<String>,
+    pub conditional_on: Vec<TraversalCondition>,
     pub node_count: Option<usize>,
     pub feature_start: usize,
     pub feature_end: usize,
@@ -85,29 +126,41 @@ impl FeatureSite {
     pub fn column_count(&self) -> usize {
         self.feature_end.saturating_sub(self.feature_start)
     }
+
+    pub fn reference_allele_index(&self) -> Option<usize> {
+        reference_allele_index(&self.allele_frequencies)
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FeatureSchema {
     pub sites: Vec<FeatureSite>,
     pub total_features: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct SnarlOptResult {
     cost: usize,
     selected: Vec<SelectedSite>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct SelectedSite {
     snarl_id: String,
     kind: FeatureKind,
     allele_count: usize,
+    allele_frequencies: Vec<f64>,
+    genomic_region: Option<String>,
     class: SiteClass,
     depth: usize,
     parent_snarl_id: Option<String>,
-    conditional_on: Option<String>,
+    conditional_on: Vec<TraversalCondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraversalCondition {
+    pub snarl_id: String,
+    pub allowed_parent_skeleton_alleles: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -127,9 +180,13 @@ impl FeatureBuilder {
     }
 
     pub fn optimize(&self, roots: &[Snarl]) -> FeatureSchema {
+        for snarl in roots {
+            self.validate_snarl(snarl);
+        }
+
         let mut selected = Vec::new();
         for snarl in roots {
-            let result = self.optimize_snarl(snarl, 0, None, None);
+            let result = self.optimize_snarl(snarl, 0, None, &[]);
             selected.extend(result.selected);
         }
 
@@ -146,17 +203,13 @@ impl FeatureBuilder {
             let feature_end = next_col + cols;
             next_col = feature_end;
 
-            let class = match site.class {
-                SiteClass::Cyclic => SiteClass::Cyclic,
-                _ if site.allele_count <= 2 => SiteClass::Biallelic,
-                _ => SiteClass::Multiallelic,
-            };
-
             sites.push(FeatureSite {
                 snarl_id: site.snarl_id.clone(),
                 kind: site.kind,
-                class,
+                class: site.class,
                 allele_count: site.allele_count,
+                allele_frequencies: site.allele_frequencies.clone(),
+                genomic_region: site.genomic_region.clone(),
                 depth: site.depth,
                 parent_snarl_id: site.parent_snarl_id.clone(),
                 conditional_on: site.conditional_on.clone(),
@@ -177,23 +230,30 @@ impl FeatureBuilder {
         snarl: &Snarl,
         depth: usize,
         parent_id: Option<&str>,
-        conditional_on: Option<String>,
+        inherited_conditions: &[TraversalCondition],
     ) -> SnarlOptResult {
         match snarl.snarl_type {
             SnarlType::Cyclic => {
+                assert!(
+                    snarl.children.is_empty(),
+                    "cyclic snarl {} has children; nested cyclic snarls are not supported",
+                    snarl.id
+                );
                 let selected = vec![SelectedSite {
                     snarl_id: snarl.id.clone(),
                     kind: FeatureKind::Cyclic,
                     allele_count: 0,
+                    allele_frequencies: snarl.allele_frequencies.clone(),
+                    genomic_region: snarl.genomic_region.clone(),
                     class: SiteClass::Cyclic,
                     depth,
                     parent_snarl_id: parent_id.map(str::to_owned),
-                    conditional_on,
+                    conditional_on: inherited_conditions.to_vec(),
                 }];
                 SnarlOptResult { cost: 1, selected }
             }
             SnarlType::Acyclic if snarl.children.is_empty() => {
-                let cost = snarl.allele_count.saturating_sub(1);
+                let cost = snarl.allele_count - 1;
                 let selected = if cost == 0 {
                     Vec::new()
                 } else {
@@ -201,6 +261,8 @@ impl FeatureBuilder {
                         snarl_id: snarl.id.clone(),
                         kind: FeatureKind::Leaf,
                         allele_count: snarl.allele_count,
+                        allele_frequencies: snarl.allele_frequencies.clone(),
+                        genomic_region: snarl.genomic_region.clone(),
                         class: if snarl.allele_count <= 2 {
                             SiteClass::Biallelic
                         } else {
@@ -208,27 +270,19 @@ impl FeatureBuilder {
                         },
                         depth,
                         parent_snarl_id: parent_id.map(str::to_owned),
-                        conditional_on,
+                        conditional_on: inherited_conditions.to_vec(),
                     }]
                 };
                 SnarlOptResult { cost, selected }
             }
             SnarlType::Acyclic => {
-                let flat_cost = snarl.allele_count.saturating_sub(1);
+                let flat_cost = snarl.allele_count - 1;
                 let k_skel = snarl.skeleton_allele_count.unwrap_or(1);
-                let skeleton_cost = k_skel.saturating_sub(1);
+                let skeleton_cost = k_skel - 1;
 
                 let mut child_cost = 0usize;
-                let mut child_selected = Vec::new();
                 for child in &snarl.children {
-                    let child_result = self.optimize_snarl(
-                        child,
-                        depth + 1,
-                        Some(&snarl.id),
-                        Some(format!("{}:skeleton", snarl.id)),
-                    );
-                    child_cost += child_result.cost;
-                    child_selected.extend(child_result.selected);
+                    child_cost += self.snarl_cost(child);
                 }
 
                 let decomp_cost = skeleton_cost + child_cost;
@@ -241,6 +295,8 @@ impl FeatureBuilder {
                             snarl_id: snarl.id.clone(),
                             kind: FeatureKind::Flat,
                             allele_count: snarl.allele_count,
+                            allele_frequencies: snarl.allele_frequencies.clone(),
+                            genomic_region: snarl.genomic_region.clone(),
                             class: if snarl.allele_count <= 2 {
                                 SiteClass::Biallelic
                             } else {
@@ -248,7 +304,7 @@ impl FeatureBuilder {
                             },
                             depth,
                             parent_snarl_id: parent_id.map(str::to_owned),
-                            conditional_on,
+                            conditional_on: inherited_conditions.to_vec(),
                         }]
                     };
                     SnarlOptResult {
@@ -259,10 +315,16 @@ impl FeatureBuilder {
                     // Tie-breaker follows the plan: prefer decomposition when costs are equal.
                     let mut selected = Vec::new();
                     if k_skel > 1 {
+                        let skeleton_freq = snarl
+                            .skeleton_allele_frequencies
+                            .clone()
+                            .unwrap_or_default();
                         selected.push(SelectedSite {
                             snarl_id: snarl.id.clone(),
                             kind: FeatureKind::Skeleton,
                             allele_count: k_skel,
+                            allele_frequencies: skeleton_freq,
+                            genomic_region: snarl.genomic_region.clone(),
                             class: if k_skel <= 2 {
                                 SiteClass::Biallelic
                             } else {
@@ -270,10 +332,20 @@ impl FeatureBuilder {
                             },
                             depth,
                             parent_snarl_id: parent_id.map(str::to_owned),
-                            conditional_on: conditional_on.clone(),
+                            conditional_on: inherited_conditions.to_vec(),
                         });
                     }
-                    selected.extend(child_selected);
+                    for child in &snarl.children {
+                        let child_conditions =
+                            self.child_conditions(&snarl.id, k_skel, child, inherited_conditions);
+                        let child_result = self.optimize_snarl(
+                            child,
+                            depth + 1,
+                            Some(&snarl.id),
+                            &child_conditions,
+                        );
+                        selected.extend(child_result.selected);
+                    }
 
                     SnarlOptResult {
                         cost: decomp_cost,
@@ -281,6 +353,138 @@ impl FeatureBuilder {
                     }
                 }
             }
+        }
+    }
+
+    fn snarl_cost(&self, snarl: &Snarl) -> usize {
+        match snarl.snarl_type {
+            SnarlType::Cyclic => 1,
+            SnarlType::Acyclic if snarl.children.is_empty() => snarl.allele_count - 1,
+            SnarlType::Acyclic => {
+                let flat_cost = snarl.allele_count - 1;
+                let skeleton_cost = snarl.skeleton_allele_count.unwrap_or(1) - 1;
+                let child_cost: usize = snarl
+                    .children
+                    .iter()
+                    .map(|child| self.snarl_cost(child))
+                    .sum();
+                let decomp_cost = skeleton_cost + child_cost;
+                if flat_cost < decomp_cost {
+                    flat_cost
+                } else {
+                    decomp_cost
+                }
+            }
+        }
+    }
+
+    fn child_conditions(
+        &self,
+        parent_snarl_id: &str,
+        parent_skeleton_allele_count: usize,
+        child: &Snarl,
+        inherited_conditions: &[TraversalCondition],
+    ) -> Vec<TraversalCondition> {
+        let mut conditions = inherited_conditions.to_vec();
+        if parent_skeleton_allele_count > 1 {
+            let allowed = child.parent_skeleton_alleles.clone().unwrap_or_else(|| {
+                panic!(
+                    "child snarl {} of {} is missing parent_skeleton_alleles",
+                    child.id, parent_snarl_id
+                )
+            });
+            for &allele in &allowed {
+                assert!(
+                    allele < parent_skeleton_allele_count,
+                    "child snarl {} has out-of-range parent skeleton allele {} for parent {} (k_skel={})",
+                    child.id,
+                    allele,
+                    parent_snarl_id,
+                    parent_skeleton_allele_count
+                );
+            }
+            conditions.push(TraversalCondition {
+                snarl_id: parent_snarl_id.to_owned(),
+                allowed_parent_skeleton_alleles: allowed,
+            });
+        }
+        conditions
+    }
+
+    fn validate_snarl(&self, snarl: &Snarl) {
+        match snarl.snarl_type {
+            SnarlType::Cyclic => {
+                assert!(
+                    snarl.allele_count == 0,
+                    "cyclic snarl {} must use allele_count=0",
+                    snarl.id
+                );
+                assert!(
+                    snarl.skeleton_allele_count.is_none(),
+                    "cyclic snarl {} must not define skeleton_allele_count",
+                    snarl.id
+                );
+                assert!(
+                    snarl.skeleton_allele_frequencies.is_none(),
+                    "cyclic snarl {} must not define skeleton_allele_frequencies",
+                    snarl.id
+                );
+                assert!(
+                    snarl.parent_skeleton_alleles.is_none(),
+                    "cyclic snarl {} must not define parent_skeleton_alleles",
+                    snarl.id
+                );
+            }
+            SnarlType::Acyclic => {
+                assert!(
+                    snarl.allele_count > 0,
+                    "acyclic snarl {} must have allele_count > 0",
+                    snarl.id
+                );
+                if !snarl.allele_frequencies.is_empty() {
+                    assert_eq!(
+                        snarl.allele_frequencies.len(),
+                        snarl.allele_count,
+                        "snarl {} allele_frequencies length {} does not match allele_count {}",
+                        snarl.id,
+                        snarl.allele_frequencies.len(),
+                        snarl.allele_count
+                    );
+                }
+                if snarl.children.is_empty() {
+                    assert!(
+                        snarl.skeleton_allele_count.is_none(),
+                        "leaf snarl {} must not define skeleton_allele_count",
+                        snarl.id
+                    );
+                    assert!(
+                        snarl.skeleton_allele_frequencies.is_none(),
+                        "leaf snarl {} must not define skeleton_allele_frequencies",
+                        snarl.id
+                    );
+                } else {
+                    let k_skel = snarl.skeleton_allele_count.unwrap_or(1);
+                    assert!(
+                        k_skel > 0,
+                        "compound snarl {} must have skeleton_allele_count > 0",
+                        snarl.id
+                    );
+                    if let Some(freq) = &snarl.skeleton_allele_frequencies {
+                        assert_eq!(
+                            freq.len(),
+                            k_skel,
+                            "snarl {} skeleton_allele_frequencies length {} does not match skeleton_allele_count {}",
+                            snarl.id,
+                            freq.len(),
+                            k_skel
+                        );
+                    }
+                }
+            }
+        }
+
+        for child in &snarl.children {
+            self.validate_snarl(child);
         }
     }
 }
@@ -295,22 +499,59 @@ pub fn encode_haploid_acyclic(
     allele_index: Option<usize>,
     allele_count: usize,
 ) -> Vec<Option<f64>> {
-    let cols = allele_count.saturating_sub(1);
+    encode_haploid_acyclic_with_reference(allele_index, allele_count, 0)
+}
+
+pub fn encode_haploid_acyclic_with_reference(
+    allele_index: Option<usize>,
+    allele_count: usize,
+    reference_allele: usize,
+) -> Vec<Option<f64>> {
+    assert!(
+        allele_count > 0,
+        "allele_count must be > 0 for acyclic encoding"
+    );
+    if allele_count == 1 {
+        return Vec::new();
+    }
+    assert!(
+        reference_allele < allele_count,
+        "reference_allele {} out of bounds for allele_count {}",
+        reference_allele,
+        allele_count
+    );
+
+    let cols = allele_count - 1;
     let Some(allele) = allele_index else {
         return vec![None; cols];
     };
+    assert!(
+        allele < allele_count,
+        "allele_index {} out of bounds for allele_count {}",
+        allele,
+        allele_count
+    );
 
-    if allele_count <= 2 {
-        let dosage = if allele == 0 { 0.0 } else { 1.0 };
+    if allele_count == 2 {
+        let dosage = if allele == reference_allele { 0.0 } else { 1.0 };
         return vec![Some(dosage)];
     }
 
     let mut out = vec![Some(0.0); cols];
-    if allele > 0 {
-        let idx = allele - 1;
-        if idx < cols {
-            out[idx] = Some(1.0);
+    if allele == reference_allele {
+        return out;
+    }
+
+    let mut col = 0usize;
+    for allele_idx in 0..allele_count {
+        if allele_idx == reference_allele {
+            continue;
         }
+        if allele_idx == allele {
+            out[col] = Some(1.0);
+            break;
+        }
+        col += 1;
     }
     out
 }
@@ -323,9 +564,15 @@ pub fn encode_haploid_cyclic(repeat_count: Option<u32>) -> Vec<Option<f64>> {
 }
 
 pub fn sum_diploid_site(left: &[Option<f64>], right: &[Option<f64>]) -> Vec<Option<f64>> {
-    let len = left.len().max(right.len());
-    let mut out = Vec::with_capacity(len);
-    for idx in 0..len {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "diploid site vectors must have equal length (left={}, right={})",
+        left.len(),
+        right.len()
+    );
+    let mut out = Vec::with_capacity(left.len());
+    for idx in 0..left.len() {
         let l = left.get(idx).copied().flatten();
         let r = right.get(idx).copied().flatten();
         let value = match (l, r) {
@@ -337,4 +584,19 @@ pub fn sum_diploid_site(left: &[Option<f64>], right: &[Option<f64>]) -> Vec<Opti
         out.push(value);
     }
     out
+}
+
+pub fn reference_allele_index(allele_frequencies: &[f64]) -> Option<usize> {
+    let mut best_idx = None;
+    let mut best_freq = f64::NEG_INFINITY;
+    for (idx, freq) in allele_frequencies.iter().copied().enumerate() {
+        if !freq.is_finite() {
+            continue;
+        }
+        if best_idx.is_none() || freq > best_freq {
+            best_idx = Some(idx);
+            best_freq = freq;
+        }
+    }
+    best_idx
 }
