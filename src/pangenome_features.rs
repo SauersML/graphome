@@ -643,6 +643,52 @@ pub fn encode_haploid_acyclic_with_reference(
     out
 }
 
+pub fn encode_haploid_acyclic_probabilistic_with_reference(
+    allele_probabilities: Option<&[f64]>,
+    allele_count: usize,
+    reference_allele: usize,
+) -> Vec<Option<f64>> {
+    assert!(
+        allele_count > 0,
+        "allele_count must be > 0 for acyclic encoding"
+    );
+    if allele_count == 1 {
+        return Vec::new();
+    }
+    assert!(
+        reference_allele < allele_count,
+        "reference_allele {} out of bounds for allele_count {}",
+        reference_allele,
+        allele_count
+    );
+
+    let cols = allele_count - 1;
+    let Some(probabilities) = allele_probabilities else {
+        return vec![None; cols];
+    };
+    assert_eq!(
+        probabilities.len(),
+        allele_count,
+        "allele probability length {} does not match allele_count {}",
+        probabilities.len(),
+        allele_count
+    );
+
+    if allele_count == 2 {
+        let alt = if reference_allele == 0 { 1 } else { 0 };
+        return vec![Some(probabilities[alt])];
+    }
+
+    let mut out = Vec::with_capacity(cols);
+    for (allele_idx, prob) in probabilities.iter().copied().enumerate() {
+        if allele_idx == reference_allele {
+            continue;
+        }
+        out.push(Some(prob));
+    }
+    out
+}
+
 pub fn encode_haploid_cyclic(repeat_count: Option<u32>) -> Vec<Option<f64>> {
     match repeat_count {
         Some(copies) => vec![Some(copies as f64)],

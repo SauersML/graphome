@@ -4,9 +4,9 @@ use graphome::pangenome_catalog::{
     FeatureCatalogManifest,
 };
 use graphome::pangenome_features::{
-    encode_haploid_acyclic, encode_haploid_acyclic_with_reference, encode_haploid_cyclic,
-    reference_allele_index, sum_diploid_site, FeatureBuilder, FeatureKind, SiteClass, Snarl,
-    TraversalCondition,
+    encode_haploid_acyclic, encode_haploid_acyclic_probabilistic_with_reference,
+    encode_haploid_acyclic_with_reference, encode_haploid_cyclic, reference_allele_index,
+    sum_diploid_site, FeatureBuilder, FeatureKind, SiteClass, Snarl, TraversalCondition,
 };
 use graphome::pangenome_runtime::{
     build_runtime_from_walks, infer_snarl_panel, load_topology_tsv, HaplotypeStep, HaplotypeWalk,
@@ -221,6 +221,13 @@ fn reference_aware_multiallelic_encoding() {
         encode_haploid_acyclic_with_reference(Some(3), 4, 2),
         vec![Some(0.0), Some(0.0), Some(1.0)]
     );
+}
+
+#[test]
+fn probabilistic_acyclic_encoding_emits_float_values() {
+    // k=3, reference=0 -> columns correspond to alleles [1,2].
+    let encoded = encode_haploid_acyclic_probabilistic_with_reference(Some(&[0.2, 0.5, 0.3]), 3, 0);
+    assert_eq!(encoded, vec![Some(0.5), Some(0.3)]);
 }
 
 #[test]
@@ -600,6 +607,46 @@ fn runtime_encodes_from_node_value_traversals() {
     assert_eq!(encoded_skip[1], None);
     assert_eq!(encoded_ins[0], Some(0.0));
     assert_eq!(encoded_ins[1], Some(0.0));
+}
+
+#[test]
+fn runtime_emits_probabilistic_values_from_node_traversals() {
+    let topology = SnarlTopology::acyclic("leaf", 1, 3, vec![]);
+    let panel = vec![
+        walk("h1", &[(1, true), (2, true), (3, true)]),
+        walk("h2", &[(1, true), (2, true), (3, true)]),
+        walk("h3", &[(1, true), (2, true), (3, true)]),
+        walk("h4", &[(1, true), (4, true), (3, true)]),
+        walk("h5", &[(1, true), (4, true), (3, true)]),
+    ];
+    let runtime = build_runtime_from_walks(&[topology], &panel, HashMap::new());
+    assert_eq!(runtime.schema.sites.len(), 1);
+    assert_eq!(runtime.schema.sites[0].class, SiteClass::Biallelic);
+
+    let probabilistic = vec![
+        NodeTraversal {
+            node_id: 1,
+            value: 1.0,
+        },
+        NodeTraversal {
+            node_id: 2,
+            value: 0.8,
+        },
+        NodeTraversal {
+            node_id: 4,
+            value: 0.2,
+        },
+        NodeTraversal {
+            node_id: 3,
+            value: 1.0,
+        },
+    ];
+    let encoded = runtime.encode_haplotype_node_values(&probabilistic);
+    assert_eq!(encoded.len(), 1);
+    // Reference allele is node 2 path (most common in panel), so output is alt dosage.
+    assert!(encoded[0]
+        .map(|value| (value - 0.2).abs() < 1e-9)
+        .unwrap_or(false));
 }
 
 fn walk(id: &str, nodes: &[(usize, bool)]) -> HaplotypeWalk {

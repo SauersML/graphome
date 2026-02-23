@@ -1,6 +1,7 @@
 use crate::pangenome_features::{
-    encode_haploid_acyclic_with_reference, encode_haploid_cyclic, sum_diploid_site, FeatureBuilder,
-    FeatureKind, FeatureSchema, SiteClass, Snarl, SnarlType, TraversalCondition,
+    encode_haploid_acyclic_probabilistic_with_reference, encode_haploid_acyclic_with_reference,
+    encode_haploid_cyclic, sum_diploid_site, FeatureBuilder, FeatureKind, FeatureSchema, SiteClass,
+    Snarl, SnarlType, TraversalCondition,
 };
 use gbwt::{Orientation, GBZ};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -614,6 +615,7 @@ impl FeatureRuntime {
     ) -> Vec<Option<f64>> {
         let mut out = vec![None; self.schema.total_features];
         let mut skeleton_cache: HashMap<String, Option<usize>> = HashMap::new();
+        let hard_calls = is_hard_node_value_map(node_values);
 
         for site in &self.schema.sites {
             let lookup = self
@@ -640,29 +642,52 @@ impl FeatureRuntime {
                     out[site.feature_start] = repeat;
                 }
                 SiteClass::Biallelic | SiteClass::Multiallelic => {
-                    let allele_index = match site.kind {
-                        FeatureKind::Flat | FeatureKind::Leaf => {
-                            flat_allele_index_node_values(node_values, lookup)
-                        }
-                        FeatureKind::Skeleton => skeleton_allele_index_node_values(
-                            self,
-                            node_values,
-                            lookup,
-                            &mut skeleton_cache,
-                        ),
-                        FeatureKind::Cyclic => None,
-                    };
-                    let reference = site.reference_allele_index().unwrap_or_else(|| {
-                        panic!(
-                            "site {} missing valid allele frequencies; cannot choose reference allele by most-common rule",
-                            site.snarl_id
+                    let encoded = if hard_calls {
+                        let allele_index = match site.kind {
+                            FeatureKind::Flat | FeatureKind::Leaf => {
+                                flat_allele_index_node_values(node_values, lookup)
+                            }
+                            FeatureKind::Skeleton => skeleton_allele_index_node_values(
+                                self,
+                                node_values,
+                                lookup,
+                                &mut skeleton_cache,
+                            ),
+                            FeatureKind::Cyclic => None,
+                        };
+                        let reference = site.reference_allele_index().unwrap_or_else(|| {
+                            panic!(
+                                "site {} missing valid allele frequencies; cannot choose reference allele by most-common rule",
+                                site.snarl_id
+                            )
+                        });
+                        encode_haploid_acyclic_with_reference(
+                            allele_index,
+                            site.allele_count,
+                            reference,
                         )
-                    });
-                    let encoded = encode_haploid_acyclic_with_reference(
-                        allele_index,
-                        site.allele_count,
-                        reference,
-                    );
+                    } else {
+                        let allele_probabilities = match site.kind {
+                            FeatureKind::Flat | FeatureKind::Leaf => {
+                                flat_allele_probabilities_node_values(node_values, lookup)
+                            }
+                            FeatureKind::Skeleton => {
+                                skeleton_allele_probabilities_node_values(self, node_values, lookup)
+                            }
+                            FeatureKind::Cyclic => None,
+                        };
+                        let reference = site.reference_allele_index().unwrap_or_else(|| {
+                            panic!(
+                                "site {} missing valid allele frequencies; cannot choose reference allele by most-common rule",
+                                site.snarl_id
+                            )
+                        });
+                        encode_haploid_acyclic_probabilistic_with_reference(
+                            allele_probabilities.as_deref(),
+                            site.allele_count,
+                            reference,
+                        )
+                    };
                     out[site.feature_start..site.feature_end].copy_from_slice(&encoded);
                 }
             }
@@ -1005,6 +1030,13 @@ fn flat_allele_index_node_values(
     best_signature_match(node_values, &lookup.flat_alleles)
 }
 
+fn flat_allele_probabilities_node_values(
+    node_values: &HashMap<usize, f64>,
+    lookup: &SnarlLookup,
+) -> Option<Vec<f64>> {
+    signature_probabilities(node_values, &lookup.flat_alleles)
+}
+
 fn skeleton_allele_index(
     runtime: &FeatureRuntime,
     walk: &HaplotypeWalk,
@@ -1095,6 +1127,34 @@ fn skeleton_allele_index_node_values(
         best_skeleton_signature_match(node_values, &lookup.skeleton_alleles, &child_present);
     skeleton_cache.insert(lookup.snarl_id.clone(), index);
     index
+}
+
+fn skeleton_allele_probabilities_node_values(
+    runtime: &FeatureRuntime,
+    node_values: &HashMap<usize, f64>,
+    lookup: &SnarlLookup,
+) -> Option<Vec<f64>> {
+    if !node_map_traverses_snarl(node_values, lookup.entry_node, lookup.exit_node) {
+        return None;
+    }
+
+    let mut child_present = HashMap::new();
+    for child_id in &lookup.child_ids {
+        let present = runtime
+            .panel
+            .lookup
+            .get(child_id)
+            .map(|child_lookup| {
+                node_map_traverses_snarl(
+                    node_values,
+                    child_lookup.entry_node,
+                    child_lookup.exit_node,
+                )
+            })
+            .unwrap_or(false);
+        child_present.insert(child_id.as_str(), present);
+    }
+    skeleton_signature_probabilities(node_values, &lookup.skeleton_alleles, &child_present)
 }
 
 fn repeat_count(
@@ -1267,6 +1327,105 @@ fn best_signature_match(node_values: &HashMap<usize, f64>, signatures: &[String]
     signatures.iter().position(|candidate| candidate == "OTHER")
 }
 
+fn signature_probabilities(
+    node_values: &HashMap<usize, f64>,
+    signatures: &[String],
+) -> Option<Vec<f64>> {
+    if signatures.is_empty() {
+        return None;
+    }
+    let other_idx = signatures.iter().position(|candidate| candidate == "OTHER");
+    let missing_idx = signatures
+        .iter()
+        .position(|candidate| candidate == "MISSING");
+
+    let mut node_lists: Vec<Option<Vec<usize>>> = vec![None; signatures.len()];
+    let mut concrete_indices = Vec::new();
+    for (idx, signature) in signatures.iter().enumerate() {
+        if signature == "OTHER" || signature == "MISSING" {
+            continue;
+        }
+        let nodes = signature_node_ids(signature);
+        if nodes.is_empty() {
+            continue;
+        }
+        node_lists[idx] = Some(nodes);
+        concrete_indices.push(idx);
+    }
+
+    if concrete_indices.is_empty() {
+        if let Some(other) = other_idx {
+            let mut probs = vec![0.0; signatures.len()];
+            probs[other] = 1.0;
+            return Some(probs);
+        }
+        if let Some(missing) = missing_idx {
+            let mut probs = vec![0.0; signatures.len()];
+            probs[missing] = 1.0;
+            return Some(probs);
+        }
+        return None;
+    }
+
+    // Remove nodes common to all concrete alleles (shared backbone) so probabilistic
+    // node weights reflect discriminative allele signal.
+    let mut common_nodes: Option<BTreeSet<usize>> = None;
+    for idx in &concrete_indices {
+        let nodes = node_lists[*idx]
+            .as_ref()
+            .expect("node list for concrete index");
+        let node_set: BTreeSet<usize> = nodes.iter().copied().collect();
+        common_nodes = Some(match common_nodes {
+            Some(current) => current.intersection(&node_set).copied().collect(),
+            None => node_set,
+        });
+    }
+    let common_nodes = common_nodes.unwrap_or_default();
+
+    let mut scores = vec![0.0; signatures.len()];
+    let mut total = 0.0;
+    for idx in &concrete_indices {
+        let nodes = node_lists[*idx]
+            .as_ref()
+            .expect("node list for concrete index");
+        let informative_nodes = nodes
+            .iter()
+            .copied()
+            .filter(|node| !common_nodes.contains(node))
+            .collect::<Vec<_>>();
+        let score_nodes = if informative_nodes.is_empty() {
+            nodes
+        } else {
+            &informative_nodes
+        };
+        let score = score_nodes
+            .iter()
+            .map(|node| node_values.get(node).copied().unwrap_or(0.0))
+            .sum::<f64>()
+            / (score_nodes.len() as f64);
+        if score.is_finite() && score > 0.0 {
+            scores[*idx] = score;
+            total += score;
+        }
+    }
+
+    if total <= 0.0 {
+        let hard = best_signature_match(node_values, signatures)?;
+        let mut probs = vec![0.0; signatures.len()];
+        probs[hard] = 1.0;
+        return Some(probs);
+    }
+
+    for idx in &concrete_indices {
+        scores[*idx] /= total;
+    }
+    let concrete_mass: f64 = concrete_indices.iter().map(|idx| scores[*idx]).sum();
+    if let Some(other) = other_idx {
+        scores[other] = (1.0 - concrete_mass).max(0.0);
+    }
+    Some(scores)
+}
+
 fn best_skeleton_signature_match(
     node_values: &HashMap<usize, f64>,
     signatures: &[String],
@@ -1291,6 +1450,78 @@ fn best_skeleton_signature_match(
         return best_idx;
     }
     signatures.iter().position(|candidate| candidate == "OTHER")
+}
+
+fn skeleton_signature_probabilities(
+    node_values: &HashMap<usize, f64>,
+    signatures: &[String],
+    child_present: &HashMap<&str, bool>,
+) -> Option<Vec<f64>> {
+    if signatures.is_empty() {
+        return None;
+    }
+    let other_idx = signatures.iter().position(|candidate| candidate == "OTHER");
+    let missing_idx = signatures
+        .iter()
+        .position(|candidate| candidate == "MISSING");
+
+    let mut scores = vec![0.0; signatures.len()];
+    let mut total = 0.0;
+    let mut concrete_count = 0usize;
+    for (idx, signature) in signatures.iter().enumerate() {
+        if signature == "MISSING" || signature == "OTHER" {
+            continue;
+        }
+        concrete_count += 1;
+        let score = score_skeleton_signature(node_values, signature, child_present);
+        if score.is_finite() && score > 0.0 {
+            scores[idx] = score;
+            total += score;
+        }
+    }
+
+    if concrete_count == 0 {
+        if let Some(other) = other_idx {
+            let mut probs = vec![0.0; signatures.len()];
+            probs[other] = 1.0;
+            return Some(probs);
+        }
+        if let Some(missing) = missing_idx {
+            let mut probs = vec![0.0; signatures.len()];
+            probs[missing] = 1.0;
+            return Some(probs);
+        }
+        return None;
+    }
+
+    if total <= 0.0 {
+        let hard = best_skeleton_signature_match(node_values, signatures, child_present)?;
+        let mut probs = vec![0.0; signatures.len()];
+        probs[hard] = 1.0;
+        return Some(probs);
+    }
+
+    for (idx, signature) in signatures.iter().enumerate() {
+        if signature == "MISSING" || signature == "OTHER" {
+            continue;
+        }
+        scores[idx] /= total;
+    }
+    let concrete_mass: f64 = signatures
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, signature)| {
+            if signature == "MISSING" || signature == "OTHER" {
+                None
+            } else {
+                Some(scores[idx])
+            }
+        })
+        .sum();
+    if let Some(other) = other_idx {
+        scores[other] = (1.0 - concrete_mass).max(0.0);
+    }
+    Some(scores)
 }
 
 fn score_skeleton_signature(
@@ -1341,6 +1572,13 @@ fn signature_node_ids(signature: &str) -> Vec<usize> {
         }
     }
     out
+}
+
+fn is_hard_node_value_map(node_values: &HashMap<usize, f64>) -> bool {
+    const EPS: f64 = 1e-12;
+    node_values
+        .values()
+        .all(|value| value.abs() <= EPS || (value - 1.0).abs() <= EPS)
 }
 
 #[derive(Clone, Copy, Debug)]
