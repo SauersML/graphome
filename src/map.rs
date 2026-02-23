@@ -1042,6 +1042,20 @@ fn stream_fixed_gfa_for_gbwt<W: Write>(gfa_path: &str, writer: &mut W) -> Result
     Ok(fix_count)
 }
 
+/// Backward-compatible helper retained for tests/older callers.
+///
+/// Historical behavior created a `{path}.fixed.gfa` file on disk. The current implementation
+/// performs PanSN fixes on-the-fly while streaming into `vg gbwt` (see
+/// `stream_fixed_gfa_for_gbwt`), so this function now just materializes and returns a local path.
+///
+/// For remote inputs, the materialized path is retained for the process lifetime.
+pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
+    let materialized =
+        io::materialize(gfa_path).map_err(|e| format!("Failed to materialize GFA file: {}", e))?;
+    let retained = io::retain_materialized(materialized);
+    Ok(retained.to_string_lossy().into_owned())
+}
+
 /// Fast path name fix function that efficiently handles all cases without unnecessary allocations.
 /// Returns Some(fixed_name) if a fix is needed, None otherwise.
 fn fix_path_name(name: &str, stats: &mut FixStats) -> Option<String> {
