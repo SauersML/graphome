@@ -369,47 +369,134 @@ pub fn coord_to_nodes_mapped(
 
     let normalized_target_chr = normalize_contig(chr).to_string();
 
-    // Since reference_positions returns empty (not implemented yet),
-    // we always use manual scan
-    if ref_paths.is_empty() {
-        println!("DEBUG: Performing manual path scan (reference positions not available)");
-        for (path_id, path_name) in metadata.path_iter().enumerate() {
+    if !ref_paths.is_empty() {
+        println!("DEBUG: Using reference position index");
+        for ref_path in &ref_paths {
+            let Some(path_name) = metadata.path(ref_path.id) else {
+                continue;
+            };
             let contig_name = metadata.contig_name(path_name.contig());
             if !contig_matches(&contig_name, chr, &normalized_target_chr) {
                 continue;
             }
 
-            println!("DEBUG: Scanning path {} (id={})", contig_name, path_id);
-            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-                let mut position = 0;
-                for (node_id, orientation) in path_iter {
-                    if let Some(node_len) = gbz.sequence_len(node_id) {
-                        let node_start = position;
-                        let node_end = node_start + node_len;
-                        if node_start < end && node_end > start {
-                            let overlap_start = start.max(node_start);
-                            let overlap_end = end.min(node_end);
-                            if overlap_start < overlap_end {
-                                let node_off_start = overlap_start - node_start;
-                                let node_off_end = overlap_end - node_start;
-                                results.push(Coord2NodeResult {
-                                    path_name: contig_name.clone(),
-                                    node_id: node_id.to_string(),
-                                    node_orient: orientation == Orientation::Forward,
-                                    path_off_start: node_off_start,
-                                    path_off_end: node_off_end,
-                                });
-                            }
-                        }
-                        position += node_len;
+            // Reference coordinates are global on the contig; fragment() is the contig offset.
+            let fragment_start = path_name.fragment();
+            let fragment_end = fragment_start.saturating_add(ref_path.len);
+            if fragment_start >= end || fragment_end <= start {
+                continue;
+            }
+
+            let local_start = start.saturating_sub(fragment_start);
+            let local_end = end.min(fragment_end).saturating_sub(fragment_start);
+            if local_start >= local_end {
+                continue;
+            }
+
+            // Seed from the last indexed position <= local_start for efficient scanning.
+            let mut seed_offset = 0usize;
+            let mut seed_pos = None;
+            if !ref_path.positions.is_empty() {
+                let idx = match ref_path
+                    .positions
+                    .binary_search_by_key(&local_start, |(offset, _)| *offset)
+                {
+                    Ok(i) => i,
+                    Err(0) => 0,
+                    Err(i) => i - 1,
+                };
+                seed_offset = ref_path.positions[idx].0;
+                seed_pos = Some(ref_path.positions[idx].1);
+            }
+
+            println!(
+                "DEBUG: Scanning indexed path {} (id={}) local {}..{}",
+                contig_name, ref_path.id, local_start, local_end
+            );
+
+            let iter = match seed_pos {
+                Some(pos) => gbz.walk_from_pos(pos),
+                None => match gbz.path(ref_path.id, Orientation::Forward) {
+                    Some(path_iter) => path_iter,
+                    None => continue,
+                },
+            };
+
+            let mut position = seed_offset;
+            for (node_id, orientation) in iter {
+                let Some(node_len) = gbz.sequence_len(node_id) else {
+                    continue;
+                };
+                if node_len == 0 {
+                    continue;
+                }
+
+                let node_start = position;
+                let node_end = node_start.saturating_add(node_len);
+
+                if node_start >= local_end {
+                    break;
+                }
+                if node_end > local_start && node_start < local_end {
+                    let overlap_start = local_start.max(node_start);
+                    let overlap_end = local_end.min(node_end);
+                    if overlap_start < overlap_end {
+                        results.push(Coord2NodeResult {
+                            path_name: contig_name.clone(),
+                            node_id: node_id.to_string(),
+                            node_orient: orientation == Orientation::Forward,
+                            path_off_start: overlap_start - node_start,
+                            path_off_end: overlap_end - node_start,
+                        });
                     }
                 }
+
+                position = node_end;
             }
         }
+
         return results;
     }
 
-    // Reference position index path (not implemented yet)
+    println!("DEBUG: Performing manual path scan (reference positions unavailable)");
+    for (path_id, path_name) in metadata.path_iter().enumerate() {
+        let contig_name = metadata.contig_name(path_name.contig());
+        if !contig_matches(&contig_name, chr, &normalized_target_chr) {
+            continue;
+        }
+
+        let fragment_start = path_name.fragment();
+        println!("DEBUG: Scanning path {} (id={})", contig_name, path_id);
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            let mut local_position = 0usize;
+            for (node_id, orientation) in path_iter {
+                if let Some(node_len) = gbz.sequence_len(node_id) {
+                    if node_len == 0 {
+                        continue;
+                    }
+                    let node_start = fragment_start.saturating_add(local_position);
+                    let node_end = node_start.saturating_add(node_len);
+                    if node_start < end && node_end > start {
+                        let overlap_start = start.max(node_start);
+                        let overlap_end = end.min(node_end);
+                        if overlap_start < overlap_end {
+                            let node_off_start = overlap_start - node_start;
+                            let node_off_end = overlap_end - node_start;
+                            results.push(Coord2NodeResult {
+                                path_name: contig_name.clone(),
+                                node_id: node_id.to_string(),
+                                node_orient: orientation == Orientation::Forward,
+                                path_off_start: node_off_start,
+                                path_off_end: node_off_end,
+                            });
+                        }
+                    }
+                    local_position = local_position.saturating_add(node_len);
+                }
+            }
+        }
+    }
+
     results
 }
 

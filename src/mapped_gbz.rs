@@ -409,6 +409,14 @@ impl MappedGBZ {
         })
     }
 
+    /// Walk a path starting from an explicit GBWT position.
+    pub fn walk_from_pos(&self, start_pos: Pos) -> PathWalker<'_> {
+        PathWalker {
+            gbz: self,
+            current_pos: Some(start_pos),
+        }
+    }
+
     /// Get metadata (compatible with GBZ interface)
     pub fn metadata(&self) -> Option<&gbwt::gbwt::Metadata> {
         self.gbwt.metadata()
@@ -430,7 +438,7 @@ impl MappedGBZ {
     }
 
     /// Get reference positions.
-    /// Returns an empty list when a position index is unavailable.
+    /// Delegates to the full GBZ implementation.
     pub fn reference_positions(
         &self,
         sample_interval: usize,
