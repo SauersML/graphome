@@ -1,11 +1,72 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
+
+const CHM13_GBZ_URL: &str = "https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-chm13.gbz";
+const CHM13_GBZ_NAME: &str = "hprc-v2.0-mc-chm13.gbz";
+
+static CHM13_GBZ_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+fn ensure_chm13_gbz() -> Result<PathBuf, Box<dyn std::error::Error>> {
+    match CHM13_GBZ_PATH.get_or_init(resolve_or_download_chm13_gbz) {
+        Ok(path) => Ok(path.clone()),
+        Err(err) => Err(std::io::Error::other(err.clone()).into()),
+    }
+}
+
+fn resolve_or_download_chm13_gbz() -> Result<PathBuf, String> {
+    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let primary = project_root.join("data/hprc").join(CHM13_GBZ_NAME);
+    let fallback = project_root.join("data").join(CHM13_GBZ_NAME);
+
+    if primary.exists() {
+        return Ok(primary);
+    }
+    if fallback.exists() {
+        return Ok(fallback);
+    }
+
+    std::fs::create_dir_all(primary.parent().ok_or("invalid cache path")?)
+        .map_err(|e| format!("failed to create data directory: {e}"))?;
+
+    let tmp = primary.with_extension("gbz.part");
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(60 * 60))
+        .build()
+        .map_err(|e| format!("failed to create HTTP client: {e}"))?;
+
+    let mut response = client
+        .get(CHM13_GBZ_URL)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(|e| format!("failed to download CHM13 GBZ: {e}"))?;
+
+    let mut out = std::fs::File::create(&tmp)
+        .map_err(|e| format!("failed to create temporary file {:?}: {}", tmp, e))?;
+    let mut buf = [0u8; 1024 * 1024];
+    loop {
+        let read = response
+            .read(&mut buf)
+            .map_err(|e| format!("download read failed: {e}"))?;
+        if read == 0 {
+            break;
+        }
+        out.write_all(&buf[..read])
+            .map_err(|e| format!("download write failed: {e}"))?;
+    }
+    out.flush()
+        .map_err(|e| format!("flush failed for {:?}: {}", tmp, e))?;
+    std::fs::rename(&tmp, &primary)
+        .map_err(|e| format!("failed to move {:?} to {:?}: {}", tmp, primary, e))?;
+    Ok(primary)
+}
 
 /// Test that coordinate-based extraction returns the correct sequence.
 ///
 /// This test:
-/// 1. Extracts first 100kb of chr22 for GRCh38#0
+/// 1. Extracts first 100kb of chr22 for CHM13#0
 /// 2. Inspects the FASTA to determine what coordinates were extracted
 /// 3. Picks a 5kb region from the string
 /// 4. Extracts middle 3kb (omitting 1kb flanks)
@@ -16,37 +77,29 @@ use std::process::Command;
 fn test_coordinate_extraction_correctness() {
     // Setup paths
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let gbz_path = ensure_chm13_gbz().expect("failed to prepare CHM13 GBZ test fixture");
 
-    // Try multiple possible GBZ locations
-    let gbz_path = if project_root
-        .join("data/hprc/hprc-v2.0-mc-grch38.gbz")
-        .exists()
-    {
-        project_root.join("data/hprc/hprc-v2.0-mc-grch38.gbz")
-    } else if project_root.join("data/hprc-v2.0-mc-grch38.gbz").exists() {
-        project_root.join("data/hprc-v2.0-mc-grch38.gbz")
-    } else {
-        panic!(
-            "GBZ file not found. Tried:\n\
-             - {:?}\n\
-             - {:?}\n\
-             Download with:\n\
-             mkdir -p data/hprc && wget https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz -O data/hprc/hprc-v2.0-mc-grch38.gbz",
-            project_root.join("data/hprc/hprc-v2.0-mc-grch38.gbz"),
-            project_root.join("data/hprc-v2.0-mc-grch38.gbz")
-        );
-    };
-
-    let graphome_bin = project_root.join("target/release/graphome");
-
-    // Check if binary is built
-    if !graphome_bin.exists() {
-        panic!(
-            "graphome binary not found at {:?}\n\
-             Build with: cargo build --release",
-            graphome_bin
-        );
-    }
+    let graphome_bin = option_env!("CARGO_BIN_EXE_graphome")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let debug = project_root.join("target/debug/graphome");
+            if debug.exists() {
+                Some(debug)
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            let release = project_root.join("target/release/graphome");
+            if release.exists() {
+                Some(release)
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| {
+            panic!("graphome binary not found in Cargo bin env, target/debug, or target/release")
+        });
 
     let test_dir = project_root.join("target/test_coordinate_extraction");
 
@@ -56,12 +109,11 @@ fn test_coordinate_extraction_correctness() {
     }
     fs::create_dir_all(&test_dir).expect("Failed to create test directory");
 
-    let test_sample = "GRCh38#0";
+    let test_sample = "CHM13#0";
 
-    println!("=== Step 1: Extract FIRST 100kb of chr22 for GRCh38#0 ===");
+    println!("=== Step 1: Extract FIRST 100kb of chr22 for CHM13#0 ===");
 
-    // Extract 100kb of chr22 starting at 20M (gene-rich region with actual sequence)
-    // chr22:20000000-20100000 is in a well-sequenced region
+    // Extract 100kb of chr22 starting at 20M.
     let full_output = test_dir.join("chr22_100kb");
     let status = Command::new(&graphome_bin)
         .args(&[
@@ -69,7 +121,7 @@ fn test_coordinate_extraction_correctness() {
             "--gfa",
             gbz_path.to_str().unwrap(),
             "--assembly",
-            "grch38",
+            "chm13",
             "--region",
             "chr22:20000000-20100000",
             "--sample",
@@ -217,7 +269,7 @@ fn test_coordinate_extraction_correctness() {
             "--gfa",
             gbz_path.to_str().unwrap(),
             "--assembly",
-            "grch38",
+            "chm13",
             "--region",
             &query_region,
             "--sample",
