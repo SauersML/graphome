@@ -201,8 +201,14 @@ pub fn extract_sequence(
             map::make_gbz_exist(graph_path, paf_path)
         };
         let gbz: GBZ = serialize::load_from(&gbz_path).expect("Failed to load GBZ index");
-        let nodes =
-            map::coord_to_nodes_with_path_filtered(&gbz, assembly, &chr, start, end, Some(sample_name));
+        let nodes = map::coord_to_nodes_with_path_filtered(
+            &gbz,
+            assembly,
+            &chr,
+            start,
+            end,
+            Some(sample_name),
+        );
         if nodes.is_empty() {
             eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
             return Ok(());
@@ -381,7 +387,14 @@ pub fn run_make_sequence(
     sample_name: &str,
     output_path: &str,
 ) {
-    match extract_sequence(graph_path, paf_path, assembly, region, sample_name, output_path) {
+    match extract_sequence(
+        graph_path,
+        paf_path,
+        assembly,
+        region,
+        sample_name,
+        output_path,
+    ) {
         Ok(_) => {
             eprintln!(
                 "[INFO] Successfully extracted sequence for region {}",

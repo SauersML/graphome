@@ -4,3 +4,6 @@ target/
 *.fixed.gfa
 *.fa
 .devcontainer/
+diff.txt
+libbuild.rmeta
+vg.prev

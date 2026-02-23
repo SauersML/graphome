@@ -294,9 +294,7 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         for mut raw in frame_buffers {
             let mut frame = GifFrame::from_rgba_speed(width as u16, height as u16, &mut raw, 10);
             frame.delay = 1;
-            encoder
-                .write_frame(&frame)
-                .map_err(std::io::Error::other)?;
+            encoder.write_frame(&frame).map_err(std::io::Error::other)?;
         }
     }
 

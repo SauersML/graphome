@@ -1,19 +1,19 @@
-use std::fmt;
-use std::io::{self, Write, BufWriter};
-use std::env;
-use tempfile::Builder;
-use termsize;
-use termimage::ops;
-use viuer;
-use image::{ImageError, ImageFormat};
 use base64::{engine::general_purpose, Engine as _};
+use image::{ImageError, ImageFormat};
+use std::env;
+use std::fmt;
+use std::io::{self, BufWriter, Write};
+use tempfile::Builder;
+use termimage::ops;
+use termsize;
+use viuer;
 
 #[derive(Debug)]
 pub enum DisplayError {
     Io(std::io::Error),
     Viuer(viuer::ViuError),
     Image(image::error::ImageError),
-    Term(termimage::Error)
+    Term(termimage::Error),
 }
 
 impl From<std::io::Error> for DisplayError {
@@ -85,12 +85,18 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
 
         // If that fails (e.g., viuer doesn't support the protocol), fall back to termimage.
         let size = termsize::get().unwrap_or(termsize::Size { rows: 24, cols: 80 });
-        println!("Terminal size detected: {} rows, {} columns.", size.rows, size.cols);
+        println!(
+            "Terminal size detected: {} rows, {} columns.",
+            size.rows, size.cols
+        );
 
         // Write the bytes to a temporary TGA file so termimage can handle it.
         let mut tmp_file = Builder::new().prefix("image_").suffix(".tga").tempfile()?;
         tmp_file.write_all(tga_data)?;
-        println!("Temporary TGA file created at: {}", tmp_file.path().display());
+        println!(
+            "Temporary TGA file created at: {}",
+            tmp_file.path().display()
+        );
 
         let path_info = (String::new(), tmp_file.path().to_path_buf());
         let guessed_fmt = ops::guess_format(&path_info)?;

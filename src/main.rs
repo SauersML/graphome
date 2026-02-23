@@ -319,7 +319,14 @@ fn main() -> io::Result<()> {
             let gfa_path = path_to_string(&gfa);
             let paf_path = paf.as_ref().map(|p| path_to_string(p)).unwrap_or_default();
             let output_path = path_to_string(&output);
-            make_sequence::run_make_sequence(&gfa_path, &paf_path, &assembly, &region, &sample, &output_path);
+            make_sequence::run_make_sequence(
+                &gfa_path,
+                &paf_path,
+                &assembly,
+                &region,
+                &sample,
+                &output_path,
+            );
         }
         Command::Gfa2gbz(args) => {
             let Gfa2gbzArgs { input } = args;

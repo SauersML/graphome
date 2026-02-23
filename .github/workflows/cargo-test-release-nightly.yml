@@ -17,8 +17,8 @@ jobs:
       - name: Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
 
-      - name: Cache cargo registry
-        uses: actions/cache@v3
+      - name: Cache cargo artifacts
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
@@ -30,6 +30,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-nightly-
 
+      - name: Cache HPRC fixtures
+        uses: actions/cache@v4
+        with:
+          path: |
+            data/hprc
+          key: ${{ runner.os }}-hprc-release2-minigraph-cactus-v2.0
+          restore-keys: |
+            ${{ runner.os }}-hprc-release2-minigraph-cactus-
+
       - name: Prepare HPRC dataset
         run: |
           mkdir -p data/hprc
@@ -37,6 +46,11 @@ jobs:
             curl -L \
               -o data/hprc/hprc-v2.0-mc-grch38.gbz \
               https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-grch38.gbz
+          fi
+          if [ ! -f data/hprc/hprc-v2.0-mc-chm13.gbz ]; then
+            curl -L \
+              -o data/hprc/hprc-v2.0-mc-chm13.gbz \
+              https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-chm13.gbz
           fi
 
       - name: Run tests
