@@ -1560,6 +1560,18 @@ mod tests {
     }
 
     #[test]
+    fn step_signature_collapses_forward_and_reverse_complement_paths() {
+        // Forward traversal: A+,B+,C+.
+        let forward = vec![step(101, true), step(202, true), step(303, true)];
+        // Reverse-complement traversal of the same biological sequence: C-,B-,A-.
+        let reverse_complement = vec![step(303, false), step(202, false), step(101, false)];
+        assert_eq!(
+            step_signature(&forward),
+            step_signature(&reverse_complement)
+        );
+    }
+
+    #[test]
     fn ordered_span_uses_first_reachable_end() {
         let steps = vec![step(1, true), step(9, true), step(2, true), step(2, true)];
         let index = WalkIndex::new(&steps);
