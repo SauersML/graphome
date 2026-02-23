@@ -1499,3 +1499,122 @@ impl OptionalRegionExt for Snarl {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn step(node_id: usize, forward: bool) -> HaplotypeStep {
+        HaplotypeStep {
+            node_id,
+            orientation: if forward {
+                Orientation::Forward
+            } else {
+                Orientation::Reverse
+            },
+        }
+    }
+
+    fn lookup(entry_node: usize, exit_node: usize) -> SnarlLookup {
+        SnarlLookup {
+            snarl_id: "test".to_string(),
+            snarl_type: SnarlType::Cyclic,
+            entry_node,
+            exit_node,
+            child_ids: Vec::new(),
+            flat_alleles: Vec::new(),
+            skeleton_alleles: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn step_signature_is_canonical_under_reverse_complement() {
+        let forward = vec![step(10, true), step(11, true), step(12, false)];
+        let reverse_complement = vec![step(12, true), step(11, false), step(10, false)];
+        assert_eq!(step_signature(&forward), step_signature(&reverse_complement));
+    }
+
+    #[test]
+    fn ordered_span_uses_first_reachable_end() {
+        let steps = vec![step(1, true), step(9, true), step(2, true), step(2, true)];
+        let index = WalkIndex::new(&steps);
+        assert_eq!(find_ordered_span(&index, 1, 2), Some((0, 2)));
+    }
+
+    #[test]
+    fn noncanonical_span_entry_only_is_not_missing() {
+        let steps = vec![step(7, true), step(9, true), step(9, true)];
+        let span = find_span_or_noncanonical(&steps, 7, 8).expect("expected noncanonical span");
+        assert_eq!((span.start, span.end), (0, 0));
+    }
+
+    #[test]
+    fn noncanonical_span_exit_only_is_not_missing() {
+        let steps = vec![step(9, true), step(8, true), step(9, true)];
+        let span = find_span_or_noncanonical(&steps, 7, 8).expect("expected noncanonical span");
+        assert_eq!((span.start, span.end), (1, 1));
+    }
+
+    #[test]
+    fn span_search_falls_back_to_reverse_boundary_order() {
+        let steps = vec![step(3, true), step(5, true), step(1, true)];
+        let span = find_span_or_noncanonical(&steps, 1, 3).expect("expected reverse-order span");
+        assert_eq!((span.start, span.end), (0, 2));
+    }
+
+    #[test]
+    fn labels_from_counts_pools_singletons_into_other() {
+        let mut counts = BTreeMap::new();
+        counts.insert("A".to_string(), 3usize);
+        counts.insert("B".to_string(), 1usize);
+        counts.insert("C".to_string(), 1usize);
+
+        let (labels, freqs, mapping) = labels_from_counts(&counts);
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0], "A");
+        assert_eq!(labels[1], "OTHER");
+        assert!((freqs[0] - 0.6).abs() < 1e-9);
+        assert!((freqs[1] - 0.4).abs() < 1e-9);
+        assert_eq!(mapping.get("B"), Some(&1usize));
+        assert_eq!(mapping.get("C"), Some(&1usize));
+    }
+
+    #[test]
+    fn repeat_count_detects_boundary_revisits() {
+        let walk = HaplotypeWalk {
+            id: "repeat".to_string(),
+            steps: vec![
+                step(1, true),
+                step(4, true),
+                step(2, true),
+                step(4, true),
+                step(2, true),
+            ],
+        };
+        let mut span_ctx = SpanContext::new(&walk.steps);
+        let result = repeat_count(&walk, &lookup(1, 2), &mut span_ctx);
+        assert_eq!(result, Some(2));
+    }
+
+    #[test]
+    fn repeat_count_uses_internal_repeat_signal_when_boundaries_not_revisited() {
+        let walk = HaplotypeWalk {
+            id: "internal-repeat".to_string(),
+            steps: vec![step(1, true), step(4, true), step(4, true), step(2, true)],
+        };
+        let mut span_ctx = SpanContext::new(&walk.steps);
+        let result = repeat_count(&walk, &lookup(1, 2), &mut span_ctx);
+        assert_eq!(result, Some(2));
+    }
+
+    #[test]
+    fn span_context_caches_lookup_results() {
+        let steps = vec![step(1, true), step(2, true), step(3, true)];
+        let mut span_ctx = SpanContext::new(&steps);
+        let first = span_ctx.find_span_or_noncanonical(1, 3);
+        let second = span_ctx.find_span_or_noncanonical(1, 3);
+        assert_eq!(first.map(|s| (s.start, s.end)), Some((0, 2)));
+        assert_eq!(second.map(|s| (s.start, s.end)), Some((0, 2)));
+        assert_eq!(span_ctx.span_cache.len(), 1);
+    }
+}
