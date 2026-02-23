@@ -1407,26 +1407,46 @@ fn find_ordered_span(index: &WalkIndex, start_node: usize, end_node: usize) -> O
     let Some(ends) = index.positions.get(&end_node) else {
         return OrderedSpanResult::Missing;
     };
-    let mut selected: Option<(usize, usize)> = None;
+    let mut candidates: Vec<(usize, usize)> = Vec::new();
+
+    // Candidate spans anchored at each start occurrence: first reachable end.
     for &start_idx in starts {
         let end_pos = ends.partition_point(|&candidate| candidate < start_idx);
         if end_pos >= ends.len() {
             continue;
         }
         let end_idx = ends[end_pos];
-        match selected {
-            None => selected = Some((start_idx, end_idx)),
-            Some((prev_start, prev_end)) => {
-                if prev_start != start_idx || prev_end != end_idx {
-                    return OrderedSpanResult::Ambiguous;
-                }
-            }
+        candidates.push((start_idx, end_idx));
+    }
+
+    // Candidate spans anchored at each end occurrence: latest reachable start.
+    for &end_idx in ends {
+        let start_pos = starts.partition_point(|&candidate| candidate <= end_idx);
+        if start_pos == 0 {
+            continue;
+        }
+        let start_idx = starts[start_pos - 1];
+        candidates.push((start_idx, end_idx));
+    }
+
+    if candidates.is_empty() {
+        return OrderedSpanResult::Missing;
+    }
+
+    candidates.sort_unstable();
+    candidates.dedup();
+
+    // Keep revisits within one locus (overlapping/nested candidates) as unique;
+    // flag disjoint candidates as true ambiguity (likely paralog conflation).
+    let selected = candidates[0];
+    for &(cand_start, cand_end) in candidates.iter().skip(1) {
+        let overlaps = cand_start <= selected.1 && selected.0 <= cand_end;
+        if !overlaps {
+            return OrderedSpanResult::Ambiguous;
         }
     }
-    match selected {
-        Some((start, end)) => OrderedSpanResult::Unique(start, end),
-        None => OrderedSpanResult::Missing,
-    }
+
+    OrderedSpanResult::Unique(selected.0, selected.1)
 }
 
 fn find_span_or_noncanonical(
@@ -1580,6 +1600,40 @@ mod tests {
             OrderedSpanResult::Ambiguous
         );
         assert!(find_span_or_noncanonical(&steps, 1, 2).is_none());
+    }
+
+    #[test]
+    fn ordered_span_is_not_ambiguous_when_entry_is_revisited() {
+        let steps = vec![
+            step(1, true),
+            step(9, true),
+            step(1, true),
+            step(8, true),
+            step(2, true),
+        ];
+        let index = WalkIndex::new(&steps);
+        assert_eq!(
+            find_ordered_span(&index, 1, 2),
+            OrderedSpanResult::Unique(0, 4)
+        );
+        assert!(find_span_or_noncanonical(&steps, 1, 2).is_some());
+    }
+
+    #[test]
+    fn ordered_span_is_not_ambiguous_when_exit_is_revisited() {
+        let steps = vec![
+            step(1, true),
+            step(9, true),
+            step(2, true),
+            step(8, true),
+            step(2, true),
+        ];
+        let index = WalkIndex::new(&steps);
+        assert_eq!(
+            find_ordered_span(&index, 1, 2),
+            OrderedSpanResult::Unique(0, 2)
+        );
+        assert!(find_span_or_noncanonical(&steps, 1, 2).is_some());
     }
 
     #[test]
