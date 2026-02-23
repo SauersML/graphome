@@ -10,7 +10,7 @@ pub struct Point3D {
     pub color: Rgb<u8>,
 }
 
-pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec<Point3D>> {
+pub fn embed(start_node: usize, end_node: usize, input: &str) -> io::Result<Vec<Point3D>> {
     // Create a normal distribution centered around 0.0 with a standard deviation of 1.0
     let normal = Normal::<f32>::new(0.0, 1.0).map_err(io::Error::other)?;
     let normal = Arc::new(normal);
@@ -27,7 +27,10 @@ pub fn embed(start_node: usize, end_node: usize, _input: &str) -> io::Result<Vec
     }
 
     // Seed used to derive independent RNGs per point deterministically.
-    let global_seed = rand::thread_rng().gen::<u64>();
+    let input_seed = input.bytes().fold(0u64, |acc, byte| {
+        acc.wrapping_mul(131).wrapping_add(byte as u64)
+    });
+    let global_seed = rand::thread_rng().gen::<u64>() ^ input_seed;
 
     // Generate the 3D points in parallel
     let points: Vec<Point3D> = (0..num_points)

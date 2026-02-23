@@ -1,4 +1,4 @@
-/***************************************************************************************************
+/*
  *
  *  GFA to GBZ
  *
@@ -22,8 +22,7 @@
  *  COMPILATION & USAGE:
  *    - ./target/release/graphome gfa2gbz --input ../hprc-v1.0-pggb.gfa
  *    - This will create "<path_to_gfa>.gbz"
- ***************************************************************************************************/
-
+*/
 use std::{
     collections::HashMap,
     fs::{File, OpenOptions},
@@ -44,10 +43,9 @@ use simple_sds::sparse_vector::{SparseBuilder, SparseVector};
 /// Maximum length for a single node. If a GFA segment is longer, we chunk it into multiple nodes.
 const CHUNK_LIMIT: usize = 1024;
 
-/***************************************************************************************************
+/*
  * BASIC TYPES
- **************************************************************************************************/
-
+*/
 /// Bidirected orientation.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Orientation {
@@ -68,20 +66,6 @@ impl Orientation {
 fn encode_node(node_id: usize, orientation: Orientation) -> usize {
     (node_id << 1) | (orientation as usize)
 }
-/// Decode a GBWT node into (node_id, orientation).
-#[inline]
-#[allow(dead_code)]
-fn decode_node(gbwt_node: usize) -> (usize, Orientation) {
-    let orientation_bit = gbwt_node & 1;
-    let node_id = gbwt_node >> 1;
-    let orientation = if orientation_bit == 1 {
-        Orientation::Reverse
-    } else {
-        Orientation::Forward
-    };
-    (node_id, orientation)
-}
-
 /// A run-length pair (value, length) for storing edges or BWT transitions.
 #[derive(Clone, Debug)]
 struct Run {
@@ -157,9 +141,9 @@ struct GBWTMetadata {
     path_names: Vec<PathName>,
 }
 
-/***************************************************************************************************
+/*
  * For the "graph" portion of GBWTGraph
- **************************************************************************************************/
+*/
 #[derive(Debug)]
 struct GBWTGraph {
     /// The node labels in forward orientation. For node i, we store the string.
@@ -183,9 +167,9 @@ struct Translation {
     mapping: Vec<usize>,
 }
 
-/***************************************************************************************************
+/*
  * GFA Parsing Structures
- **************************************************************************************************/
+*/
 #[derive(Debug)]
 struct SegmentData {
     name: String,
@@ -205,8 +189,6 @@ enum PathLineType {
 }
 #[derive(Debug, Clone)]
 struct GFAPathLine {
-    #[allow(dead_code)]
-    ptype: PathLineType,
     raw_name: String, // If P-line, this is the path name; if W-line, we store something else
     // For W-lines, we parse out (sample, haplotype, contig, fragment, etc.)
     sample: Option<String>,
@@ -216,9 +198,9 @@ struct GFAPathLine {
     segments: Vec<(String, Orientation)>,
 }
 
-/***************************************************************************************************
+/*
  * GFA -> Data
- **************************************************************************************************/
+*/
 pub fn run_gfa2gbz(input: &str) {
     let infile = input;
 
@@ -275,9 +257,9 @@ pub fn run_gfa2gbz(input: &str) {
     println!("[gfa2gbz] Done. Elapsed: {:.2?}", start_t.elapsed());
 }
 
-/***************************************************************************************************
+/*
  * GFA Parsing
- **************************************************************************************************/
+*/
 fn parse_gfa(
     filename: &str,
 ) -> Result<(Vec<SegmentData>, Vec<LinkData>, Vec<GFAPathLine>), std::io::Error> {
@@ -371,7 +353,6 @@ fn parse_gfa(
                         let _ = fields.next();
                         let segs = parse_path_segments(&segnames);
                         let gfapath = GFAPathLine {
-                            ptype,
                             raw_name,
                             sample: None,
                             hap_id: None,
@@ -392,7 +373,6 @@ fn parse_gfa(
                         let segnames = fields.next().unwrap_or("").to_string();
                         let segs = parse_path_segments(&segnames);
                         let gfapath = GFAPathLine {
-                            ptype,
                             raw_name: format!(
                                 "wline:{}#{}",
                                 sample,
@@ -455,7 +435,7 @@ fn parse_path_segments(path_str: &str) -> Vec<(String, Orientation)> {
     result
 }
 
-/***************************************************************************************************
+/*
  * Build node ID map from segments, chunking if needed.
  *
  * Output:
@@ -465,7 +445,7 @@ fn parse_path_segments(path_str: &str) -> Vec<(String, Orientation)> {
  *
  * We do a 1..=N approach, but we also have to add the endmarker node 0. We'll add that later
  * in the GBWT. For the graph, we only store actual "physical nodes" that correspond to GFA segments.
- **************************************************************************************************/
+*/
 #[allow(clippy::type_complexity)]
 fn build_node_id_map(
     segments: &Vec<SegmentData>,
@@ -524,10 +504,10 @@ fn build_node_id_map(
     (seg_map, forward_labels, Some(translation))
 }
 
-/***************************************************************************************************
+/*
  * Build adjacency: for each node+orientation, store successors in ascending order.
  * But we also must map from a GFA "segment -> nodes" for chunking.
- **************************************************************************************************/
+*/
 fn build_adjacency(
     links: &Vec<LinkData>,
     seg_map: &HashMap<String, Vec<usize>>,
@@ -594,11 +574,11 @@ fn build_adjacency(
     adjacency
 }
 
-/***************************************************************************************************
+/*
  * Build path data
  * We note that each P-line or W-line might have multiple chunked nodes. We expand them
  * properly (for each segment in the path, we get from seg_map the chunked node list).
- **************************************************************************************************/
+*/
 #[derive(Clone, Debug)]
 struct PathData {
     sample: String,
@@ -615,8 +595,8 @@ fn build_paths(
     let mut results = Vec::new();
 
     for p in gfa_paths {
-        // if W-line => p.sample, p.hap_id, p.contig, p.fragment
-        // else => treat them as sample="_gbwt_ref", hap=0, contig=p.raw_name, fragment=0
+        // If this is a W-line, use explicit sample/haplotype/contig/fragment metadata.
+        // Otherwise, derive metadata from the generic path name.
         let sample = p.sample.clone().unwrap_or_else(|| "_gbwt_ref".to_string());
         let hap = p.hap_id.unwrap_or(0);
         let contig = p.contig.clone().unwrap_or_else(|| p.raw_name.clone());
@@ -636,7 +616,7 @@ fn build_paths(
                     }
                 }
             } else {
-                // unknown segment?
+                continue;
             }
         }
         results.push(PathData {
@@ -651,7 +631,7 @@ fn build_paths(
     results
 }
 
-/***************************************************************************************************
+/*
  * Build GBWT
  * We:
  *   - add a node 0 as the endmarker
@@ -659,8 +639,8 @@ fn build_paths(
  *   - we insert each path in forward orientation + reversed orientation (with node flips).
  *   - we run-length encode the BWT transitions, referencing the adjacency edges.
  *   - we store real metadata with path names. W-lines => we parse sample/contig/hap.
- *     P-lines => sample = "_gbwt_ref", contig = path_name, hap=0, fragment= index?
- **************************************************************************************************/
+ *     P-lines => sample = "_gbwt_ref", contig = path_name, hap=0, fragment=index.
+ */
 fn build_gbwt(adjacency: &[Vec<usize>], node_count: usize, path_data: &[PathData]) -> GBWTIndex {
     // We will store usage counts for (from, to) pairs to compute rank(v, w).
     // Then we build final adjacency with partial prefix sums.
@@ -713,7 +693,7 @@ fn build_gbwt(adjacency: &[Vec<usize>], node_count: usize, path_data: &[PathData
         }
     }
 
-    // Initialize adjacency edges for real usage. We copy adjacency but store (succ, rank=0) for now.
+    // Initialize adjacency edges. Copy adjacency and start every edge rank at zero.
     // We'll fill the correct rank later with partial prefix sums from usage_count.
     for enc in 1..total_count {
         if enc < adjacency.len() {
@@ -867,9 +847,9 @@ fn build_gbwt(adjacency: &[Vec<usize>], node_count: usize, path_data: &[PathData
     }
 }
 
-/***************************************************************************************************
+/*
  * Build GBWTGraph from node labels (forward only) + optional translation
- **************************************************************************************************/
+*/
 fn build_gbwt_graph(forward_labels: Vec<String>, translation: Option<Translation>) -> GBWTGraph {
     GBWTGraph {
         forward_labels,
@@ -877,13 +857,13 @@ fn build_gbwt_graph(forward_labels: Vec<String>, translation: Option<Translation
     }
 }
 
-/***************************************************************************************************
+/*
  * Now the final writing of the entire GBZ file, in the official spec layout:
  *
  *  1) 16-byte GBZ header + tags
  *  2) GBWT (with 48-byte header, tags, BWT, doc array samples optional, metadata optional)
  *  3) GBWTGraph (with 24-byte header, node labels, translation)
- **************************************************************************************************/
+*/
 fn write_gbz(gbwt: &GBWTIndex, graph: &GBWTGraph, outfile: &str) -> Result<(), std::io::Error> {
     // This writes the final GBZ container, ensuring 8-byte alignment after each major section.
     use std::io::Seek;
@@ -953,7 +933,7 @@ fn write_gbz(gbwt: &GBWTIndex, graph: &GBWTGraph, outfile: &str) -> Result<(), s
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Write the "Tags" structure in simple-sds style:
  *   - It's a string array with 2*N strings. Each pair is (key, value).
  *   - The library approach is:
@@ -962,7 +942,7 @@ fn write_gbz(gbwt: &GBWTIndex, graph: &GBWTGraph, outfile: &str) -> Result<(), s
  *       2) we store length
  *       3) we store offsets
  *       4) we store big blob
- **************************************************************************************************/
+*/
 fn write_tags<W: Write>(w: &mut W, tags: &[(String, String)]) -> Result<(), std::io::Error> {
     let n = tags.len();
     // Flatten: 2*n strings
@@ -977,7 +957,7 @@ fn write_tags<W: Write>(w: &mut W, tags: &[(String, String)]) -> Result<(), std:
     write_string_array(w, &all_strings)
 }
 
-/***************************************************************************************************
+/*
  * Write the GBWT index:
  *
  * The format is:
@@ -988,7 +968,7 @@ fn write_tags<W: Write>(w: &mut W, tags: &[(String, String)]) -> Result<(), std:
  *       * data: the run-length adjacency encodings
  *   - doc array samples => optional
  *   - metadata => optional
- **************************************************************************************************/
+*/
 fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io::Error> {
     // Write the 48-byte header
     let tag: u32 = 0x6B376B37;
@@ -1040,11 +1020,11 @@ fn write_gbwt_index<W: Write>(w: &mut W, gbwt: &GBWTIndex) -> Result<(), std::io
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Build the BWT record data for each node. For each record i, we convert adjacency edges + runs
  * into a byte-coded structure. Then we store them all in a single array "data_bytes."
  * We also store an offset for record i in record_offsets[i].
- **************************************************************************************************/
+*/
 fn build_bwt_bytes(records: &[Option<GBWTRecord>]) -> (Vec<(usize, usize)>, Vec<u8>) {
     let mut data = Vec::new();
     let mut offsets = Vec::new();
@@ -1107,7 +1087,7 @@ fn build_bwt_bytes(records: &[Option<GBWTRecord>]) -> (Vec<(usize, usize)>, Vec<
     (offsets, data)
 }
 
-/***************************************************************************************************
+/*
  * Write the GBWT metadata
  * This is an optional structure, but we have flagged in the header that we have it.
  *
@@ -1116,7 +1096,7 @@ fn build_bwt_bytes(records: &[Option<GBWTRecord>]) -> (Vec<(usize, usize)>, Vec<
  *   - then path names
  *   - then sample dictionary
  *   - then contig dictionary
- **************************************************************************************************/
+*/
 fn write_gbwt_metadata<W: Write>(w: &mut W, meta: &GBWTMetadata) -> Result<(), std::io::Error> {
     let tag: u32 = 0x6B375E7A;
     let version: u32 = 2;
@@ -1185,13 +1165,13 @@ fn write_gbwt_metadata<W: Write>(w: &mut W, meta: &GBWTMetadata) -> Result<(), s
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Write the dictionary =>
  *   - 1) string array
  *   - 2) sorted_ids => we store them in ascending order, but we skip duplicates? Actually
  * We have meta.sample_names in the order they were inserted, so the ID= index.
  * Then we must store them in lexicographic order => sorted_ids => an integer vector
- **************************************************************************************************/
+*/
 fn write_dictionary<W: Write>(w: &mut W, items: &Vec<String>) -> Result<(), std::io::Error> {
     write_string_array(w, items)?;
     let mut sorted: Vec<usize> = (0..items.len()).collect();
@@ -1211,12 +1191,12 @@ fn write_dictionary<W: Write>(w: &mut W, items: &Vec<String>) -> Result<(), std:
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Write the GBWTGraph:
  *   1) 24-byte header => tag=0x6B3764AF, version=3, nodes=..., flags= 0x2 for simple-sds plus 0x1 if translation
  *   2) Sequences => string array => these are the forward labels for each node ID
  *   3) Node-to-segment translation => if present, we store the "translation" data
- **************************************************************************************************/
+*/
 fn write_gbwt_graph_data<W: Write>(w: &mut W, graph: &GBWTGraph) -> Result<(), std::io::Error> {
     let tag: u32 = 0x6B3764AF;
     let version: u32 = 3;
@@ -1270,21 +1250,21 @@ fn write_gbwt_graph_data<W: Write>(w: &mut W, graph: &GBWTGraph) -> Result<(), s
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Utility: write a string array in "simple-sds" style =>
  *   1) store length (n)
  *   2) store a single concatenated data
  *   3) store an offset array with n+1 offsets
- **************************************************************************************************/
+*/
 fn write_string_array<W: Write>(w: &mut W, arr: &Vec<String>) -> Result<(), std::io::Error> {
     let string_array = StringArray::from(arr.as_slice());
     string_array.serialize(w)?;
     Ok(())
 }
 
-/***************************************************************************************************
+/*
  * Low-level varuint encoders
- **************************************************************************************************/
+*/
 fn write_varuint<W: Write>(w: &mut W, mut x: u64) -> Result<(), std::io::Error> {
     while x > 0x7F {
         let b = ((x & 0x7F) as u8) | 0x80;

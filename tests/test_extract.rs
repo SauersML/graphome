@@ -6,7 +6,6 @@ use graphome::eigen_print::{
 };
 use graphome::extract::*;
 use ndarray::prelude::*;
-use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
@@ -21,22 +20,6 @@ fn array2_to_mat(array: &Array2<f64>) -> Mat<f64> {
 
 fn matref_to_array(mat: MatRef<'_, f64>) -> Array2<f64> {
     Array2::from_shape_fn((mat.nrows(), mat.ncols()), |(i, j)| mat[(i, j)])
-}
-
-/// Helper function to read edges from the binary edge list file
-#[allow(dead_code)]
-fn read_edges_from_file(path: &std::path::Path) -> io::Result<HashSet<(u32, u32)>> {
-    let mut edges = HashSet::new();
-    let mut file = File::open(path)?;
-    let mut buffer = [0u8; 8];
-
-    while file.read_exact(&mut buffer).is_ok() {
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-        edges.insert((from, to));
-    }
-
-    Ok(edges)
 }
 
 /// Helper function to create a mock .gam file with given edges
@@ -176,7 +159,11 @@ fn test_full_range_extraction() -> io::Result<()> {
     }
 
     // Load eigenvectors (optional)
-    let _eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    assert!(
+        !eigenvectors.is_empty(),
+        "Expected non-empty eigenvector matrix"
+    );
     // Additional tests on eigenvectors can be added here
 
     // Close the temporary directory (optional)
@@ -294,7 +281,11 @@ fn test_partial_range_extraction() -> io::Result<()> {
     }
 
     // Load eigenvectors (optional)
-    let _eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    assert!(
+        !eigenvectors.is_empty(),
+        "Expected non-empty eigenvector matrix"
+    );
     // Additional tests on eigenvectors can be added here
 
     // Close the temporary directory (optional)
@@ -489,22 +480,6 @@ fn test_save_vector_to_csv() -> io::Result<()> {
     );
 
     Ok(())
-}
-
-/// Helper function to read edges from a .gam file into a HashSet
-#[allow(dead_code)]
-fn read_edges_from_gam<P: AsRef<Path>>(path: P) -> io::Result<HashSet<(u32, u32)>> {
-    let mut edges = HashSet::new();
-    let mut file = File::open(path)?;
-    let mut buffer = [0u8; 8];
-
-    while file.read_exact(&mut buffer).is_ok() {
-        let from = u32::from_le_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]);
-        let to = u32::from_le_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]);
-        edges.insert((from, to));
-    }
-
-    Ok(edges)
 }
 
 /// Helper function to compare two floating point matrices with exact equality.

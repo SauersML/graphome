@@ -157,9 +157,12 @@ fn process_line(
     } else if line.starts_with("L\t") {
         let mut fields = line.split('\t');
         fields.next();
-        if let (Some(from), Some(_from_orient), Some(to), Some(_to_orient)) =
+        if let (Some(from), Some(from_orient), Some(to), Some(to_orient)) =
             (fields.next(), fields.next(), fields.next(), fields.next())
         {
+            let orientation_valid = (from_orient == "+" || from_orient == "-")
+                && (to_orient == "+" || to_orient == "-");
+            assert!(orientation_valid, "Invalid GFA orientation token");
             let from = from.trim();
             let to = to.trim();
             if target_set.contains(from) && target_set.contains(to) {

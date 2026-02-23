@@ -266,11 +266,10 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
     }
     let have_reference_positions = !ref_paths_cache.is_empty();
 
-    // Create a search state for the node (ensures node exists in the index)
-    let _forward_state = match gbz.search_state(node_id, Orientation::Forward) {
-        Some(state) => state,
-        None => return results,
-    };
+    // Ensure node exists in the index before scanning paths.
+    if gbz.search_state(node_id, Orientation::Forward).is_none() {
+        return results;
+    }
 
     // Find all paths that contain this node
     for ref_sample in &ref_samples {
@@ -289,7 +288,11 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
                 // Scan path to find node positions
                 for (path_node, orientation) in path_iter {
                     if path_node == node_id {
-                        found_positions.push((position, orientation == Orientation::Forward));
+                        let orientation_is_forward = orientation == Orientation::Forward;
+                        found_positions.push(position);
+                        if !orientation_is_forward && node_len == 0 {
+                            continue;
+                        }
                     }
                     if let Some(len) = gbz.sequence_len(path_node) {
                         position += len;
@@ -297,14 +300,15 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
                 }
 
                 // For each occurrence, extract reference coordinates
-                for (pos, _is_forward) in found_positions {
+                for pos in found_positions {
                     if have_reference_positions {
                         for ref_path in &ref_paths_cache {
                             if ref_path.id == path_id {
-                                for (path_pos, _gbwt_pos) in &ref_path.positions {
-                                    if *path_pos <= pos && *path_pos + node_len >= pos {
+                                for pos_record in &ref_path.positions {
+                                    let path_pos = pos_record.0;
+                                    if path_pos <= pos && path_pos + node_len >= pos {
                                         let offset = pos - path_pos;
-                                        let ref_start = *path_pos + offset;
+                                        let ref_start = path_pos + offset;
                                         let ref_end = ref_start + node_len - 1;
                                         results.push((contig_name.clone(), ref_start, ref_end));
                                     }

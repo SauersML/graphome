@@ -160,7 +160,11 @@ fn test_full_range_extraction() -> io::Result<()> {
     }
 
     // Load eigenvectors if needed
-    let _eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    assert!(
+        !eigenvectors.is_empty(),
+        "Expected non-empty eigenvector matrix"
+    );
 
     // Clean up
     test_dir.close()?;
@@ -193,10 +197,6 @@ fn test_partial_range_extraction() -> io::Result<()> {
     // Run the extraction
     extract::extract_and_analyze_submatrix(output_gam.as_path(), start_node, end_node)?;
     // Define expected edges within the range as a Vec
-    let _expected_edges: Vec<(u32, u32)> = vec![
-        (1, 2), // From node 2 to node 3
-        (2, 1), // From node 3 to node 2
-    ];
     // Load the Laplacian matrix from CSV
     let laplacian_csv = output_dir.path().join("laplacian.csv");
 
@@ -236,7 +236,11 @@ fn test_partial_range_extraction() -> io::Result<()> {
     }
     // Load eigenvectors
     let eigenvectors_csv = output_dir.path().join("eigenvectors.csv");
-    let _eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    let eigenvectors = load_csv_as_matrix(&eigenvectors_csv)?;
+    assert!(
+        !eigenvectors.is_empty(),
+        "Expected non-empty eigenvector matrix"
+    );
     // Since eigenvectors can vary in sign and orientation, we'll focus on verifying the eigenvalues' correctness
     // Alternatively, you can implement additional checks for eigenvectors if necessary
     Ok(())

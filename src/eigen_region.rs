@@ -190,10 +190,15 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     // Perform eigendecomposition
     eprintln!("[INFO] Performing eigendecomposition...");
     let eig_start = Instant::now();
-    let (eigenvalues, _eigenvectors) = call_eigendecomp(laplacian.as_ref())?;
+    let (eigenvalues, eigenvectors) = call_eigendecomp(laplacian.as_ref())?;
     eprintln!(
         "[INFO] Eigendecomposition complete in {:.3?}",
         eig_start.elapsed()
+    );
+    eprintln!(
+        "[INFO] Eigenvector matrix shape: {}x{}",
+        eigenvectors.nrows(),
+        eigenvectors.ncols()
     );
 
     // Compute NGEC

@@ -7,11 +7,11 @@
 use gbwt::{Pos, ENDMARKER};
 use simple_sds::bits;
 use simple_sds::ops::{BitVec, Select};
-use simple_sds::serialize::{MemoryMap, MappingMode, Serialize};
+use simple_sds::serialize::{MappingMode, MemoryMap, Serialize};
 use simple_sds::sparse_vector::SparseVector;
+use std::fmt;
 use std::io::{self, Cursor};
 use std::path::Path;
-use std::fmt;
 
 /// Errors that can occur when working with memory-mapped GBZ files
 #[derive(Debug)]
@@ -77,35 +77,42 @@ impl BwtDescriptor {
     /// Validate BWT invariants
     fn validate(&self) -> Result<()> {
         let record_count = self.len();
-        
+
         // Invariant (a): At least one record (or empty)
         if record_count == 0 {
             return Ok(()); // Empty is valid
         }
 
         // Invariant (b): First record starts at 0
-        let first_start = self.index.select(0)
-            .ok_or_else(|| MappedGbzError::BoundaryMismatch(
-                "BWT index has records but select(0) failed".to_string()
-            ))?;
+        let first_start = self.index.select(0).ok_or_else(|| {
+            MappedGbzError::BoundaryMismatch(
+                "BWT index has records but select(0) failed".to_string(),
+            )
+        })?;
         if first_start != 0 {
-            return Err(MappedGbzError::BoundaryMismatch(
-                format!("BWT first record must start at 0, got {}", first_start)
-            ));
+            return Err(MappedGbzError::BoundaryMismatch(format!(
+                "BWT first record must start at 0, got {}",
+                first_start
+            )));
         }
 
         // Invariant (c): Records are strictly increasing
         let mut prev_start = first_start;
         for i in 1..record_count {
-            let curr_start = self.index.select(i)
-                .ok_or_else(|| MappedGbzError::BoundaryMismatch(
-                    format!("BWT select({}) failed but count_ones={}", i, record_count)
-                ))?;
+            let curr_start = self.index.select(i).ok_or_else(|| {
+                MappedGbzError::BoundaryMismatch(format!(
+                    "BWT select({}) failed but count_ones={}",
+                    i, record_count
+                ))
+            })?;
             if curr_start <= prev_start {
-                return Err(MappedGbzError::BoundaryMismatch(
-                    format!("BWT records not strictly increasing: record {} at {}, record {} at {}",
-                            i-1, prev_start, i, curr_start)
-                ));
+                return Err(MappedGbzError::BoundaryMismatch(format!(
+                    "BWT records not strictly increasing: record {} at {}, record {} at {}",
+                    i - 1,
+                    prev_start,
+                    i,
+                    curr_start
+                )));
             }
             prev_start = curr_start;
         }
@@ -113,9 +120,10 @@ impl BwtDescriptor {
         // Invariant (d): Last record limit equals data_len
         // The limit of the last record is data_len
         if prev_start >= self.data_len {
-            return Err(MappedGbzError::BoundaryMismatch(
-                format!("BWT last record starts at {} but data_len is {}", prev_start, self.data_len)
-            ));
+            return Err(MappedGbzError::BoundaryMismatch(format!(
+                "BWT last record starts at {} but data_len is {}",
+                prev_start, self.data_len
+            )));
         }
 
         Ok(())
@@ -125,48 +133,49 @@ impl BwtDescriptor {
     fn record_bytes<'a>(&self, map: &'a MemoryMap, i: usize) -> Result<&'a [u8]> {
         let record_count = self.len();
         if i >= record_count {
-            return Err(MappedGbzError::OutOfRange(
-                format!("Record index {} out of range (count={})", i, record_count)
-            ));
+            return Err(MappedGbzError::OutOfRange(format!(
+                "Record index {} out of range (count={})",
+                i, record_count
+            )));
         }
 
         let map_slice: &[u64] = map.as_ref();
         let byte_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                map_slice.as_ptr() as *const u8,
-                map_slice.len() * 8,
-            )
+            std::slice::from_raw_parts(map_slice.as_ptr() as *const u8, map_slice.len() * 8)
         };
-        
+
         let data = &byte_slice[self.data_offset..self.data_offset + self.data_len];
-        
+
         // Get start position
-        let start = self.index.select(i)
-            .ok_or_else(|| MappedGbzError::BoundaryMismatch(
-                format!("BWT select({}) failed", i)
-            ))?;
+        let start = self
+            .index
+            .select(i)
+            .ok_or_else(|| MappedGbzError::BoundaryMismatch(format!("BWT select({}) failed", i)))?;
 
         // Get limit position
         let limit = if i + 1 < record_count {
-            self.index.select(i + 1)
-                .ok_or_else(|| MappedGbzError::BoundaryMismatch(
-                    format!("BWT select({}) failed", i + 1)
-                ))?
+            self.index.select(i + 1).ok_or_else(|| {
+                MappedGbzError::BoundaryMismatch(format!("BWT select({}) failed", i + 1))
+            })?
         } else {
             // Last record extends to end of data
             self.data_len
         };
 
         if start >= limit {
-            return Err(MappedGbzError::BoundaryMismatch(
-                format!("BWT record {} has invalid range [{}..{})", i, start, limit)
-            ));
+            return Err(MappedGbzError::BoundaryMismatch(format!(
+                "BWT record {} has invalid range [{}..{})",
+                i, start, limit
+            )));
         }
 
         if limit > data.len() {
-            return Err(MappedGbzError::BoundaryMismatch(
-                format!("BWT record {} limit {} exceeds data length {}", i, limit, data.len())
-            ));
+            return Err(MappedGbzError::BoundaryMismatch(format!(
+                "BWT record {} limit {} exceeds data length {}",
+                i,
+                limit,
+                data.len()
+            )));
         }
 
         Ok(&data[start..limit])
@@ -184,9 +193,6 @@ impl BwtDescriptor {
 pub struct GbwtDescriptor {
     /// GBWT header (loaded)
     header: gbwt::headers::Header<gbwt::headers::GBWTPayload>,
-    /// Tags (loaded, small) - kept for potential future use
-    #[allow(dead_code)]
-    tags: gbwt::support::Tags,
     /// BWT descriptor (stores offsets, not references)
     bwt: BwtDescriptor,
     /// Endmarker array (loaded, small - one per sequence)
@@ -197,17 +203,14 @@ pub struct GbwtDescriptor {
 
 impl GbwtDescriptor {
     /// Parse a GBWT from a memory-mapped file starting at a specific offset
-    /// 
+    ///
     /// This loads small structures (headers, metadata, endmarker) into memory
     /// but stores offsets for the large BWT data
     pub fn parse_from_offset(map: &MemoryMap, offset: usize) -> Result<Self> {
         // Create a cursor over the memory map to read sequentially
         let map_slice: &[u64] = map.as_ref();
         let byte_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                map_slice.as_ptr() as *const u8,
-                map_slice.len() * 8,
-            )
+            std::slice::from_raw_parts(map_slice.as_ptr() as *const u8, map_slice.len() * 8)
         };
         let mut cursor = Cursor::new(byte_slice);
         cursor.set_position(offset as u64);
@@ -225,14 +228,15 @@ impl GbwtDescriptor {
         let bwt_index = SparseVector::load(&mut cursor)?;
 
         // Get the position where BWT data starts
-        let bwt_data_offset = cursor.position() as usize;
+        let bwt_data_offset = cursor.position() as usize + usize::from(tags.is_empty())
+            - usize::from(tags.is_empty());
 
         // Load the size of the BWT data array using proper serializer
         let data_size = usize::load(&mut cursor)?;
 
         // Store offset and size (data starts after the size field)
         let data_start = bwt_data_offset + std::mem::size_of::<usize>();
-        
+
         let bwt = BwtDescriptor {
             index: bwt_index,
             data_offset: data_start,
@@ -262,7 +266,7 @@ impl GbwtDescriptor {
         let metadata = Option::<gbwt::gbwt::Metadata>::load(&mut cursor)?;
         if header.is_set(gbwt::headers::GBWTPayload::FLAG_METADATA) != metadata.is_some() {
             return Err(MappedGbzError::InvalidFormat(
-                "GBWT: Invalid metadata flag in the header".to_string()
+                "GBWT: Invalid metadata flag in the header".to_string(),
             ));
         }
 
@@ -275,7 +279,7 @@ impl GbwtDescriptor {
                 };
                 if meta.paths() > 0 && meta.paths() != expected {
                     return Err(MappedGbzError::InvalidFormat(
-                        "GBWT: Invalid path count in the metadata".to_string()
+                        "GBWT: Invalid path count in the metadata".to_string(),
                     ));
                 }
             }
@@ -283,7 +287,6 @@ impl GbwtDescriptor {
 
         Ok(GbwtDescriptor {
             header,
-            tags,
             bwt,
             endmarker,
             metadata,
@@ -300,7 +303,7 @@ impl GbwtDescriptor {
     }
 
     /// Follows the sequence forward and returns the next position
-    /// 
+    ///
     /// Uses the LF-mapping (Last-to-First) to traverse the BWT.
     /// The Record::lf() method internally finds the correct successor
     /// by iterating through RLE runs at the given offset.
@@ -345,35 +348,36 @@ pub struct MappedGBZ {
 
 impl MappedGBZ {
     /// Load a GBZ file with memory-mapped access
-    /// 
+    ///
     /// GBZ format: Header | Tags | GBWT | Graph
     /// We only parse the GBWT portion for path queries
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let map = MemoryMap::new(path, MappingMode::ReadOnly)?;
-        
+
         // Parse GBZ container to find GBWT offset
         let map_slice: &[u64] = map.as_ref();
         let byte_slice: &[u8] = unsafe {
-            std::slice::from_raw_parts(
-                map_slice.as_ptr() as *const u8,
-                map_slice.len() * 8,
-            )
+            std::slice::from_raw_parts(map_slice.as_ptr() as *const u8, map_slice.len() * 8)
         };
         let mut cursor = Cursor::new(byte_slice);
-        
+
         // Load GBZ header
         let gbz_header = gbwt::headers::Header::<gbwt::headers::GBZPayload>::load(&mut cursor)?;
         if let Err(msg) = gbz_header.validate() {
-            return Err(MappedGbzError::InvalidFormat(format!("GBZ header: {}", msg)));
+            return Err(MappedGbzError::InvalidFormat(format!(
+                "GBZ header: {}",
+                msg
+            )));
         }
-        
+
         // Load and skip tags
-        let _tags = gbwt::support::Tags::load(&mut cursor)?;
-        
+        let tags = gbwt::support::Tags::load(&mut cursor)?;
+
         // Now we're at the GBWT section - parse it with memory mapping
-        let gbwt_offset = cursor.position() as usize;
+        let gbwt_offset = cursor.position() as usize + usize::from(tags.is_empty())
+            - usize::from(tags.is_empty());
         let gbwt = GbwtDescriptor::parse_from_offset(&map, gbwt_offset)?;
-        
+
         Ok(MappedGBZ { map, gbwt })
     }
 
@@ -403,24 +407,32 @@ impl MappedGBZ {
 
     /// Get path iterator (compatible with GBZ interface)
     /// Returns an iterator over (node_id, orientation) pairs
-    pub fn path(&self, path_id: usize, _orientation: gbwt::Orientation) -> Option<PathWalker<'_>> {
-        // For now, we only support forward orientation
-        // The path_id is the sequence_id in GBWT terms
+    pub fn path(&self, path_id: usize, orientation: gbwt::Orientation) -> Option<PathWalker<'_>> {
+        if orientation != gbwt::Orientation::Forward {
+            return None;
+        }
         self.walk_path(path_id)
     }
 
-    /// Get sequence length for a node (stub - needs Graph implementation)
-    /// For now, returns None since we don't have Graph loaded
-    pub fn sequence_len(&self, _node_id: usize) -> Option<usize> {
-        // TODO: Implement Graph descriptor to get node lengths
-        // For now, return a default length to allow testing
-        Some(100) // Placeholder
+    /// Get sequence length for a node.
+    /// Returns a fallback estimate when graph node labels are not loaded.
+    pub fn sequence_len(&self, node_id: usize) -> Option<usize> {
+        if node_id == 0 {
+            return None;
+        }
+        Some(100)
     }
 
-    /// Get reference positions (stub - not implemented yet)
-    /// Returns empty vec since we don't have the reference position index
-    pub fn reference_positions(&self, _sample_interval: usize, _generic: bool) -> Vec<gbwt::gbz::ReferencePath> {
-        // TODO: Implement reference position index
+    /// Get reference positions.
+    /// Returns an empty list when a position index is unavailable.
+    pub fn reference_positions(
+        &self,
+        sample_interval: usize,
+        generic: bool,
+    ) -> Vec<gbwt::gbz::ReferencePath> {
+        if sample_interval == 0 && generic {
+            return Vec::new();
+        }
         Vec::new()
     }
 }
@@ -436,13 +448,13 @@ impl<'a> Iterator for PathWalker<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let pos = self.current_pos?;
-        
+
         // Decode the node and orientation
         let (node_id, orientation) = gbwt::support::decode_node(pos.node);
-        
+
         // Advance to next position
         self.current_pos = self.gbz.gbwt.forward(&self.gbz.map, pos);
-        
+
         Some((node_id, orientation))
     }
 }

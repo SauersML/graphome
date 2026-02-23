@@ -68,8 +68,6 @@ struct EdgeList {
     data: Arc<Vec<(usize, usize)>>,
     index: Arc<Vec<(usize, usize)>>, // (start_idx, end_idx) ranges for each node
     window_start: usize,             // Store window boundaries for edge filtering
-    #[allow(dead_code)]
-    window_end: usize,
 }
 
 impl EdgeList {
@@ -161,7 +159,6 @@ impl EdgeList {
             data: Arc::new(edges),
             index: Arc::new(index),
             window_start,
-            window_end,
         })
     }
 

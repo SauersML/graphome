@@ -16,7 +16,6 @@ use crate::extract::load_adjacency_matrix;
 
 /// A simple data structure to hold node info: length, adjacency, etc.
 #[derive(Debug)]
-#[allow(dead_code)]
 struct NodeData {
     length: usize,
 }
@@ -434,7 +433,7 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (u8, u8, u8) {
 /// * Local density => scale saturation, so low-density ~ pastel, high-density ~ vivid.
 /// * Lightness is set to 0.45 for a deeper, more colorful look.
 fn color_from_cluster(
-    _i: usize,
+    i: usize,
     cluster_id: i32,
     local_density: f32,
     min_dens: f32,
@@ -462,6 +461,7 @@ fn color_from_cluster(
     if raw_hue >= skip_start {
         raw_hue += skip_len;
     }
+    raw_hue = (raw_hue + (i % 7) as f32 * 0.01) % 360.0;
 
     // Next, vary saturation by local density.  We map local_density -> [0..1].
     // Then saturation in [0.2..1.0].

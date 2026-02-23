@@ -58,6 +58,10 @@ flate2 = "1.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[build-dependencies]
+grep = "0.3"
+walkdir = "2.5"
+
 [[test]]
 name = "test_convert"
 path = "tests/test_convert.rs"
