@@ -89,12 +89,10 @@ static RETAINED_MATERIALIZED: OnceLock<Mutex<Vec<MaterializedPath>>> = OnceLock:
 /// downloaded from remote locations remain accessible after the handle goes out of scope.
 pub fn retain_materialized(materialized: MaterializedPath) -> PathBuf {
     let path = materialized.path.clone();
-    let has_temp_backing = materialized.temp.is_some();
-    let cache = RETAINED_MATERIALIZED.get_or_init(|| Mutex::new(Vec::new()));
-    let mut guard = cache.lock().expect("materialized cache mutex poisoned");
-    guard.push(materialized);
-    if !has_temp_backing && guard.is_empty() {
-        return path;
+    if materialized.temp.is_some() {
+        let cache = RETAINED_MATERIALIZED.get_or_init(|| Mutex::new(Vec::new()));
+        let mut guard = cache.lock().expect("materialized cache mutex poisoned");
+        guard.push(materialized);
     }
     path
 }

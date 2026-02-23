@@ -1,67 +1,9 @@
 use std::fs;
-use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::OnceLock;
 
-const CHM13_GBZ_URL: &str = "https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-chm13.gbz";
-const CHM13_GBZ_NAME: &str = "hprc-v2.0-mc-chm13.gbz";
-
-static CHM13_GBZ_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-
-fn ensure_chm13_gbz() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    match CHM13_GBZ_PATH.get_or_init(resolve_or_download_chm13_gbz) {
-        Ok(path) => Ok(path.clone()),
-        Err(err) => Err(std::io::Error::other(err.clone()).into()),
-    }
-}
-
-fn resolve_or_download_chm13_gbz() -> Result<PathBuf, String> {
-    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let primary = project_root.join("data/hprc").join(CHM13_GBZ_NAME);
-    let fallback = project_root.join("data").join(CHM13_GBZ_NAME);
-
-    if primary.exists() {
-        return Ok(primary);
-    }
-    if fallback.exists() {
-        return Ok(fallback);
-    }
-
-    std::fs::create_dir_all(primary.parent().ok_or("invalid cache path")?)
-        .map_err(|e| format!("failed to create data directory: {e}"))?;
-
-    let tmp = primary.with_extension("gbz.part");
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(60 * 60))
-        .build()
-        .map_err(|e| format!("failed to create HTTP client: {e}"))?;
-
-    let mut response = client
-        .get(CHM13_GBZ_URL)
-        .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .map_err(|e| format!("failed to download CHM13 GBZ: {e}"))?;
-
-    let mut out = std::fs::File::create(&tmp)
-        .map_err(|e| format!("failed to create temporary file {:?}: {}", tmp, e))?;
-    let mut buf = [0u8; 1024 * 1024];
-    loop {
-        let read = response
-            .read(&mut buf)
-            .map_err(|e| format!("download read failed: {e}"))?;
-        if read == 0 {
-            break;
-        }
-        out.write_all(&buf[..read])
-            .map_err(|e| format!("download write failed: {e}"))?;
-    }
-    out.flush()
-        .map_err(|e| format!("flush failed for {:?}: {}", tmp, e))?;
-    std::fs::rename(&tmp, &primary)
-        .map_err(|e| format!("failed to move {:?} to {:?}: {}", tmp, primary, e))?;
-    Ok(primary)
-}
+mod common_chm13;
+use common_chm13::{chm13_fixture_path_if_present, ensure_chm13_gbz, should_run_large_integration};
 
 /// Test that coordinate-based extraction returns the correct sequence.
 ///
@@ -75,6 +17,13 @@ fn resolve_or_download_chm13_gbz() -> Result<PathBuf, String> {
 /// 7. Asserts the 3kb string appears somewhere in the query result
 #[test]
 fn test_coordinate_extraction_correctness() {
+    if chm13_fixture_path_if_present().is_none() && !should_run_large_integration() {
+        eprintln!(
+            "Skipping coordinate extraction integration test: CHM13 fixture missing and RUN_LARGE_INTEGRATION is not enabled"
+        );
+        return;
+    }
+
     // Setup paths
     let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let gbz_path = ensure_chm13_gbz().expect("failed to prepare CHM13 GBZ test fixture");

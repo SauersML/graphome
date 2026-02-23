@@ -228,8 +228,8 @@ impl GbwtDescriptor {
         let bwt_index = SparseVector::load(&mut cursor)?;
 
         // Get the position where BWT data starts
-        let bwt_data_offset = cursor.position() as usize + usize::from(tags.is_empty())
-            - usize::from(tags.is_empty());
+        let _ = tags.is_empty();
+        let bwt_data_offset = cursor.position() as usize;
 
         // Load the size of the BWT data array using proper serializer
         let data_size = usize::load(&mut cursor)?;
@@ -374,8 +374,8 @@ impl MappedGBZ {
         let tags = gbwt::support::Tags::load(&mut cursor)?;
 
         // Now we're at the GBWT section - parse it with memory mapping
-        let gbwt_offset = cursor.position() as usize + usize::from(tags.is_empty())
-            - usize::from(tags.is_empty());
+        let _ = tags.is_empty();
+        let gbwt_offset = cursor.position() as usize;
         let gbwt = GbwtDescriptor::parse_from_offset(&map, gbwt_offset)?;
 
         Ok(MappedGBZ { map, gbwt })
@@ -415,12 +415,10 @@ impl MappedGBZ {
     }
 
     /// Get sequence length for a node.
-    /// Returns a fallback estimate when graph node labels are not loaded.
+    /// Returns `None` until graph node labels are parsed from the GBZ graph section.
     pub fn sequence_len(&self, node_id: usize) -> Option<usize> {
-        if node_id == 0 {
-            return None;
-        }
-        Some(100)
+        let _ = node_id;
+        None
     }
 
     /// Get reference positions.

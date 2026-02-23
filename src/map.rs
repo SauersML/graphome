@@ -237,6 +237,9 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
         Some(len) => len,
         None => return results,
     };
+    if node_len == 0 {
+        return results;
+    }
 
     // Get reference sample IDs
     let metadata = match gbz.metadata() {
@@ -286,13 +289,9 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
                 let mut found_positions = Vec::new();
 
                 // Scan path to find node positions
-                for (path_node, orientation) in path_iter {
+                for (path_node, _) in path_iter {
                     if path_node == node_id {
-                        let orientation_is_forward = orientation == Orientation::Forward;
                         found_positions.push(position);
-                        if !orientation_is_forward && node_len == 0 {
-                            continue;
-                        }
                     }
                     if let Some(len) = gbz.sequence_len(path_node) {
                         position += len;
@@ -306,10 +305,10 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
                             if ref_path.id == path_id {
                                 for pos_record in &ref_path.positions {
                                     let path_pos = pos_record.0;
-                                    if path_pos <= pos && path_pos + node_len >= pos {
+                                    if path_pos <= pos && pos < path_pos.saturating_add(node_len) {
                                         let offset = pos - path_pos;
                                         let ref_start = path_pos + offset;
-                                        let ref_end = ref_start + node_len - 1;
+                                        let ref_end = ref_start.saturating_add(node_len - 1);
                                         results.push((contig_name.clone(), ref_start, ref_end));
                                     }
                                 }
@@ -317,7 +316,7 @@ pub fn node_to_coords(gbz: &GBZ, node_id: usize) -> Vec<(String, usize, usize)> 
                         }
                     } else {
                         let ref_start = pos;
-                        let ref_end = ref_start + node_len - 1;
+                        let ref_end = ref_start.saturating_add(node_len - 1);
                         results.push((contig_name.clone(), ref_start, ref_end));
                     }
                 }

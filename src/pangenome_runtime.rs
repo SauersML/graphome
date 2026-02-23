@@ -237,6 +237,55 @@ pub fn infer_snarl_panel(
     InferredPanel { roots, lookup }
 }
 
+#[derive(Default, Clone)]
+struct SnarlCountAccumulator {
+    flat_counts: BTreeMap<String, usize>,
+    skeleton_counts: BTreeMap<String, usize>,
+    child_to_skeleton_counts: HashMap<String, BTreeMap<String, usize>>,
+}
+
+pub fn infer_snarl_panel_from_gbz(topology_roots: &[SnarlTopology], gbz: &GBZ) -> InferredPanel {
+    let mut accumulators = HashMap::<String, SnarlCountAccumulator>::new();
+    for root in topology_roots {
+        init_accumulators(root, &mut accumulators);
+    }
+
+    let Some(metadata) = gbz.metadata() else {
+        let mut lookup = HashMap::new();
+        let roots = topology_roots
+            .iter()
+            .map(|root| build_snarl_from_counts(root, &accumulators, &mut lookup))
+            .collect();
+        return InferredPanel { roots, lookup };
+    };
+
+    for path_id in 0..metadata.paths() {
+        let mut steps = Vec::new();
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            for (node_id, orientation) in path_iter {
+                steps.push(HaplotypeStep {
+                    node_id,
+                    orientation,
+                });
+            }
+        }
+        if steps.is_empty() {
+            continue;
+        }
+        let mut span_ctx = SpanContext::new(&steps);
+        for root in topology_roots {
+            accumulate_topology_counts_with_context(root, &mut span_ctx, &mut accumulators);
+        }
+    }
+
+    let mut lookup = HashMap::new();
+    let roots = topology_roots
+        .iter()
+        .map(|root| build_snarl_from_counts(root, &accumulators, &mut lookup))
+        .collect();
+    InferredPanel { roots, lookup }
+}
+
 pub fn build_runtime_from_walks(
     topology_roots: &[SnarlTopology],
     panel_walks: &[HaplotypeWalk],
@@ -252,14 +301,237 @@ pub fn build_runtime_from_gbz(
     gbz: &GBZ,
     node_counts: HashMap<String, usize>,
 ) -> FeatureRuntime {
-    let panel_walks = extract_haplotype_walks_from_gbz(gbz);
-    build_runtime_from_walks(topology_roots, &panel_walks, node_counts)
+    let panel = infer_snarl_panel_from_gbz(topology_roots, gbz);
+    let schema = FeatureBuilder::with_node_counts(node_counts).optimize(&panel.roots);
+    FeatureRuntime { schema, panel }
+}
+
+fn init_accumulators(
+    topology: &SnarlTopology,
+    accumulators: &mut HashMap<String, SnarlCountAccumulator>,
+) {
+    accumulators.entry(topology.id.clone()).or_default();
+    for child in &topology.children {
+        init_accumulators(child, accumulators);
+    }
+}
+
+fn accumulate_topology_counts_with_context(
+    topology: &SnarlTopology,
+    span_ctx: &mut SpanContext<'_>,
+    accumulators: &mut HashMap<String, SnarlCountAccumulator>,
+) {
+    for child in &topology.children {
+        accumulate_topology_counts_with_context(child, span_ctx, accumulators);
+    }
+
+    let Some(span) = span_ctx.find_span_or_noncanonical(topology.entry_node, topology.exit_node)
+    else {
+        return;
+    };
+    let parent_steps = &span_ctx.steps[span.start..=span.end];
+    let flat_signature = step_signature(parent_steps);
+
+    let entry = accumulators.entry(topology.id.clone()).or_default();
+    *entry.flat_counts.entry(flat_signature).or_insert(0) += 1;
+
+    if topology.children.is_empty() {
+        return;
+    }
+
+    let mut child_spans = Vec::new();
+    let mut present_children = Vec::new();
+    for child in &topology.children {
+        if let Some(child_span) =
+            find_span_or_noncanonical(parent_steps, child.entry_node, child.exit_node)
+        {
+            child_spans.push((child_span.start, child_span.end, child.id.clone()));
+            present_children.push(child.id.clone());
+        }
+    }
+    child_spans.sort_by_key(|(start_idx, _, _)| *start_idx);
+
+    let mut parts = Vec::new();
+    let mut cursor = 0usize;
+    for (child_start, child_end, child_id) in child_spans {
+        if child_start > cursor {
+            parts.push(step_signature(&parent_steps[cursor..child_start]));
+        }
+        parts.push(format!("{{{}}}", child_id));
+        cursor = child_end + 1;
+    }
+    if cursor < parent_steps.len() {
+        parts.push(step_signature(&parent_steps[cursor..]));
+    }
+    let skeleton_signature = parts.join("|");
+    *entry
+        .skeleton_counts
+        .entry(skeleton_signature.clone())
+        .or_insert(0) += 1;
+    for child_id in present_children {
+        *entry
+            .child_to_skeleton_counts
+            .entry(child_id)
+            .or_default()
+            .entry(skeleton_signature.clone())
+            .or_insert(0) += 1;
+    }
+}
+
+fn build_snarl_from_counts(
+    topology: &SnarlTopology,
+    accumulators: &HashMap<String, SnarlCountAccumulator>,
+    lookup: &mut HashMap<String, SnarlLookup>,
+) -> Snarl {
+    let acc = accumulators.get(&topology.id).cloned().unwrap_or_default();
+
+    match topology.snarl_type {
+        SnarlType::Cyclic => {
+            let snarl = Snarl::cyclic(topology.id.clone())
+                .with_genomic_region_opt(topology.genomic_region.clone());
+            lookup.insert(
+                topology.id.clone(),
+                SnarlLookup {
+                    snarl_id: topology.id.clone(),
+                    snarl_type: topology.snarl_type,
+                    entry_node: topology.entry_node,
+                    exit_node: topology.exit_node,
+                    child_ids: Vec::new(),
+                    flat_alleles: Vec::new(),
+                    skeleton_alleles: Vec::new(),
+                },
+            );
+            snarl
+        }
+        SnarlType::Acyclic => {
+            let (flat_alleles, flat_freqs, _) = labels_from_counts(&acc.flat_counts);
+            let mut children = topology
+                .children
+                .iter()
+                .map(|child| build_snarl_from_counts(child, accumulators, lookup))
+                .collect::<Vec<_>>();
+
+            if topology.children.is_empty() {
+                let mut snarl = Snarl::leaf(topology.id.clone(), flat_alleles.len())
+                    .with_allele_frequencies(flat_freqs);
+                if let Some(region) = &topology.genomic_region {
+                    snarl = snarl.with_genomic_region(region.clone());
+                }
+                lookup.insert(
+                    topology.id.clone(),
+                    SnarlLookup {
+                        snarl_id: topology.id.clone(),
+                        snarl_type: topology.snarl_type,
+                        entry_node: topology.entry_node,
+                        exit_node: topology.exit_node,
+                        child_ids: Vec::new(),
+                        flat_alleles,
+                        skeleton_alleles: Vec::new(),
+                    },
+                );
+                return snarl;
+            }
+
+            let (skeleton_alleles, skeleton_freqs, skeleton_index) =
+                labels_from_counts(&acc.skeleton_counts);
+
+            for child in &mut children {
+                let mut allowed = BTreeSet::new();
+                if let Some(raw) = acc.child_to_skeleton_counts.get(&child.id) {
+                    for signature in raw.keys() {
+                        if let Some(idx) = skeleton_index.get(signature) {
+                            allowed.insert(*idx);
+                        }
+                    }
+                }
+                if skeleton_alleles.len() > 1 {
+                    child.parent_skeleton_alleles = Some(allowed.into_iter().collect());
+                }
+            }
+
+            let mut snarl = Snarl::compound(
+                topology.id.clone(),
+                flat_alleles.len(),
+                skeleton_alleles.len(),
+                children,
+            )
+            .with_allele_frequencies(flat_freqs)
+            .with_skeleton_allele_frequencies(skeleton_freqs);
+            if let Some(region) = &topology.genomic_region {
+                snarl = snarl.with_genomic_region(region.clone());
+            }
+
+            lookup.insert(
+                topology.id.clone(),
+                SnarlLookup {
+                    snarl_id: topology.id.clone(),
+                    snarl_type: topology.snarl_type,
+                    entry_node: topology.entry_node,
+                    exit_node: topology.exit_node,
+                    child_ids: topology
+                        .children
+                        .iter()
+                        .map(|child| child.id.clone())
+                        .collect(),
+                    flat_alleles,
+                    skeleton_alleles,
+                },
+            );
+            snarl
+        }
+    }
+}
+
+fn labels_from_counts(
+    counts: &BTreeMap<String, usize>,
+) -> (Vec<String>, Vec<f64>, HashMap<String, usize>) {
+    let total: usize = counts.values().sum();
+    if total == 0 {
+        let mut lookup = HashMap::new();
+        lookup.insert("MISSING".to_string(), 0usize);
+        return (vec!["MISSING".to_string()], vec![1.0], lookup);
+    }
+
+    let mut non_singletons = Vec::new();
+    let mut singletons = Vec::new();
+    let mut singleton_total = 0usize;
+    for (sig, count) in counts {
+        if *count >= 2 {
+            non_singletons.push((sig.clone(), *count));
+        } else {
+            singletons.push(sig.clone());
+            singleton_total += *count;
+        }
+    }
+    non_singletons
+        .sort_by(|(a_sig, a_count), (b_sig, b_count)| b_count.cmp(a_count).then(a_sig.cmp(b_sig)));
+
+    let mut labels = Vec::new();
+    let mut freqs = Vec::new();
+    let mut mapping = HashMap::new();
+    for (sig, count) in non_singletons {
+        let idx = labels.len();
+        mapping.insert(sig.clone(), idx);
+        labels.push(sig);
+        freqs.push((count as f64) / (total as f64));
+    }
+    if singleton_total > 0 {
+        let other_idx = labels.len();
+        labels.push("OTHER".to_string());
+        freqs.push((singleton_total as f64) / (total as f64));
+        for sig in singletons {
+            mapping.insert(sig, other_idx);
+        }
+    }
+
+    (labels, freqs, mapping)
 }
 
 impl FeatureRuntime {
     pub fn encode_haplotype(&self, walk: &HaplotypeWalk) -> Vec<Option<f64>> {
         let mut out = vec![None; self.schema.total_features];
         let mut skeleton_cache: HashMap<String, Option<usize>> = HashMap::new();
+        let mut span_ctx = SpanContext::new(&walk.steps);
 
         for site in &self.schema.sites {
             let lookup = self
@@ -268,23 +540,35 @@ impl FeatureRuntime {
                 .get(&site.snarl_id)
                 .unwrap_or_else(|| panic!("missing snarl lookup for site {}", site.snarl_id));
 
-            let traverses = conditions_met(self, walk, &site.conditional_on, &mut skeleton_cache);
+            let traverses = conditions_met(
+                self,
+                walk,
+                &site.conditional_on,
+                &mut skeleton_cache,
+                &mut span_ctx,
+            );
             if !traverses {
                 continue;
             }
 
             match site.class {
                 SiteClass::Cyclic => {
-                    let repeat = repeat_count(walk, lookup);
+                    let repeat = repeat_count(walk, lookup, &mut span_ctx);
                     let encoded = encode_haploid_cyclic(repeat);
                     out[site.feature_start] = encoded[0];
                 }
                 SiteClass::Biallelic | SiteClass::Multiallelic => {
                     let allele_index = match site.kind {
-                        FeatureKind::Flat | FeatureKind::Leaf => flat_allele_index(walk, lookup),
-                        FeatureKind::Skeleton => {
-                            skeleton_allele_index(self, walk, lookup, &mut skeleton_cache)
+                        FeatureKind::Flat | FeatureKind::Leaf => {
+                            flat_allele_index(walk, lookup, &mut span_ctx)
                         }
+                        FeatureKind::Skeleton => skeleton_allele_index(
+                            self,
+                            walk,
+                            lookup,
+                            &mut skeleton_cache,
+                            &mut span_ctx,
+                        ),
                         FeatureKind::Cyclic => None,
                     };
                     let reference = site.reference_allele_index().unwrap_or_else(|| {
@@ -581,8 +865,10 @@ fn collect_traversals<'a>(
 ) -> Vec<Traversal<'a>> {
     let mut traversals = Vec::new();
     for walk in panel_walks {
-        if let Some((start, end)) = find_span(&walk.steps, topology.entry_node, topology.exit_node)
+        if let Some(span) =
+            find_span_or_noncanonical(&walk.steps, topology.entry_node, topology.exit_node)
         {
+            let (start, end) = (span.start, span.end);
             let steps = &walk.steps[start..=end];
             traversals.push(Traversal {
                 walk,
@@ -638,12 +924,14 @@ fn conditions_met(
     walk: &HaplotypeWalk,
     conditions: &[TraversalCondition],
     skeleton_cache: &mut HashMap<String, Option<usize>>,
+    span_ctx: &mut SpanContext<'_>,
 ) -> bool {
     for condition in conditions {
         let Some(condition_lookup) = runtime.panel.lookup.get(&condition.snarl_id) else {
             return false;
         };
-        let skeleton_idx = skeleton_allele_index(runtime, walk, condition_lookup, skeleton_cache);
+        let skeleton_idx =
+            skeleton_allele_index(runtime, walk, condition_lookup, skeleton_cache, span_ctx);
         let Some(skeleton_idx) = skeleton_idx else {
             return false;
         };
@@ -688,8 +976,13 @@ fn conditions_met_node_values(
     true
 }
 
-fn flat_allele_index(walk: &HaplotypeWalk, lookup: &SnarlLookup) -> Option<usize> {
-    let (start, end) = find_span(&walk.steps, lookup.entry_node, lookup.exit_node)?;
+fn flat_allele_index(
+    walk: &HaplotypeWalk,
+    lookup: &SnarlLookup,
+    span_ctx: &mut SpanContext<'_>,
+) -> Option<usize> {
+    let span = span_ctx.find_span_or_noncanonical(lookup.entry_node, lookup.exit_node)?;
+    let (start, end) = (span.start, span.end);
     let signature = step_signature(&walk.steps[start..=end]);
     lookup
         .flat_alleles
@@ -715,11 +1008,13 @@ fn skeleton_allele_index(
     walk: &HaplotypeWalk,
     lookup: &SnarlLookup,
     skeleton_cache: &mut HashMap<String, Option<usize>>,
+    span_ctx: &mut SpanContext<'_>,
 ) -> Option<usize> {
     if let Some(cached) = skeleton_cache.get(&lookup.snarl_id) {
         return *cached;
     }
-    let (start, end) = find_span(&walk.steps, lookup.entry_node, lookup.exit_node)?;
+    let span = span_ctx.find_span_or_noncanonical(lookup.entry_node, lookup.exit_node)?;
+    let (start, end) = (span.start, span.end);
     let parent_steps = &walk.steps[start..=end];
 
     let mut child_spans = Vec::new();
@@ -727,12 +1022,12 @@ fn skeleton_allele_index(
         let Some(child_lookup) = runtime.panel.lookup.get(child_id) else {
             continue;
         };
-        if let Some((child_start, child_end)) = find_span(
+        if let Some(child_span) = find_span_or_noncanonical(
             parent_steps,
             child_lookup.entry_node,
             child_lookup.exit_node,
         ) {
-            child_spans.push((child_start, child_end, child_id.clone()));
+            child_spans.push((child_span.start, child_span.end, child_id.clone()));
         }
     }
     child_spans.sort_by_key(|(start_idx, _, _)| *start_idx);
@@ -800,17 +1095,61 @@ fn skeleton_allele_index_node_values(
     index
 }
 
-fn repeat_count(walk: &HaplotypeWalk, lookup: &SnarlLookup) -> Option<u32> {
-    let (start, end) = find_span(&walk.steps, lookup.entry_node, lookup.exit_node)?;
+fn repeat_count(
+    walk: &HaplotypeWalk,
+    lookup: &SnarlLookup,
+    span_ctx: &mut SpanContext<'_>,
+) -> Option<u32> {
+    let boundary_positions = walk
+        .steps
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, step)| {
+            if step.node_id == lookup.entry_node || step.node_id == lookup.exit_node {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let (start, end) = if let (Some(first), Some(last)) = (
+        boundary_positions.first().copied(),
+        boundary_positions.last().copied(),
+    ) {
+        (first, last)
+    } else {
+        let span = span_ctx.find_span_or_noncanonical(lookup.entry_node, lookup.exit_node)?;
+        (span.start, span.end)
+    };
+
     let segment = &walk.steps[start..=end];
     if segment.is_empty() {
         return None;
     }
-    let entry_hits = segment
+
+    let mut counts: HashMap<usize, usize> = HashMap::new();
+    for step in segment {
+        *counts.entry(step.node_id).or_insert(0) += 1;
+    }
+    let entry_hits = counts.get(&lookup.entry_node).copied().unwrap_or(0);
+    let exit_hits = counts.get(&lookup.exit_node).copied().unwrap_or(0);
+    // For cyclic paths, additional traversals typically revisit one or both boundaries.
+    let boundary_copies = entry_hits.max(exit_hits).saturating_sub(1);
+    // Also use internal-node repeat evidence to handle representations that avoid boundary revisits.
+    let internal_copies = counts
         .iter()
-        .filter(|step| step.node_id == lookup.entry_node)
-        .count();
-    let copies = entry_hits.max(1);
+        .filter_map(|(node, count)| {
+            if *node == lookup.entry_node || *node == lookup.exit_node {
+                None
+            } else {
+                Some(*count)
+            }
+        })
+        .max()
+        .unwrap_or(1);
+
+    let copies = boundary_copies.max(internal_copies).max(1);
     Some(copies as u32)
 }
 
@@ -841,12 +1180,12 @@ fn skeleton_signature(
         let Some(child_lookup) = lookup.get(&child.id) else {
             continue;
         };
-        if let Some((child_start, child_end)) = find_span(
+        if let Some(child_span) = find_span_or_noncanonical(
             parent_steps,
             child_lookup.entry_node,
             child_lookup.exit_node,
         ) {
-            child_spans.push((child_start, child_end, child.id.clone()));
+            child_spans.push((child_span.start, child_span.end, child.id.clone()));
             present_children.push(child.id.clone());
         }
     }
@@ -868,7 +1207,7 @@ fn skeleton_signature(
 }
 
 fn step_signature(steps: &[HaplotypeStep]) -> String {
-    steps
+    let forward = steps
         .iter()
         .map(|step| {
             let orient = if step.orientation == Orientation::Forward {
@@ -879,7 +1218,27 @@ fn step_signature(steps: &[HaplotypeStep]) -> String {
             format!("{}{}", step.node_id, orient)
         })
         .collect::<Vec<_>>()
-        .join(",")
+        .join(",");
+
+    let reverse = steps
+        .iter()
+        .rev()
+        .map(|step| {
+            let orient = if step.orientation == Orientation::Forward {
+                '-'
+            } else {
+                '+'
+            };
+            format!("{}{}", step.node_id, orient)
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+
+    if reverse < forward {
+        reverse
+    } else {
+        forward
+    }
 }
 
 fn node_map_traverses_snarl(
@@ -1001,62 +1360,123 @@ fn signature_node_ids(signature: &str) -> Vec<usize> {
     out
 }
 
-fn find_span(
-    steps: &[HaplotypeStep],
-    entry_node: usize,
-    exit_node: usize,
-) -> Option<(usize, usize)> {
-    let forward = find_ordered_span(steps, entry_node, exit_node);
-    let reverse = find_ordered_span(steps, exit_node, entry_node);
+#[derive(Clone, Copy, Debug)]
+struct SpanMatch {
+    start: usize,
+    end: usize,
+}
 
-    match (forward, reverse) {
-        (Some(fwd), Some(rev)) => {
-            let fwd_len = fwd.1.saturating_sub(fwd.0);
-            let rev_len = rev.1.saturating_sub(rev.0);
-            if fwd_len <= rev_len {
-                Some(fwd)
-            } else {
-                Some(rev)
-            }
+struct WalkIndex {
+    positions: HashMap<usize, Vec<usize>>,
+}
+
+impl WalkIndex {
+    fn new(steps: &[HaplotypeStep]) -> Self {
+        let mut positions: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (idx, step) in steps.iter().enumerate() {
+            positions.entry(step.node_id).or_default().push(idx);
         }
-        (Some(fwd), None) => Some(fwd),
-        (None, Some(rev)) => Some(rev),
-        (None, None) => None,
+        Self { positions }
+    }
+}
+
+struct SpanContext<'a> {
+    steps: &'a [HaplotypeStep],
+    index: WalkIndex,
+    span_cache: HashMap<(usize, usize), Option<SpanMatch>>,
+}
+
+impl<'a> SpanContext<'a> {
+    fn new(steps: &'a [HaplotypeStep]) -> Self {
+        Self {
+            steps,
+            index: WalkIndex::new(steps),
+            span_cache: HashMap::new(),
+        }
+    }
+
+    fn find_span_or_noncanonical(
+        &mut self,
+        entry_node: usize,
+        exit_node: usize,
+    ) -> Option<SpanMatch> {
+        if let Some(cached) = self.span_cache.get(&(entry_node, exit_node)) {
+            return *cached;
+        }
+        let span =
+            find_span_or_noncanonical_with_index(self.steps, &self.index, entry_node, exit_node);
+        self.span_cache.insert((entry_node, exit_node), span);
+        span
     }
 }
 
 fn find_ordered_span(
-    steps: &[HaplotypeStep],
+    index: &WalkIndex,
     start_node: usize,
     end_node: usize,
 ) -> Option<(usize, usize)> {
-    let mut best_span: Option<(usize, usize)> = None;
-    for start_idx in 0..steps.len() {
-        if steps[start_idx].node_id != start_node {
+    let starts = index.positions.get(&start_node)?;
+    let ends = index.positions.get(&end_node)?;
+    for &start_idx in starts {
+        let end_pos = ends.partition_point(|&candidate| candidate < start_idx);
+        if end_pos >= ends.len() {
             continue;
         }
-        let mut found_end = None;
-        for (offset, step) in steps[start_idx..].iter().enumerate() {
-            if step.node_id == end_node {
-                found_end = Some(start_idx + offset);
-                break;
-            }
+        let end_idx = ends[end_pos];
+        return Some((start_idx, end_idx));
+    }
+    None
+}
+
+fn find_span_or_noncanonical(
+    steps: &[HaplotypeStep],
+    entry_node: usize,
+    exit_node: usize,
+) -> Option<SpanMatch> {
+    let index = WalkIndex::new(steps);
+    find_span_or_noncanonical_with_index(steps, &index, entry_node, exit_node)
+}
+
+fn find_span_or_noncanonical_with_index(
+    steps: &[HaplotypeStep],
+    index: &WalkIndex,
+    entry_node: usize,
+    exit_node: usize,
+) -> Option<SpanMatch> {
+    if let Some((start, end)) = find_ordered_span(index, entry_node, exit_node) {
+        return Some(SpanMatch { start, end });
+    }
+    if let Some((start, end)) = find_ordered_span(index, exit_node, entry_node) {
+        return Some(SpanMatch { start, end });
+    }
+
+    // Fallback for non-start-end-connected snarls: preserve evidence from
+    // non-canonical traversals instead of forcing NA.
+    let mut entry_positions = Vec::new();
+    let mut exit_positions = Vec::new();
+    for (idx, step) in steps.iter().enumerate() {
+        if step.node_id == entry_node {
+            entry_positions.push(idx);
         }
-        let Some(end_idx) = found_end else {
-            continue;
-        };
-        match best_span {
-            None => best_span = Some((start_idx, end_idx)),
-            Some((best_start, best_end)) => {
-                let best_len = best_end.saturating_sub(best_start);
-                let curr_len = end_idx.saturating_sub(start_idx);
-                if curr_len < best_len {
-                    best_span = Some((start_idx, end_idx));
-                }
-            }
+        if step.node_id == exit_node {
+            exit_positions.push(idx);
         }
     }
-    best_span
+
+    match (
+        entry_positions.first().copied(),
+        exit_positions.first().copied(),
+    ) {
+        (Some(a), Some(b)) => {
+            let (start, end) = if a <= b { (a, b) } else { (b, a) };
+            Some(SpanMatch { start, end })
+        }
+        (Some(pos), None) | (None, Some(pos)) => Some(SpanMatch {
+            start: pos,
+            end: pos,
+        }),
+        (None, None) => None,
+    }
 }
 
 #[derive(Debug)]

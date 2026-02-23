@@ -1,5 +1,5 @@
 use image::Rgb;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{rngs::StdRng, SeedableRng};
 use rand_distr::{Distribution, Normal};
 use rayon::prelude::*;
 use std::io;
@@ -30,7 +30,15 @@ pub fn embed(start_node: usize, end_node: usize, input: &str) -> io::Result<Vec<
     let input_seed = input.bytes().fold(0u64, |acc, byte| {
         acc.wrapping_mul(131).wrapping_add(byte as u64)
     });
-    let global_seed = rand::thread_rng().gen::<u64>() ^ input_seed;
+    let mut global_seed = input_seed
+        ^ (start_node as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        ^ (end_node as u64).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    // Mix the seed to avoid weak low-entropy cases.
+    global_seed ^= global_seed >> 30;
+    global_seed = global_seed.wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    global_seed ^= global_seed >> 27;
+    global_seed = global_seed.wrapping_mul(0x94D0_49BB_1331_11EB);
+    global_seed ^= global_seed >> 31;
 
     // Generate the 3D points in parallel
     let points: Vec<Point3D> = (0..num_points)

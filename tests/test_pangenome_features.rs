@@ -350,6 +350,45 @@ fn singleton_alleles_pool_into_other() {
 }
 
 #[test]
+fn noncanonical_snarl_traversals_are_not_forced_to_missing() {
+    let topology = SnarlTopology::acyclic("site", 2, 3, vec![]);
+    let panel = vec![
+        walk("h1", &[(1, true), (2, true), (4, true)]),
+        walk("h2", &[(1, true), (2, true), (5, true)]),
+        walk("h3", &[(1, true), (3, true), (4, true)]),
+        walk("h4", &[(1, true), (3, true), (5, true)]),
+    ];
+    let runtime = build_runtime_from_walks(&[topology], &panel, HashMap::new());
+    assert_eq!(runtime.schema.sites.len(), 1);
+    let site = &runtime.schema.sites[0];
+    assert_eq!(site.allele_count, 2);
+
+    let encoded_entry = runtime.encode_haplotype(&walk("entry_only", &[(2, true)]));
+    let encoded_exit = runtime.encode_haplotype(&walk("exit_only", &[(3, true)]));
+    assert_eq!(encoded_entry.len(), runtime.schema.total_features);
+    assert_eq!(encoded_exit.len(), runtime.schema.total_features);
+    assert!(encoded_entry[0].is_some());
+    assert!(encoded_exit[0].is_some());
+}
+
+#[test]
+fn cyclic_repeat_count_not_stuck_at_one() {
+    let topology = SnarlTopology::cyclic("vntr", 1, 2);
+    let panel = vec![walk("p1", &[(1, true), (3, true), (2, true)])];
+    let runtime = build_runtime_from_walks(&[topology], &panel, HashMap::new());
+    assert_eq!(runtime.schema.sites.len(), 1);
+    assert_eq!(runtime.schema.sites[0].class, SiteClass::Cyclic);
+
+    let repeated = walk(
+        "repeat2",
+        &[(1, true), (3, true), (2, true), (3, true), (2, true)],
+    );
+    let encoded = runtime.encode_haplotype(&repeated);
+    assert_eq!(encoded.len(), 1);
+    assert_eq!(encoded[0], Some(2.0));
+}
+
+#[test]
 fn catalog_binary_round_trip() {
     let topology = SnarlTopology::acyclic(
         "outer",

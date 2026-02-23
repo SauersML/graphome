@@ -1,19 +1,16 @@
 use gbwt::GBZ;
 use graphome::map::{coord_to_nodes, node_to_coords, validate_gfa_for_gbwt};
-use reqwest::blocking::{Client, Response};
 use simple_sds::serialize;
 use std::fs;
 use std::io;
-use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
+mod common_chm13;
+
 static TEST_GBZ_PATH: OnceLock<Result<String, String>> = OnceLock::new();
 static CHM13_GBZ_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-
-const CHM13_GBZ_URL: &str = "https://s3-us-west-2.amazonaws.com/human-pangenomics/pangenomes/freeze/release2/minigraph-cactus/hprc-v2.0-mc-chm13.gbz";
-const CHM13_GBZ_NAME: &str = "hprc-v2.0-mc-chm13.gbz";
 
 fn get_test_gbz_path() -> Result<&'static str, Box<dyn std::error::Error>> {
     match TEST_GBZ_PATH.get_or_init(build_test_gbz) {
@@ -81,55 +78,12 @@ fn build_test_gbz() -> Result<String, String> {
 }
 
 fn get_hprc_chm13_gbz_path() -> Result<&'static Path, Box<dyn std::error::Error>> {
-    match CHM13_GBZ_PATH.get_or_init(resolve_or_download_hprc_chm13_gbz) {
+    match CHM13_GBZ_PATH.get_or_init(|| {
+        common_chm13::ensure_chm13_gbz().map_err(|e| format!("failed to prepare CHM13 GBZ: {e}"))
+    }) {
         Ok(path) => Ok(path.as_path()),
         Err(err) => Err(io::Error::other(err.clone()).into()),
     }
-}
-
-fn resolve_or_download_hprc_chm13_gbz() -> Result<PathBuf, String> {
-    let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let primary = project_root.join("data/hprc").join(CHM13_GBZ_NAME);
-    let fallback = project_root.join("data").join(CHM13_GBZ_NAME);
-    if primary.exists() {
-        return Ok(primary);
-    }
-    if fallback.exists() {
-        return Ok(fallback);
-    }
-
-    fs::create_dir_all(primary.parent().ok_or("invalid CHM13 cache path")?)
-        .map_err(|e| format!("failed to create CHM13 cache directory: {e}"))?;
-
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(60 * 60))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-    let mut response: Response = client
-        .get(CHM13_GBZ_URL)
-        .send()
-        .and_then(Response::error_for_status)
-        .map_err(|e| format!("failed to download CHM13 GBZ: {e}"))?;
-
-    let tmp = primary.with_extension("gbz.part");
-    let mut out = fs::File::create(&tmp)
-        .map_err(|e| format!("failed to create temporary file {:?}: {}", tmp, e))?;
-    let mut buf = [0u8; 1024 * 1024];
-    loop {
-        let read = response
-            .read(&mut buf)
-            .map_err(|e| format!("download read failed: {e}"))?;
-        if read == 0 {
-            break;
-        }
-        out.write_all(&buf[..read])
-            .map_err(|e| format!("download write failed: {e}"))?;
-    }
-    out.flush()
-        .map_err(|e| format!("flush failed for {:?}: {}", tmp, e))?;
-    fs::rename(&tmp, &primary)
-        .map_err(|e| format!("failed to move {:?} to {:?}: {}", tmp, primary, e))?;
-    Ok(primary)
 }
 
 #[test]
@@ -269,6 +223,15 @@ fn test_coord2node_empty_region() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn integration_map_coord2node_hprc() -> Result<(), Box<dyn std::error::Error>> {
+    if common_chm13::chm13_fixture_path_if_present().is_none()
+        && !common_chm13::should_run_large_integration()
+    {
+        eprintln!(
+            "Skipping HPRC integration_map_coord2node_hprc: CHM13 fixture missing and RUN_LARGE_INTEGRATION is not enabled"
+        );
+        return Ok(());
+    }
+
     let binary = env!("CARGO_BIN_EXE_graphome");
     let gbz_path = get_hprc_chm13_gbz_path()?;
     let output = Command::new(binary)
@@ -393,6 +356,15 @@ fn test_coord2node_full_coverage() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn integration_eigen_region_hprc() -> Result<(), Box<dyn std::error::Error>> {
+    if common_chm13::chm13_fixture_path_if_present().is_none()
+        && !common_chm13::should_run_large_integration()
+    {
+        eprintln!(
+            "Skipping HPRC integration_eigen_region_hprc: CHM13 fixture missing and RUN_LARGE_INTEGRATION is not enabled"
+        );
+        return Ok(());
+    }
+
     let binary = env!("CARGO_BIN_EXE_graphome");
     let gbz_path = get_hprc_chm13_gbz_path()?;
     let output = Command::new(binary)
