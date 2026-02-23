@@ -1492,14 +1492,15 @@ fn find_span_or_noncanonical_with_index(
         entry_positions.first().copied(),
         exit_positions.first().copied(),
     ) {
-        (Some(a), Some(b)) => {
-            let (start, end) = if a <= b { (a, b) } else { (b, a) };
-            Some(SpanMatch { start, end })
-        }
+        // Only one boundary observed: keep a single-position non-canonical span
+        // instead of forcing missing.
         (Some(pos), None) | (None, Some(pos)) => Some(SpanMatch {
             start: pos,
             end: pos,
         }),
+        // Both boundaries present should have been resolved by ordered-span search above.
+        // If not, treat as unresolved rather than inventing a fallback span.
+        (Some(_), Some(_)) => None,
         (None, None) => None,
     }
 }
