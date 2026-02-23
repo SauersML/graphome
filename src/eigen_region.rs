@@ -4,8 +4,7 @@
 use crate::eigen_print::{
     call_eigendecomp, compute_ngec, print_eigenvalues_heatmap, print_heatmap_normalized,
 };
-use crate::map::{coord_to_nodes_mapped, make_gbz_exist, parse_region};
-use crate::mapped_gbz::MappedGBZ;
+use crate::map::{coord_to_nodes_with_path_filtered, make_gbz_exist, parse_region};
 use faer::Mat;
 use gbwt::{Orientation, GBZ};
 use rayon::prelude::*;
@@ -125,16 +124,32 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     let gbz_path = make_gbz_exist(gfa_path, "");
     eprintln!("[INFO] Using GBZ: {}", gbz_path);
 
-    // Load GBZ with memory mapping for coord2node
-    eprintln!("[INFO] Loading GBZ with memory mapping for coordinate lookup...");
-    let mapped_gbz = MappedGBZ::new(&gbz_path)?;
+    // Load full GBZ once and reuse it for both coordinate lookup and edge extraction.
+    eprintln!("[INFO] Loading GBZ...");
+    let gbz: GBZ = serialize::load_from(&gbz_path).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to load GBZ: {}", e),
+        )
+    })?;
     eprintln!("[INFO] GBZ loaded successfully");
 
     // Find nodes in the region using coord2node
     // start and end are already 0-based half-open from parse_region
     eprintln!("[INFO] Finding nodes in region...");
-
-    let results = coord_to_nodes_mapped(&mapped_gbz, &chr, start, end);
+    let mut results = Vec::new();
+    for assembly in ["grch38", "chm13", "hg38", "t2t", ""] {
+        let candidate = coord_to_nodes_with_path_filtered(&gbz, assembly, &chr, start, end, None);
+        if !candidate.is_empty() {
+            if assembly.is_empty() {
+                eprintln!("[INFO] Found nodes using permissive assembly fallback");
+            } else {
+                eprintln!("[INFO] Found nodes using assembly '{}'", assembly);
+            }
+            results = candidate;
+            break;
+        }
+    }
 
     if results.is_empty() {
         return Err(format!("No nodes found in region {}:{}-{}", chr, start, end).into());
@@ -161,16 +176,6 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     for (idx, &id) in sorted_nodes.iter().enumerate() {
         id_to_idx.insert(id, idx);
     }
-
-    // Load full GBZ for edge extraction (need successors API)
-    eprintln!("[INFO] Loading full GBZ for edge extraction...");
-    let gbz: GBZ = serialize::load_from(&gbz_path).map_err(|e| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("Failed to load GBZ: {}", e),
-        )
-    })?;
-    eprintln!("[INFO] Full GBZ loaded");
 
     // Extract subgraph edges
     let edges = extract_subgraph_edges(&gbz, &sorted_nodes, &id_to_idx);

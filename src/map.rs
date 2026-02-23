@@ -144,9 +144,9 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
     let gbz_path = make_gbz_exist(gfa_path, paf_path);
     eprintln!("[INFO] Using GBZ index from '{}'", gbz_path);
 
-    // Load GBZ with memory mapping
-    eprintln!("[INFO] Loading GBZ with memory mapping...");
-    let gbz = match MappedGBZ::new(&gbz_path) {
+    // Load full GBZ for robust coordinate lookup.
+    eprintln!("[INFO] Loading GBZ...");
+    let gbz: GBZ = match serialize::load_from(&gbz_path) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("Error loading GBZ file: {}", e);
@@ -158,7 +158,15 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
     // Parse region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = parse_region(region) {
         // start and end are already 0-based half-open from parse_region
-        let results = coord_to_nodes_mapped(&gbz, &chr, start, end);
+        let mut results = Vec::new();
+        for assembly in ["grch38", "chm13", "hg38", "t2t", ""] {
+            let candidate =
+                coord_to_nodes_with_path_filtered(&gbz, assembly, &chr, start, end, None);
+            if !candidate.is_empty() {
+                results = candidate;
+                break;
+            }
+        }
         if results.is_empty() {
             println!("No nodes found for region {}:{}-{}", chr, start, end);
         } else {

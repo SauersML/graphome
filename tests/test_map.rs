@@ -47,13 +47,30 @@ fn build_test_gbz() -> Result<String, String> {
             .map_err(|e| format!("Failed to remove stale temporary GBZ {}: {}", tmp_path, e))?;
     }
 
-    let vg_executable = if Path::new("./vg").exists() {
-        "./vg"
-    } else {
-        "vg"
-    };
+    let mut vg_candidates: Vec<String> = Vec::new();
+    if let Ok(from_env) = std::env::var("GRAPHOME_VG") {
+        if !from_env.trim().is_empty() {
+            vg_candidates.push(from_env);
+        }
+    }
+    vg_candidates.push("vg".to_string());
+    vg_candidates.push("./vg".to_string());
 
-    let output = Command::new(vg_executable)
+    let vg_executable = vg_candidates
+        .iter()
+        .find(|candidate| {
+            Command::new(candidate.as_str())
+                .arg("version")
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .ok_or_else(|| {
+            "No runnable vg executable found. Set GRAPHOME_VG or install vg in PATH.".to_string()
+        })?;
+
+    let output = Command::new(&vg_executable)
         .args(["gbwt", "-G", &fixed_gfa, "-g", &tmp_path, "--gbz-format"])
         .output()
         .map_err(|e| format!("Failed to run {}: {}", vg_executable, e))?;
