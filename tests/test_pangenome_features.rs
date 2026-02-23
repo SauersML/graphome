@@ -649,6 +649,40 @@ fn runtime_emits_probabilistic_values_from_node_traversals() {
         .unwrap_or(false));
 }
 
+#[test]
+fn cyclic_node_value_repeat_count_uses_internal_nodes() {
+    let topology = SnarlTopology::cyclic("vntr", 1, 2);
+    let panel = vec![
+        walk("p1", &[(1, true), (3, true), (2, true)]),
+        walk("p2", &[(1, true), (3, true), (2, true)]),
+    ];
+    let runtime = build_runtime_from_walks(&[topology], &panel, HashMap::new());
+    assert_eq!(runtime.schema.sites.len(), 1);
+    assert_eq!(runtime.schema.sites[0].class, SiteClass::Cyclic);
+
+    let traversals = vec![
+        NodeTraversal {
+            node_id: 1,
+            value: 1.0,
+        },
+        NodeTraversal {
+            node_id: 3,
+            value: 1.0,
+        },
+        NodeTraversal {
+            node_id: 3,
+            value: 1.0,
+        },
+        NodeTraversal {
+            node_id: 2,
+            value: 1.0,
+        },
+    ];
+    let encoded = runtime.encode_haplotype_node_values(&traversals);
+    assert_eq!(encoded.len(), 1);
+    assert_eq!(encoded[0], Some(2.0));
+}
+
 fn walk(id: &str, nodes: &[(usize, bool)]) -> HaplotypeWalk {
     HaplotypeWalk {
         id: id.to_string(),

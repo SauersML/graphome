@@ -85,6 +85,7 @@ pub struct SnarlLookup {
     pub child_ids: Vec<String>,
     pub flat_alleles: Vec<String>,
     pub skeleton_alleles: Vec<String>,
+    pub cycle_internal_nodes: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +245,7 @@ struct SnarlCountAccumulator {
     flat_counts: BTreeMap<String, usize>,
     skeleton_counts: BTreeMap<String, usize>,
     child_to_skeleton_counts: HashMap<String, BTreeMap<String, usize>>,
+    cycle_internal_counts: BTreeMap<usize, usize>,
 }
 
 pub fn infer_snarl_panel_from_gbz(topology_roots: &[SnarlTopology], gbz: &GBZ) -> InferredPanel {
@@ -338,6 +340,15 @@ fn accumulate_topology_counts_with_context(
     let entry = accumulators.entry(topology.id.clone()).or_default();
     *entry.flat_counts.entry(flat_signature).or_insert(0) += 1;
 
+    if topology.snarl_type == SnarlType::Cyclic {
+        for step in parent_steps {
+            if step.node_id == topology.entry_node || step.node_id == topology.exit_node {
+                continue;
+            }
+            *entry.cycle_internal_counts.entry(step.node_id).or_insert(0) += 1;
+        }
+    }
+
     if topology.children.is_empty() {
         return;
     }
@@ -402,6 +413,7 @@ fn build_snarl_from_counts(
                     child_ids: Vec::new(),
                     flat_alleles: Vec::new(),
                     skeleton_alleles: Vec::new(),
+                    cycle_internal_nodes: acc.cycle_internal_counts.keys().copied().collect(),
                 },
             );
             snarl
@@ -430,6 +442,7 @@ fn build_snarl_from_counts(
                         child_ids: Vec::new(),
                         flat_alleles,
                         skeleton_alleles: Vec::new(),
+                        cycle_internal_nodes: Vec::new(),
                     },
                 );
                 return snarl;
@@ -478,6 +491,7 @@ fn build_snarl_from_counts(
                         .collect(),
                     flat_alleles,
                     skeleton_alleles,
+                    cycle_internal_nodes: Vec::new(),
                 },
             );
             snarl
@@ -603,7 +617,11 @@ impl FeatureRuntime {
         let mut values = HashMap::new();
         for traversal in traversals {
             if traversal.value.is_finite() {
-                values.insert(traversal.node_id, traversal.value.clamp(0.0, 1.0));
+                let clamped = traversal.value.clamp(0.0, 1.0);
+                values
+                    .entry(traversal.node_id)
+                    .and_modify(|value| *value += clamped)
+                    .or_insert(clamped);
             }
         }
         self.encode_haplotype_node_value_map(&values)
@@ -772,6 +790,11 @@ fn infer_snarl_recursive(
                     child_ids: Vec::new(),
                     flat_alleles: Vec::new(),
                     skeleton_alleles: Vec::new(),
+                    cycle_internal_nodes: cyclic_internal_nodes_from_traversals(
+                        &traversals,
+                        topology.entry_node,
+                        topology.exit_node,
+                    ),
                 },
             );
             snarl
@@ -804,6 +827,7 @@ fn infer_snarl_recursive(
                         child_ids: Vec::new(),
                         flat_alleles,
                         skeleton_alleles: Vec::new(),
+                        cycle_internal_nodes: Vec::new(),
                     },
                 );
                 return snarl;
@@ -869,6 +893,7 @@ fn infer_snarl_recursive(
                         .collect(),
                     flat_alleles,
                     skeleton_alleles,
+                    cycle_internal_nodes: Vec::new(),
                 },
             );
             snarl
@@ -1200,14 +1225,40 @@ fn repeat_count_node_values(
     node_values: &HashMap<usize, f64>,
     lookup: &SnarlLookup,
 ) -> Option<f64> {
+    let internal_support = lookup
+        .cycle_internal_nodes
+        .iter()
+        .filter_map(|node| node_values.get(node).copied())
+        .fold(0.0, f64::max);
     let entry = node_values.get(&lookup.entry_node).copied().unwrap_or(0.0);
     let exit = node_values.get(&lookup.exit_node).copied().unwrap_or(0.0);
-    let support = entry.max(exit);
+    let support = if internal_support > 0.0 {
+        internal_support
+    } else {
+        entry.max(exit)
+    };
     if support <= 0.0 {
         None
     } else {
         Some(support)
     }
+}
+
+fn cyclic_internal_nodes_from_traversals(
+    traversals: &[Traversal<'_>],
+    entry_node: usize,
+    exit_node: usize,
+) -> Vec<usize> {
+    let mut nodes = BTreeSet::new();
+    for traversal in traversals {
+        for step in &traversal.walk.steps[traversal.start..=traversal.end] {
+            if step.node_id == entry_node || step.node_id == exit_node {
+                continue;
+            }
+            nodes.insert(step.node_id);
+        }
+    }
+    nodes.into_iter().collect()
 }
 
 fn skeleton_signature(
@@ -1788,6 +1839,7 @@ mod tests {
             child_ids: Vec::new(),
             flat_alleles: Vec::new(),
             skeleton_alleles: Vec::new(),
+            cycle_internal_nodes: Vec::new(),
         }
     }
 
