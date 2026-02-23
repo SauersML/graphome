@@ -1,9 +1,10 @@
 // src/eigen_region.rs
 // Region-based eigendecomposition: extract subgraph from GBZ by genomic coordinates
 
-use crate::eigen_print::print_eigenvalues_heatmap;
+use crate::eigen_print::{print_eigenvalues_heatmap, print_heatmap};
 use crate::map::{coord_to_nodes_with_path_filtered, make_gbz_exist, parse_region};
 use crate::sparse_spectral::{estimate_ngec_hutchinson, lanczos_smallest};
+use faer::Mat;
 use gbz::{Orientation, GBZ};
 use rayon::prelude::*;
 use rayon::slice::ParallelSliceMut;
@@ -184,6 +185,7 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     );
 
     // Optional: approximate low eigenvalues for display.
+    eprintln!("[INFO] Performing eigendecomposition...");
     let eig_start = Instant::now();
     let (eigenvalues, _) = lanczos_smallest(n, 10.min(n), 16, |x, y| {
         for i in 0..n {
@@ -215,7 +217,30 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
 
     // Visualization if requested
     if viz {
-        println!("\n=== APPROX EIGENVALUE DISTRIBUTION ===");
+        const HEATMAP_PREVIEW_MAX_NODES: usize = 64;
+        let preview_n = n.min(HEATMAP_PREVIEW_MAX_NODES);
+        let mut laplacian_preview = Mat::<f64>::zeros(preview_n, preview_n);
+
+        for i in 0..preview_n {
+            laplacian_preview[(i, i)] = degrees[i];
+            for &j in &adjacency[i] {
+                if j < preview_n {
+                    laplacian_preview[(i, j)] = -1.0;
+                }
+            }
+        }
+
+        println!("\n=== LAPLACIAN HEATMAP ===");
+        if n > preview_n {
+            println!(
+                "(showing top-left {}x{} preview of {}x{} Laplacian)",
+                preview_n, preview_n, n, n
+            );
+        }
+        print_heatmap(laplacian_preview.as_ref());
+
+        println!("\n=== EIGENVALUE DISTRIBUTION ===");
+        println!("(approximate low-spectrum values)");
         print_eigenvalues_heatmap(&eigenvalues);
     }
 
