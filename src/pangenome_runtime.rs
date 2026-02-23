@@ -1410,22 +1410,40 @@ impl<'a> SpanContext<'a> {
     }
 }
 
-fn find_ordered_span(
-    index: &WalkIndex,
-    start_node: usize,
-    end_node: usize,
-) -> Option<(usize, usize)> {
-    let starts = index.positions.get(&start_node)?;
-    let ends = index.positions.get(&end_node)?;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OrderedSpanResult {
+    Unique(usize, usize),
+    Ambiguous,
+    Missing,
+}
+
+fn find_ordered_span(index: &WalkIndex, start_node: usize, end_node: usize) -> OrderedSpanResult {
+    let Some(starts) = index.positions.get(&start_node) else {
+        return OrderedSpanResult::Missing;
+    };
+    let Some(ends) = index.positions.get(&end_node) else {
+        return OrderedSpanResult::Missing;
+    };
+    let mut selected: Option<(usize, usize)> = None;
     for &start_idx in starts {
         let end_pos = ends.partition_point(|&candidate| candidate < start_idx);
         if end_pos >= ends.len() {
             continue;
         }
         let end_idx = ends[end_pos];
-        return Some((start_idx, end_idx));
+        match selected {
+            None => selected = Some((start_idx, end_idx)),
+            Some((prev_start, prev_end)) => {
+                if prev_start != start_idx || prev_end != end_idx {
+                    return OrderedSpanResult::Ambiguous;
+                }
+            }
+        }
     }
-    None
+    match selected {
+        Some((start, end)) => OrderedSpanResult::Unique(start, end),
+        None => OrderedSpanResult::Missing,
+    }
 }
 
 fn find_span_or_noncanonical(
@@ -1443,11 +1461,15 @@ fn find_span_or_noncanonical_with_index(
     entry_node: usize,
     exit_node: usize,
 ) -> Option<SpanMatch> {
-    if let Some((start, end)) = find_ordered_span(index, entry_node, exit_node) {
-        return Some(SpanMatch { start, end });
+    match find_ordered_span(index, entry_node, exit_node) {
+        OrderedSpanResult::Unique(start, end) => return Some(SpanMatch { start, end }),
+        OrderedSpanResult::Ambiguous => return None,
+        OrderedSpanResult::Missing => {}
     }
-    if let Some((start, end)) = find_ordered_span(index, exit_node, entry_node) {
-        return Some(SpanMatch { start, end });
+    match find_ordered_span(index, exit_node, entry_node) {
+        OrderedSpanResult::Unique(start, end) => return Some(SpanMatch { start, end }),
+        OrderedSpanResult::Ambiguous => return None,
+        OrderedSpanResult::Missing => {}
     }
 
     // Fallback for non-start-end-connected snarls: preserve evidence from
@@ -1531,14 +1553,38 @@ mod tests {
     fn step_signature_is_canonical_under_reverse_complement() {
         let forward = vec![step(10, true), step(11, true), step(12, false)];
         let reverse_complement = vec![step(12, true), step(11, false), step(10, false)];
-        assert_eq!(step_signature(&forward), step_signature(&reverse_complement));
+        assert_eq!(
+            step_signature(&forward),
+            step_signature(&reverse_complement)
+        );
     }
 
     #[test]
     fn ordered_span_uses_first_reachable_end() {
         let steps = vec![step(1, true), step(9, true), step(2, true), step(2, true)];
         let index = WalkIndex::new(&steps);
-        assert_eq!(find_ordered_span(&index, 1, 2), Some((0, 2)));
+        assert_eq!(
+            find_ordered_span(&index, 1, 2),
+            OrderedSpanResult::Unique(0, 2)
+        );
+    }
+
+    #[test]
+    fn ordered_span_marks_multiple_boundary_matches_ambiguous() {
+        let steps = vec![
+            step(1, true),
+            step(9, true),
+            step(2, true),
+            step(1, true),
+            step(8, true),
+            step(2, true),
+        ];
+        let index = WalkIndex::new(&steps);
+        assert_eq!(
+            find_ordered_span(&index, 1, 2),
+            OrderedSpanResult::Ambiguous
+        );
+        assert!(find_span_or_noncanonical(&steps, 1, 2).is_none());
     }
 
     #[test]
