@@ -701,3 +701,51 @@ impl GfaReader {
         Ok(sequences)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retain_materialized_only_keeps_temp_backed_paths() {
+        if let Some(cache) = RETAINED_MATERIALIZED.get() {
+            cache
+                .lock()
+                .expect("materialized cache mutex poisoned")
+                .clear();
+        }
+
+        let no_temp = MaterializedPath {
+            path: PathBuf::from("/tmp/no-temp"),
+            temp: None,
+        };
+        let returned_no_temp = retain_materialized(no_temp);
+        assert_eq!(returned_no_temp, PathBuf::from("/tmp/no-temp"));
+        let len_after_no_temp = RETAINED_MATERIALIZED
+            .get()
+            .map(|cache| {
+                cache
+                    .lock()
+                    .expect("materialized cache mutex poisoned")
+                    .len()
+            })
+            .unwrap_or(0);
+        assert_eq!(len_after_no_temp, 0);
+
+        let temp = NamedTempFile::new().expect("create temp file");
+        let temp_path = temp.path().to_path_buf();
+        let with_temp = MaterializedPath {
+            path: temp_path.clone(),
+            temp: Some(temp),
+        };
+        let returned_with_temp = retain_materialized(with_temp);
+        assert_eq!(returned_with_temp, temp_path);
+        let len_after_with_temp = RETAINED_MATERIALIZED
+            .get()
+            .expect("cache initialized after retaining temp-backed path")
+            .lock()
+            .expect("materialized cache mutex poisoned")
+            .len();
+        assert_eq!(len_after_with_temp, 1);
+    }
+}
