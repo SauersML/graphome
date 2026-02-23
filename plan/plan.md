@@ -6,10 +6,10 @@ This document specifies a method for constructing per-individual numeric feature
 
 - Captures SNPs, indels, structural variants, inversions, and tandem repeats in a single unified framework.
 - Handles nested variation (e.g., a SNP inside a structural variant) with an encoding that allows shared structural effects to be estimated once, not redundantly.
-- Achieves the minimum number of features that losslessly represents all haplotype variation observed in the reference panel.
-- Uses standard allele dosage at biallelic sites and standard dummy coding at multi-allelic sites — directly compatible with existing PGS tools.
+- Achieves the minimum number of features that resolves all non-singleton haplotype variation observed in the reference panel (alleles observed in ≥2 HPRC haplotypes are individually resolved; singletons are pooled).
+- Uses standard allele dosage at biallelic sites and standard dummy coding at multi-allelic sites.
 
-The method defines only the **representation layer**: the transformation from a pangenome graph and individual genotype data into a numeric vector suitable for downstream modeling. It does not specify the downstream PGS estimation model or the upstream genotype-to-graph projection pipeline.
+The method defines the **representation layer**: the transformation from a pangenome graph and individual node traversals into a numeric feature vector. It specifies both the encoding rules and the concrete output format. It does not specify the downstream PGS estimation model or the upstream genotype-to-graph projection pipeline.
 
 ---
 
@@ -30,35 +30,60 @@ The representation specified here extracts features from these snarls, producing
 
 ## 3. Inputs
 
-### 3.1 Pangenome graph
+### 3.1 Pangenome graph and haplotype index (GBZ)
 
-A base-level pangenome graph (GFA or equivalent), constructed from high-quality phased haplotype assemblies. "Base-level" means the graph resolves variation down to single nucleotides: individual SNPs are distinct bubbles. The recommended source is the HPRC pangenome, built via Minigraph-Cactus or PGGB. The graph is treated as a fixed reference resource, analogous to hg38 for SNP-based analyses.
+The primary computational input is a **GBZ file**: vg's compressed format bundling the pangenome graph and the GBWT (Graph BWT) haplotype index into a single artifact. The GBZ contains both the graph topology and the embedded reference haplotype paths, providing everything needed for snarl decomposition, feature site selection, and allele definition.
 
-### 3.2 Reference haplotype paths
+The recommended source is the **HPRC v2.0 pangenome**, constructed from phased haplotype assemblies of 232 individuals (~464 haplotypes). Both Minigraph-Cactus and PGGB graphs are suitable; the method is graph-construction-agnostic. The graph is available in CHM13 and GRCh38 reference coordinates.
 
-The set of haplotype paths through the graph from the HPRC reference panel, embedded as path/walk annotations (W-lines or P-lines in GFA) and indexed via the GBWT (Graph BWT). These paths define the **alleles** at each variant site: an allele is a distinct haplotype traversal through a snarl.
+"Base-level" graph resolution is assumed: the graph resolves variation down to single nucleotides, so individual SNPs are distinct bubbles. The graph is treated as a fixed reference resource, analogous to hg38 for SNP-based analyses.
 
-### 3.3 Snarl decomposition
+A GFA representation of the same graph may be used for inspection or interchange but is not the primary computational input (the HPRC v2.0 MC-CHM13 GFA is ~60GB uncompressed vs. ~5GB for the GBZ).
 
-The snarl decomposition of the graph, computable via `vg snarls` or equivalent tooling. This produces a hierarchy of snarls (the **snarl tree**), where snarls can be nested inside other snarls.
+### 3.2 Snarl decomposition
+
+The snarl decomposition of the graph, computable via `vg snarls` or equivalent tooling. This produces a hierarchy of snarls and chains (the **snarl tree**), where snarls can be nested inside other snarls. The snarl decomposition is derivable from the GBZ and does not require a separate input file.
+
+### 3.3 Per-individual node traversals
+
+For each individual to be scored, a per-haplotype list of graph nodes traversed. Each entry is a (node_id, value) pair, where value is 1 for hard genotype calls or a float in [0, 1] for probabilistic calls. How these node traversals are obtained (graph alignment, imputation, linear-to-graph liftover) is out of scope for this spec.
+
+### 3.4 Feature catalog manifest
+
+To ensure reproducibility, the feature catalog is accompanied by a manifest recording:
+
+| Field | Description |
+|---|---|
+| Graph build ID | Hash of the GBZ file used |
+| Graph construction pipeline | Minigraph-Cactus or PGGB, with version and parameters |
+| Reference coordinates | CHM13 or GRCh38 |
+| HPRC release | Release identifier (e.g., HPRC v2.0) |
+| Haplotype count | Number of HPRC haplotypes defining alleles (e.g., ~464 for v2.0) |
+| Snarl decomposition tool | Tool and version used (e.g., `vg snarls` from vg 1.x.x) |
+
+Different manifest values produce different feature catalogs. Models trained on one catalog are not portable to another without re-mapping.
 
 ---
 
 ## 4. Definitions
 
-**Snarl.** A subgraph bounded by two boundary nodes (entry and exit), where all paths from the rest of the graph enter through one boundary and exit through the other. Snarls correspond to variant sites.
+**Snarl.** A subgraph bounded by two boundary nodes (entry and exit), where all paths from the rest of the graph enter through one boundary and exit through the other. Snarls correspond to variant sites. Formally, the boundary node sides are separable (splitting them disconnects the snarl from the rest of the graph) and minimal (no internal node is separable with the boundaries).
+
+**Chain.** A sequence of consecutive snarls sharing boundary nodes, alternating with the shared nodes between them. In vg's snarl tree, the hierarchy alternates between snarls and chains: each snarl contains child chains, and each chain contains child snarls and nodes. Chains correspond to runs of adjacent variant sites — roughly analogous to LD blocks in linear genomics.
 
 **Leaf snarl.** A snarl containing no child snarls. The minimal, irreducible unit of variation. A biallelic SNP is a leaf snarl with two path alleles.
 
 **Compound snarl.** A snarl containing one or more child snarls (nested variation). Example: a deletion that contains two internal SNPs on one branch.
 
-**Snarl tree.** The hierarchy of snarls defined by their nesting relationships. Children are snarls nested inside a parent snarl.
+**Snarl tree.** The hierarchy of snarls and chains defined by their nesting relationships, computable from the graph topology. In vg, this is represented by the Distance Index or Snarl Manager.
 
 **Path allele.** At a given snarl, each distinct traversal from entry to exit observed among the HPRC haplotypes constitutes one allele. The number of distinct path alleles at a snarl is *k*.
 
-**Skeleton.** At a compound snarl, the skeleton is the outer routing structure with all child snarls abstracted to generic placeholders. Concretely: take all HPRC paths through the snarl, replace each child-snarl traversal with a placeholder symbol, count distinct resulting strings. The skeleton captures "which outer route was taken" independent of choices made inside children. The number of distinct skeleton paths is *k*_skel.
+**Netgraph / Skeleton.** At a compound snarl, the **netgraph** (vg terminology) is the view of the snarl where each child chain is collapsed to a single placeholder node. The distinct HPRC haplotype traversals through the netgraph define the **skeleton routes**: these capture "which outer route was taken" independent of choices made inside children. Each child is abstracted to its snarl ID only — the specific allele taken within the child is not distinguished at the skeleton level. The number of distinct skeleton routes is *k*_skel.
 
-**Cyclic snarl.** A snarl whose internal subgraph contains cycles, arising from tandem repeats or VNTRs. Haplotypes traverse the cycle a variable number of times, encoding copy number.
+**Cyclic snarl.** A snarl whose netgraph contains a directed cycle. This arises from tandem repeats or VNTRs where the graph represents variable copy number via back-edges. Detection rule: a snarl is cyclic if and only if its netgraph (with child chains abstracted) contains a directed cycle. Unrolled repeats represented as acyclic multi-path bubbles are *not* cyclic snarls; they are standard multi-allelic snarls.
+
+**Non-start-end-connected snarl.** A valid snarl where no path connects the entry boundary to the exit boundary through the snarl interior. These can arise as artifacts of the snarl-finding algorithm, particularly when the snarl tree is rooted on a long internal sequence. Such snarls are treated as standard snarls; their alleles are defined by observed HPRC traversals, which may enter or exit through non-canonical routes.
 
 **Feature site.** A snarl selected by the optimization algorithm (Section 6) to contribute features to the final vector. Not every snarl in the tree becomes a feature site — some are absorbed into their parent's representation.
 
@@ -89,11 +114,15 @@ This is identical to existing practice. No transformation is needed for compatib
 
 ### 5.3 Multi-allelic snarls (k > 2)
 
-*k* − 1 features using dummy coding. Designate the most common HPRC allele as reference. Each remaining allele gets one indicator feature (0 or 1 per haplotype; 0, 1, or 2 per diploid individual).
+*k* − 1 features using **dummy coding**. Designate the most common HPRC allele as reference (omitted category). Each remaining allele gets one indicator feature (0 or 1 per haplotype; 0, 1, or 2 per diploid individual). Each coefficient is the effect of that allele relative to the reference.
 
-The specific choice of coding scheme (dummy, effect, or sum-to-zero contrasts) is left to the implementation. Any full-rank coding of a *k*-category variable spans the same information; differences affect only how isotropic regularization acts on coefficients. The representation layer emits the allele identity per haplotype; the downstream tool applies its preferred coding.
+#### Singleton pooling
 
-**Recommended default:** dummy coding (one indicator per non-reference allele), as this is the most widely supported in existing tools and the most interpretable (each coefficient is the effect of that allele relative to the reference).
+Alleles observed in only one HPRC haplotype (singletons) are pooled into a single **OTHER** allele. The OTHER allele receives one dummy indicator, like any other non-reference allele. Singletons are pooled because: a single observation in ~464 haplotypes provides no estimation power, singletons are enriched for assembly errors, and they inflate feature count at complex snarls without benefit.
+
+After pooling, *k* is the number of remaining alleles (common alleles + OTHER). A snarl with 20 observed alleles, 5 seen in ≥2 haplotypes and 15 singletons, produces 5 features: 4 common allele dummies + 1 OTHER dummy.
+
+Every allele observed in ≥2 HPRC haplotypes is individually resolved.
 
 ### 5.4 Cyclic snarls (tandem repeats / VNTRs)
 
@@ -115,11 +144,32 @@ At non-nested sites (the vast majority of features), every individual traverses 
 
 ### 5.6 Diploid encoding
 
-Sum the two haploid feature vectors. For a biallelic snarl, diploid values are {0, 1, 2} — standard dosage.
+The diploid feature value is computed per-feature from two independent haplotype-level calls. Each haplotype at a given snarl is either traversing (producing a 0 or 1 for that feature column) or non-traversing (contributing nothing).
 
-When one haplotype traverses a snarl and the other does not, the traversing haplotype contributes its allele code and the non-traversing haplotype contributes NA. The diploid value for that feature is the traversing haplotype's value alone (effectively treating the missing haplotype as excluded, not as zero).
+**Rules:**
+- If both haplotypes traverse the snarl: diploid value = sum of two haplotype values. Standard {0, 1, 2} dosage.
+- If exactly one haplotype traverses: diploid value = that haplotype's value alone (0 or 1). The non-traversing haplotype contributes nothing — it is not counted as 0, it is absent.
+- If neither haplotype traverses: diploid value = NA.
 
-Example: a diploid individual heterozygous for skip and ins+T at a nested insertion. Outer feature: 0 + 1 = 1 (one copy of insertion). Inner SNP feature: one haplotype carries T (dosage contribution = 0, if T is reference among insertion alleles), the other haplotype is NA (skip, doesn't traverse). The inner feature value is 0, representing this individual's single observation of T at the inner SNP. The model estimates the inner SNP effect from this individual's single-haplotype observation alongside other insertion carriers' observations.
+**Complete truth table for an inner biallelic SNP (T=ref, G=alt) inside an insertion:**
+
+| Haplotype 1 | Haplotype 2 | Outer insertion dosage | Inner SNP dosage |
+|---|---|---|---|
+| skip | skip | 0 | NA |
+| skip | ins+T | 1 | 0 |
+| skip | ins+G | 1 | 1 |
+| ins+T | ins+T | 2 | 0 |
+| ins+T | ins+G | 2 | 1 |
+| ins+G | ins+G | 2 | 2 |
+
+This produces the correct additive scores. For example, under a model with outer effect β_out and inner effect β_in:
+
+- skip/ins+G scores: β_out(1) + β_in(1)
+- ins+T/ins+G scores: β_out(2) + β_in(1)
+
+The difference is exactly β_out — one additional copy of the insertion.
+
+**Hemizygosity.** When one haplotype traverses and the other skips, the inner feature value is based on a single haplotype observation. This is analogous to X-chromosome dosage in males: the value range is {0, 1} rather than {0, 1, 2}, and the effective sample size for estimating the inner effect is reduced. Standard GWAS tools do not adjust for per-individual-per-site ploidy variation; this is a known limitation that affects only the small fraction of sites that are conditional on a structural variant. Effective ploidy (0, 1, or 2) per individual per feature site is derivable at runtime from the parent snarl's genotype.
 
 ### 5.7 Relationship to the node traversal matrix
 
@@ -135,7 +185,7 @@ The "elements" can be graph nodes, graph edges, snarl alleles, or any other deco
 
 #### Node traversal as the primitive representation
 
-The most direct representation of a pangenome genotype is the **node traversal matrix** X_node ∈ {0,1}^{n×p}, where X_{h,j} = 1 if haplotype h traverses variable node j, and p = |variable nodes|.
+The most direct representation of a pangenome genotype is the **node traversal matrix** X_node ∈ ℝ^{n×p}, where X_{h,j} indicates whether (and with what confidence) haplotype h traverses variable node j. For hard genotype calls, entries are in {0, 1}. For probabilistic calls, entries are floats in [0, 1]. p = |variable nodes|.
 
 This matrix is rank-deficient. The graph imposes **flow conservation constraints**: at every snarl boundary, traversal counts entering equal those exiting. These structural constraints make columns linearly dependent. Let rank(X_node) = r < p.
 
@@ -210,7 +260,18 @@ cost(*s*) = 1 (repeat count feature)
 4. If flat_cost < decomp_cost: represent *s* as a flat feature site. Mark all descendants as absorbed (they do not become feature sites).
 5. If flat_cost ≥ decomp_cost: decompose. The skeleton of *s* becomes a feature site (if k_skel > 1). Each child becomes a feature site (using its own optimized representation).
 
-**When flat_cost equals decomp_cost, prefer decomposition.** The decomposed representation aligns features with the biological effect hierarchy (outer structural effects in their own features, inner conditional effects in theirs), which produces better-conditioned estimation even at equal dimensionality.
+**When flat_cost equals decomp_cost, prefer decomposition.** The decomposed representation produces smaller-arity categorical sites (more stable allele calling for new individuals), keeps feature groups aligned with the snarl tree, and avoids large allele catalogs that arise from flattening when the column count is equal but interpretability differs.
+
+#### Computing skeleton routes (k_skel)
+
+To compute the skeleton routes for a compound snarl *s*:
+
+1. For each HPRC haplotype that traverses *s*, extract the subpath from entry boundary to exit boundary.
+2. For each child snarl *c* of *s*: identify the segment of the subpath that traverses *c* and replace it with a single placeholder token `<child_snarl_id>`. The placeholder is the child's snarl ID only — the specific allele taken within the child is **not** recorded. This is the key abstraction: the skeleton sees which children were visited and in what order, but not what happened inside them.
+3. Hash the resulting token sequence (mix of literal graph nodes and placeholder tokens) to produce a skeleton signature.
+4. k_skel = number of distinct skeleton signatures across all HPRC haplotypes traversing *s*.
+
+This is equivalent to computing distinct paths through the snarl's **netgraph** (vg terminology), where child chains are collapsed to single nodes. The computation is linear in the total length of observed HPRC traversals through *s*, not exponential in the number of children.
 
 ### 6.3 Key properties of the algorithm
 
@@ -224,65 +285,87 @@ cost(*s*) = 1 (repeat count feature)
 
 ### 6.4 Computational substrate
 
-All path counts (k_s, k_skel) are computed by querying the GBWT index, which stores all HPRC haplotype paths and supports efficient local queries of the form "how many distinct paths traverse this snarl?" The algorithm is a single bottom-up traversal of the snarl tree with one GBWT query per snarl. It runs once on the reference pangenome and produces a fixed feature schema for all downstream use.
+All path counts (k_s, k_skel) are computed by querying the GBWT index, which stores all HPRC haplotype paths and supports efficient local queries of the form "how many distinct paths traverse this snarl?" The algorithm is a single bottom-up traversal of the snarl tree with one GBWT query per snarl. It runs once on the reference pangenome and produces the feature catalog (Section 8).
 
 ---
 
 ## 7. Feature Vector Construction
 
-For each individual, the feature vector is constructed as follows:
+The feature catalog (Section 8) defines the projection from node traversals to snarl features. Given an individual's per-haplotype node traversal list (Section 3.3), the feature vector is computed as follows:
 
-1. Determine the individual's haplotype path(s) through the pangenome graph (out of scope for this spec; handled by genotype-to-graph projection tools such as vg giraffe).
+1. At each feature site, the catalog lists the node paths defining each allele. Match the individual's traversed nodes against these allele definitions to determine which allele each haplotype carries.
 
-2. At each feature site selected by the optimization algorithm:
-   - Determine which path allele (or skeleton allele) the individual's haplotype matches.
-   - If the haplotype traverses the snarl: assign the dosage or dummy code for the matched allele.
-   - If the haplotype does not traverse the snarl (bypassed due to a parent routing decision): assign NA for all features at this snarl.
+2. Apply the encoding rules from Section 5: dosage for biallelic sites, dummy indicators for multi-allelic sites, repeat count for cyclic sites.
 
-3. For diploid individuals: sum the two haploid feature vectors.
+3. Apply the diploid rules from Section 5.6: sum haplotype values when both traverse, use the single haplotype's value when one skips, assign NA when both skip.
 
-4. Concatenate features from all feature sites across the genome into a single numeric vector.
+4. Concatenate features from all feature sites into a single numeric vector.
 
-The output per individual is a single vector of real numbers. Its length equals the total number of feature columns: Σ (k_i − 1) across all selected acyclic feature sites, plus 1 per selected cyclic feature site.
+The output per individual is a numeric vector. Its length equals the total number of feature columns: Σ (k_i − 1) across all selected acyclic feature sites, plus 1 per selected cyclic feature site. Values are integers for hard genotype calls, floats for probabilistic calls.
 
-**No normalization is applied.** Features are stored as raw dosage/indicator values. Frequency-dependent scaling, variance standardization, or MAF-based weighting are deferred to the downstream model, which can apply its own architecture-appropriate prior (e.g., MAF-dependent effect-size variance in Bayesian PGS methods). Baking normalization into the features would impose an implicit prior that may be suboptimal for specific traits.
+**No normalization is applied.** Features are stored as raw dosage/indicator values. Frequency-dependent scaling or variance standardization are deferred to the downstream model.
 
-**No interaction or cross-snarl features are computed.** The feature vector consists exclusively of single-site features. For common complex diseases, essentially all heritable variance is additive at the variant level, and interaction effects contribute negligibly to prediction. Encoding interaction features would increase dimensionality without improving prediction.
+**No interaction or cross-snarl features are computed.** The feature vector consists exclusively of single-site features.
 
 ---
 
-## 8. Structural Metadata
+## 8. Output Format
 
-Alongside the feature vector, the method emits structural metadata for each feature site. This metadata is not used by the representation layer but is available for downstream models that can exploit it.
+The spec produces one artifact: the **feature catalog**, stored as two binary files. These files fully define the feature space and the projection from node traversals to snarl features. No per-individual genotype matrix is materialized.
 
-**Per feature site:**
+### 8.1 features.bin
 
-| Field | Description |
-|---|---|
-| Snarl ID | Identifier (boundary node pair) of the snarl |
-| Snarl type | Acyclic biallelic, acyclic multi-allelic, or cyclic |
-| Snarl tree depth | Nesting depth (0 = top-level, higher = more deeply nested) |
-| Parent snarl ID | Which snarl this site is nested inside (if any) |
-| Conditional on | Which parent skeleton allele(s) must be taken to traverse this snarl |
-| Allele count (k) | Number of distinct path alleles at this site |
-| Allele frequencies | HPRC frequency of each allele |
-| Node count | Number of variable graph nodes underlying this feature site (structural complexity) |
-| Genomic region | Approximate linear genome coordinates (for compatibility with existing tools) |
-| Feature columns | Column indices in the feature vector |
+Fixed-width records, one per feature site. Memory-mappable. Feature N is at byte offset (header_size + N × record_size).
 
-**Recommended downstream use of metadata:**
+```
+Header (24 bytes):
+  magic:            uint8[4]   "SFC\0"
+  version:          uint16
+  n_features:       uint32
+  n_traversals:     uint32     (total allele entries across all features)
+  reserved:         uint8[10]
 
-This metadata serves a critical role beyond documentation: it enables the estimation layer to construct per-feature priors that compensate for the implicit prior imposed by the encoding choice (see Section 9).
+Per feature (32 bytes):
+  feature_id:        uint32    (position in feature vector)
+  boundary_entry:    uint64    (entry boundary node ID)
+  boundary_exit:     uint64    (exit boundary node ID)
+  k:                 uint16    (allele count, including OTHER if present)
+  is_cyclic:         uint8     (0 or 1)
+  parent_feature_id: uint32    (0xFFFFFFFF = top-level, no parent)
+  traversal_offset:  uint32    (byte offset into traversals.bin for this feature's first allele)
+  reserved:          uint8[1]
+```
 
-- **Group sparsity.** Multi-allelic feature sites produce k − 1 columns that belong to a single biological locus. Downstream models using group sparsity (e.g., group LASSO, group spike-and-slab) should treat each feature site as one group. The snarl ID defines the grouping.
+32 bytes × 20M features = 640MB.
 
-- **LD computation.** Pairwise LD between feature sites should be computed directly from the snarl dosage feature matrix using HPRC haplotypes, not from linear genomic coordinates. Graph topology (nearby snarls in the graph) can serve as a heuristic for which pairs to evaluate, replacing linear distance-based windowing.
+The six fields that define the feature space:
+- **feature_id**: ordering in the feature vector
+- **boundary_entry, boundary_exit**: snarl identity. Also serves as the group ID for multi-allelic dummy features from the same snarl.
+- **k**: determines encoding (k=2 → one dosage feature; k>2 → k−1 dummy features; cyclic → one count feature)
+- **is_cyclic**: distinguishes repeat-count encoding from dummy encoding
+- **parent_feature_id**: determines NA propagation (if parent allele = skip, all children are NA)
 
-- **Frequency-dependent priors.** Allele frequency metadata enables per-feature shrinkage that penalizes rare variants more heavily. This approximates the frequency-dependent weighting that ridge regression on the overcomplete node traversal matrix achieves automatically through the singular value structure (Section 9.2).
+### 8.2 traversals.bin
 
-- **Complexity-dependent priors.** Node count metadata enables per-feature shrinkage that penalizes large structural variants less per unit effect. Under ridge on the raw node matrix, a structural variant spanning m nodes is effectively penalized 1/m as much as a single-node SNP (Section 9.2). The node count metadata allows snarl-level estimation to approximate this structural complexity weighting.
+Variable-length allele definitions. Each allele is a list of node IDs defining the path through the snarl for that allele. This is the projection: given an individual's node traversals, match against these paths to determine allele assignment.
 
-- **Depth-dependent priors.** Nesting depth metadata enables stronger shrinkage for deeply nested conditional features. Inner variants (e.g., a SNP inside an SV inside an inversion) are less likely to be independently causal and should be penalized more aggressively.
+```
+Per allele:
+  n_nodes:   uint16              (number of nodes in this path)
+  node_ids:  uint64[n_nodes]     (the node sequence)
+```
+
+The alleles for feature N start at the byte offset stored in features.bin's traversal_offset field. The first allele listed is the reference allele (coded as 0 / omitted category). Subsequent alleles correspond to dummy indicators in order. If the feature has an OTHER allele, it is the last allele listed and has n_nodes = 0 (empty path, since OTHER is a catch-all with no specific node path).
+
+Average ~3 nodes per allele, ~2.5 alleles per feature: 20M × 2.5 × (2 + 3×8) ≈ 1.3GB.
+
+### 8.3 Total size
+
+~2GB for the complete feature catalog. Loaded once at pipeline start, kept in memory for the duration of any streaming computation.
+
+### 8.4 No materialized genotype matrix
+
+Per-individual feature vectors are computed on-the-fly from node traversals (Section 7) and consumed by streaming accumulators (e.g., GWAS sufficient statistics). They are not stored. The feature catalog is the only artifact the spec produces. LD matrices, summary statistics, and PGS weights are downstream pipeline outputs, not part of the representation layer.
 
 ---
 
@@ -304,32 +387,28 @@ This means: **the choice of feature encoding is not purely a representation deci
 
 Neither is objectively correct. The right prior depends on the true genetic architecture of the trait being predicted, which varies across phenotypes.
 
-### 9.3 Breaking the entanglement with metadata
+### 9.3 Breaking the entanglement
 
 The entanglement between encoding and prior can be broken if the estimation layer has sufficient flexibility to impose per-feature penalty weights. Specifically: for any target prior geometry and any full-rank basis, there exists an anisotropic penalty that recovers the target predictions.
 
-This is why the structural metadata emitted alongside the feature vector (Section 8) is not optional. It provides the information the estimation layer needs to construct feature-specific penalties that compensate for the encoding's implicit prior:
+This is why structural information derivable from the feature catalog and the biobank is important. It provides the information the estimation layer needs to construct feature-specific penalties that compensate for the encoding's implicit prior:
 
-- **Allele frequency** enables frequency-dependent shrinkage (rare variants penalized more), approximating the spectral weighting that the overcomplete node matrix achieves automatically.
-- **Node count / structural complexity** enables complexity-dependent shrinkage (large SVs penalized less per unit effect), recovering the structural complexity weighting inherent in the node representation.
-- **Nesting depth** enables depth-dependent shrinkage (deeply nested conditional features penalized more).
-- **Group membership** (snarl ID) enables group sparsity (multi-allelic snarl features enter/exit the model together).
+- **Allele frequency** (computed from the biobank during the GWAS streaming pass) enables frequency-dependent shrinkage (rare variants penalized more), approximating the spectral weighting that the overcomplete node matrix achieves automatically.
+- **Group membership** (snarl ID, from the feature catalog) enables group sparsity (multi-allelic snarl features enter/exit the model together).
 
-A naive estimation method (isotropic ridge on snarl features) ignores the metadata and accepts the encoding's implicit prior. A sophisticated method (Bayesian PGS with annotation-dependent variance components) uses the metadata to construct a prior that is appropriate for the trait, independent of the encoding choice.
+A naive estimation method (isotropic ridge on snarl features) ignores this information and accepts the encoding's implicit prior. A sophisticated method (Bayesian PGS with annotation-dependent variance components) uses it to construct a prior appropriate for the trait, independent of the encoding choice.
 
 ### 9.4 Practical implication
 
-The snarl encoding specified in this document is a compressed, interpretable, tool-compatible basis. Under isotropic regularization, it imposes a specific implicit prior (uniform per-variant penalization). This prior is adequate for many applications but is not optimal.
+The snarl encoding specified in this document is a compressed, interpretable basis. Under isotropic regularization, it imposes a specific implicit prior (uniform per-variant penalization). This prior is adequate for many applications but is not optimal.
 
-For best prediction accuracy, the estimation layer should use the emitted metadata to construct per-feature or per-group penalties. The recommended approach is a Bayesian PGS method (e.g., PRS-CS, SBayesR, or extensions) that accepts per-SNP annotations and learns variance components from data. The annotations derived from the pangenome — allele frequency, structural complexity, nesting depth, variant type — are novel inputs that existing annotation-stratified methods can consume directly.
-
-The representation layer's role is to provide both the features (the compressed basis) and the metadata (the information needed to construct an appropriate prior). Together, they enable the estimation layer to approximate any reasonable prior geometry regardless of the basis choice.
+For best prediction accuracy, the estimation layer should construct per-feature or per-group penalties using information derivable from the feature catalog (snarl grouping, parent-child structure) and from the biobank (allele frequencies, LD structure). The feature catalog provides the structural skeleton; the biobank provides the population-specific quantities.
 
 ---
 
 ## 10. Properties of the Representation
 
-**Panel-lossless.** Every distinct HPRC haplotype path produces a unique feature vector. No information about HPRC haplotype variation is discarded.
+**Panel-lossless (modulo singletons).** Every HPRC allele observed in ≥2 haplotypes is individually resolved. Singleton alleles (observed in exactly one haplotype) are pooled into OTHER. No information about non-singleton HPRC haplotype variation is discarded.
 
 **Minimal.** The snarl tree optimization minimizes total feature count subject to panel-losslessness. No representation with fewer features can distinguish all HPRC haplotypes.
 
@@ -343,7 +422,7 @@ The representation layer's role is to provide both the features (the compressed 
 
 **Fixed feature space.** Feature definitions are determined entirely by the pangenome graph and HPRC haplotype paths. They do not depend on any downstream cohort. Once defined, the same feature space is used for training, validation, testing, and deployment.
 
-**Basis-dependent regularization.** Under regularized estimation, the snarl encoding imposes a specific implicit prior: isotropic penalization across variant sites regardless of structural complexity or allele frequency (Section 9). This prior is adequate but not optimal. The emitted structural metadata (Section 8) enables the estimation layer to construct per-feature penalties that approximate any desired prior geometry, decoupling the representation choice from the modeling assumptions.
+**Basis-dependent regularization.** Under regularized estimation, the snarl encoding imposes a specific implicit prior: isotropic penalization across variant sites regardless of structural complexity or allele frequency (Section 9). This prior is adequate but not optimal. Allele frequencies computed from the biobank and structural information from the feature catalog enable the estimation layer to construct per-feature penalties that approximate any desired prior geometry.
 
 ---
 
@@ -358,7 +437,7 @@ The representation layer's role is to provide both the features (the compressed 
 | Complex indel | Multi-path bubble | k−1 dummy indicators |
 | Inversion | 2-path bubble (reverse node orientation) | 1 dosage feature, {0, 1, 2} diploid |
 | VNTR / tandem repeat | Cyclic subgraph | Integer repeat count |
-| SNP inside SV | Outer SV snarl + nested inner SNP snarl | Separate features: outer SV dosage + inner SNP dosage (NA for non-traversers) |
+| SNP inside SV | Outer SV snarl + nested inner SNP snarl | Separate features: outer SV dosage + inner SNP dosage (NA for skip/skip; hemizygous for skip/ins) |
 | Complex nested SV | Multi-level snarl tree | Features at each level selected by optimization; inner features NA for non-traversers |
 | LD block (perfect LD) | Consecutive snarls, ≤2 joint haplotype paths | Collapsed to 1 dosage feature by optimization |
 | Non-tandem segdup | Separate graph regions per copy | Independent features per copy |
@@ -369,13 +448,13 @@ The representation layer's role is to provide both the features (the compressed 
 
 ### 12.1 Expected dimensionality
 
-Total feature count depends on the pangenome's haplotype complexity. Without the snarl tree optimization (leaf snarls only), feature count would be on the order of 100 million (comparable to the full variant count in a diverse pangenome). With the optimization, LD compression reduces this substantially in high-LD regions. The expected range is **20–50 million features**, comparable to a whole-genome imputation panel and within reach of existing PGS estimation methods.
+Total feature count depends on the pangenome's haplotype complexity. With HPRC v2.0 (~464 haplotypes from 232 individuals), the number of distinct path alleles per snarl is bounded by 464. Without the snarl tree optimization (leaf snarls only), feature count would be on the order of 100 million (comparable to the full variant count in a diverse pangenome). With the optimization, LD compression reduces this substantially in high-LD regions. The expected range is **20–50 million features**, comparable to a whole-genome imputation panel and within reach of existing PGS estimation methods.
 
 The exact feature count is a property of the pangenome that has not yet been computed: the total effective degrees of freedom of human haplotype variation as captured by the snarl tree. Computing this is itself a contribution.
 
-### 12.2 Compatibility with existing tools
+### 12.2 Encoding properties
 
-At non-nested biallelic sites (the vast majority of features), the encoding is standard {0, 1, 2} allele dosage — directly compatible with all existing GWAS and PGS tools. Multi-allelic sites use standard dummy indicators. Nested sites introduce structured missingness (NA for non-traversing individuals); tools that handle missing data natively (e.g., glmnet, most Bayesian PGS methods) require no modification. For tools that do not support per-feature missingness, mean imputation at nested sites is an acceptable approximation (see Section 5.5).
+At non-nested biallelic sites (the vast majority of features), the encoding is standard {0, 1, 2} allele dosage. Multi-allelic sites use dummy indicators. Nested sites introduce structured missingness (NA for non-traversing individuals). The missingness pattern is deterministic, determined by the snarl tree, not random.
 
 ### 12.3 Population structure
 
@@ -387,7 +466,7 @@ The reference allele at each snarl (coded as 0 in the biallelic case, or the omi
 
 ### 12.5 GBWT as computational substrate
 
-The GBWT index is recommended for implementing both the optimization algorithm (Section 6) and the individual feature computation (Section 7). It supports efficient queries for enumerating distinct paths through a snarl and their frequencies, and for matching a new individual's local haplotype to the closest HPRC path allele at each feature site.
+The GBWT index (bundled in the GBZ file) is the computational substrate for both the snarl tree optimization (Section 6) and the feature catalog construction. It supports efficient queries for enumerating distinct paths through a snarl and their frequencies.
 
 ---
 
@@ -396,19 +475,21 @@ The GBWT index is recommended for implementing both the optimization algorithm (
 | Component | Specification |
 |---|---|
 | **Underlying model** | Path-additive: PGS = sum of learned weights along haplotype path through graph |
+| **Input** | GBZ file (HPRC v2.0, ~464 haplotypes from 232 individuals) + per-individual node traversals (hard or probabilistic) |
 | **Unit of variation** | Feature site: a snarl selected by snarl tree optimization |
-| **Allele definition** | Distinct HPRC haplotype paths (or skeleton routes) through the snarl |
-| **Encoding** | Standard allele dosage (biallelic) or dummy indicators (multi-allelic); NA for non-traversing individuals |
+| **Allele definition** | Distinct HPRC haplotype paths (or skeleton routes) through the snarl; singletons pooled into OTHER |
+| **Encoding** | Allele dosage (biallelic), dummy indicators (multi-allelic), repeat count (cyclic); NA for non-traversing individuals |
 | **Biallelic sites** | {0, 1} haploid; {0, 1, 2} diploid |
-| **Multi-allelic sites** | k−1 dummy indicators (coding scheme flexible) |
-| **VNTRs** | Integer repeat count |
-| **Nested variation** | Outer and inner snarls encoded separately; inner features NA for non-traversers |
+| **Multi-allelic sites** | k−1 dummy indicators |
+| **Singleton alleles** | Pooled into OTHER (allele count < 2 in HPRC) |
+| **VNTRs** | Integer repeat count (cyclic snarls: directed cycle in netgraph) |
+| **Nested variation** | Outer and inner snarls encoded separately; inner features NA for non-traversers; hemizygous values at ploidy 1 |
 | **LD compression** | Lossless collapsing by snarl tree optimization when joint paths < sum of individual features |
 | **Relation to node matrix** | Snarl features = linear projection of node traversal matrix via flow conservation and snarl tree hierarchy |
 | **Normalization** | None (deferred to downstream model) |
 | **Interaction features** | None |
 | **Feature space** | Fixed by pangenome graph + HPRC haplotype paths |
-| **Metadata emitted** | Snarl tree structure, depth, allele frequencies, node count, group membership, conditional dependencies |
-| **Metadata role** | Enables estimation layer to construct per-feature priors that compensate for encoding's implicit regularization geometry |
-| **Output per individual** | Numeric vector with structured missingness at nested sites |
+| **Output artifact** | Feature catalog: features.bin (fixed-width, 640MB) + traversals.bin (variable-length, ~1.3GB) |
+| **No materialized genotype matrix** | Per-individual features computed on-the-fly from node traversals, consumed by streaming accumulators |
+| **Reproducibility** | Feature catalog header records graph build hash, pipeline, HPRC release |
 | **Expected dimensionality** | 20–50 million features genome-wide |
