@@ -1100,57 +1100,38 @@ fn repeat_count(
     lookup: &SnarlLookup,
     span_ctx: &mut SpanContext<'_>,
 ) -> Option<u32> {
-    let boundary_positions = walk
-        .steps
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, step)| {
-            if step.node_id == lookup.entry_node || step.node_id == lookup.exit_node {
-                Some(idx)
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let (start, end) = if let (Some(first), Some(last)) = (
-        boundary_positions.first().copied(),
-        boundary_positions.last().copied(),
-    ) {
-        (first, last)
-    } else {
-        let span = span_ctx.find_span_or_noncanonical(lookup.entry_node, lookup.exit_node)?;
-        (span.start, span.end)
-    };
-
-    let segment = &walk.steps[start..=end];
+    let span = span_ctx.find_span_or_noncanonical(lookup.entry_node, lookup.exit_node)?;
+    let mut span_end = span.end;
+    for (idx, step) in walk.steps.iter().enumerate().skip(span.end + 1) {
+        if step.node_id == lookup.entry_node || step.node_id == lookup.exit_node {
+            span_end = idx;
+        }
+    }
+    let segment = &walk.steps[span.start..=span_end];
     if segment.is_empty() {
         return None;
     }
 
-    let mut counts: HashMap<usize, usize> = HashMap::new();
+    let mut internal_counts: HashMap<usize, usize> = HashMap::new();
+    let mut entry_hits = 0usize;
+    let mut exit_hits = 0usize;
     for step in segment {
-        *counts.entry(step.node_id).or_insert(0) += 1;
+        if step.node_id == lookup.entry_node {
+            entry_hits += 1;
+            continue;
+        }
+        if step.node_id == lookup.exit_node {
+            exit_hits += 1;
+            continue;
+        }
+        *internal_counts.entry(step.node_id).or_insert(0) += 1;
     }
-    let entry_hits = counts.get(&lookup.entry_node).copied().unwrap_or(0);
-    let exit_hits = counts.get(&lookup.exit_node).copied().unwrap_or(0);
-    // For cyclic paths, additional traversals typically revisit one or both boundaries.
-    let boundary_copies = entry_hits.max(exit_hits).saturating_sub(1);
-    // Also use internal-node repeat evidence to handle representations that avoid boundary revisits.
-    let internal_copies = counts
-        .iter()
-        .filter_map(|(node, count)| {
-            if *node == lookup.entry_node || *node == lookup.exit_node {
-                None
-            } else {
-                Some(*count)
-            }
-        })
-        .max()
-        .unwrap_or(1);
 
-    let copies = boundary_copies.max(internal_copies).max(1);
-    Some(copies as u32)
+    // Internal-node repeats are the primary signal for cyclic copy count.
+    let internal_copies = internal_counts.values().copied().max().unwrap_or(1);
+    // Some representations surface repeats as boundary revisits; keep that as fallback.
+    let boundary_copies = entry_hits.max(exit_hits).saturating_sub(1).max(1);
+    Some(internal_copies.max(boundary_copies) as u32)
 }
 
 fn repeat_count_node_values(
