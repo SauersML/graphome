@@ -168,6 +168,7 @@ pub fn load_topology_tsv(path: &str) -> io::Result<Vec<SnarlTopology>> {
     Ok(roots)
 }
 
+#[cfg(test)]
 pub fn extract_haplotype_walks_from_gbz(gbz: &GBZ) -> Vec<HaplotypeWalk> {
     let Some(metadata) = gbz.metadata() else {
         return Vec::new();
@@ -259,8 +260,9 @@ pub fn infer_snarl_panel_from_gbz(topology_roots: &[SnarlTopology], gbz: &GBZ) -
         return InferredPanel { roots, lookup };
     };
 
+    let mut steps = Vec::<HaplotypeStep>::new();
     for path_id in 0..metadata.paths() {
-        let mut steps = Vec::new();
+        steps.clear();
         if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
             for (node_id, orientation) in path_iter {
                 steps.push(HaplotypeStep {
