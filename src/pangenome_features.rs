@@ -512,7 +512,11 @@ impl FeatureBuilder {
                     snarl.allele_frequencies.len(),
                     snarl.allele_count
                 );
-                validate_frequency_vector(&snarl.id, "allele_frequencies", &snarl.allele_frequencies);
+                validate_frequency_vector(
+                    &snarl.id,
+                    "allele_frequencies",
+                    &snarl.allele_frequencies,
+                );
                 if snarl.children.is_empty() {
                     assert!(
                         snarl.skeleton_allele_count.is_none(),
@@ -561,7 +565,9 @@ impl FeatureBuilder {
         }
 
         let parent_k_skel = match snarl.snarl_type {
-            SnarlType::Acyclic if !snarl.children.is_empty() => snarl.skeleton_allele_count.unwrap_or(1),
+            SnarlType::Acyclic if !snarl.children.is_empty() => {
+                snarl.skeleton_allele_count.unwrap_or(1)
+            }
             _ => 1,
         };
         for child in &snarl.children {

@@ -16,5 +16,6 @@ pub mod video;
 pub mod viz;
 pub mod window;
 
+pub mod pangenome_catalog;
 pub mod pangenome_features;
 pub mod pangenome_runtime;
