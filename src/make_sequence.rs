@@ -8,7 +8,7 @@ use std::path::Path;
 use crate::coords;
 use crate::io::GfaReader;
 use crate::map::{self, Coord2NodeResult};
-use gbwt::GBZ;
+use gbz::GBZ;
 use lru::LruCache;
 use simple_sds::serialize;
 

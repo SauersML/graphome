@@ -6,7 +6,7 @@ use crate::eigen_print::{
 };
 use crate::map::{coord_to_nodes_with_path_filtered, make_gbz_exist, parse_region};
 use faer::Mat;
-use gbwt::{Orientation, GBZ};
+use gbz::{Orientation, GBZ};
 use rayon::prelude::*;
 use rayon::slice::ParallelSliceMut;
 use rustc_hash::FxHashMap;

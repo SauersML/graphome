@@ -12,8 +12,8 @@ name = "graphome"
 path = "src/main.rs"
 
 [dependencies]
-gbwt = "0.3.1"
-simple_sds = { package = "simple-sds-sbwt", version = "0.3.2" }
+gbz = "0.5.1"
+simple_sds = { package = "simple-sds", version = "0.4.0" }
 clap = { version = "4.5.50", features = ["derive"] }
 indicatif = "0.18.0"
 bitvec = "1.0.1"

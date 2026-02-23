@@ -4,7 +4,7 @@
 // Design: Store offsets/sizes instead of borrowed slices to avoid self-referential lifetime issues.
 // All data access happens through methods that take &MemoryMap and derive slices on-demand.
 
-use gbwt::{Pos, ENDMARKER};
+use gbz::{Pos, ENDMARKER};
 use simple_sds::bits;
 use simple_sds::ops::{BitVec, Select};
 use simple_sds::serialize::{load_from, MappingMode, MemoryMap, Serialize};
@@ -182,9 +182,9 @@ impl BwtDescriptor {
     }
 
     /// Returns the i-th record, or None if there is no such node
-    pub fn record<'a>(&self, map: &'a MemoryMap, i: usize) -> Option<gbwt::bwt::Record<'a>> {
+    pub fn record<'a>(&self, map: &'a MemoryMap, i: usize) -> Option<gbz::bwt::Record<'a>> {
         let bytes = self.record_bytes(map, i).ok()?;
-        gbwt::bwt::Record::new(i, bytes)
+        gbz::bwt::Record::new(i, bytes)
     }
 }
 
@@ -192,13 +192,13 @@ impl BwtDescriptor {
 /// Stores offsets and small loaded structures, derives views on-demand
 pub struct GbwtDescriptor {
     /// GBWT header (loaded)
-    header: gbwt::headers::Header<gbwt::headers::GBWTPayload>,
+    header: gbz::headers::Header<gbz::headers::GBWTPayload>,
     /// BWT descriptor (stores offsets, not references)
     bwt: BwtDescriptor,
     /// Endmarker array (loaded, small - one per sequence)
     endmarker: Vec<Pos>,
     /// Metadata (loaded, small)
-    metadata: Option<gbwt::gbwt::Metadata>,
+    metadata: Option<gbz::Metadata>,
 }
 
 impl GbwtDescriptor {
@@ -216,13 +216,13 @@ impl GbwtDescriptor {
         cursor.set_position(offset as u64);
 
         // Load GBWT header
-        let header = gbwt::headers::Header::<gbwt::headers::GBWTPayload>::load(&mut cursor)?;
+        let header = gbz::headers::Header::<gbz::headers::GBWTPayload>::load(&mut cursor)?;
         if let Err(msg) = header.validate() {
             return Err(MappedGbzError::InvalidFormat(msg));
         }
 
         // Load tags (don't mutate - preserve provenance)
-        let tags = gbwt::support::Tags::load(&mut cursor)?;
+        let tags = gbz::support::Tags::load(&mut cursor)?;
 
         // Load BWT index (SparseVector - relatively small)
         let bwt_index = SparseVector::load(&mut cursor)?;
@@ -263,8 +263,8 @@ impl GbwtDescriptor {
         simple_sds::serialize::skip_option(&mut cursor)?;
 
         // Load metadata
-        let metadata = Option::<gbwt::gbwt::Metadata>::load(&mut cursor)?;
-        if header.is_set(gbwt::headers::GBWTPayload::FLAG_METADATA) != metadata.is_some() {
+        let metadata = Option::<gbz::Metadata>::load(&mut cursor)?;
+        if header.is_set(gbz::headers::GBWTPayload::FLAG_METADATA) != metadata.is_some() {
             return Err(MappedGbzError::InvalidFormat(
                 "GBWT: Invalid metadata flag in the header".to_string(),
             ));
@@ -272,7 +272,7 @@ impl GbwtDescriptor {
 
         if let Some(meta) = metadata.as_ref() {
             if meta.has_path_names() {
-                let expected = if header.is_set(gbwt::headers::GBWTPayload::FLAG_BIDIRECTIONAL) {
+                let expected = if header.is_set(gbz::headers::GBWTPayload::FLAG_BIDIRECTIONAL) {
                     header.payload().sequences / 2
                 } else {
                     header.payload().sequences
@@ -329,7 +329,7 @@ impl GbwtDescriptor {
     }
 
     /// Returns the metadata
-    pub fn metadata(&self) -> Option<&gbwt::gbwt::Metadata> {
+    pub fn metadata(&self) -> Option<&gbz::Metadata> {
         self.metadata.as_ref()
     }
 
@@ -344,7 +344,7 @@ impl GbwtDescriptor {
 pub struct MappedGBZ {
     map: MemoryMap,
     gbwt: GbwtDescriptor,
-    full_gbz: gbwt::GBZ,
+    full_gbz: gbz::GBZ,
 }
 
 impl MappedGBZ {
@@ -363,7 +363,7 @@ impl MappedGBZ {
         let mut cursor = Cursor::new(byte_slice);
 
         // Load GBZ header
-        let gbz_header = gbwt::headers::Header::<gbwt::headers::GBZPayload>::load(&mut cursor)?;
+        let gbz_header = gbz::headers::Header::<gbz::headers::GBZPayload>::load(&mut cursor)?;
         if let Err(msg) = gbz_header.validate() {
             return Err(MappedGbzError::InvalidFormat(format!(
                 "GBZ header: {}",
@@ -372,7 +372,7 @@ impl MappedGBZ {
         }
 
         // Load and skip tags
-        let tags = gbwt::support::Tags::load(&mut cursor)?;
+        let tags = gbz::support::Tags::load(&mut cursor)?;
 
         // Now we're at the GBWT section - parse it with memory mapping
         let _ = tags.is_empty();
@@ -381,7 +381,7 @@ impl MappedGBZ {
 
         // Load the full GBZ once so sequence lengths and reference position index
         // use the same proven implementation as the gbwt crate.
-        let full_gbz: gbwt::GBZ = load_from(path.as_ref())?;
+        let full_gbz: gbz::GBZ = load_from(path.as_ref())?;
 
         Ok(MappedGBZ {
             map,
@@ -418,14 +418,14 @@ impl MappedGBZ {
     }
 
     /// Get metadata (compatible with GBZ interface)
-    pub fn metadata(&self) -> Option<&gbwt::gbwt::Metadata> {
+    pub fn metadata(&self) -> Option<&gbz::Metadata> {
         self.gbwt.metadata()
     }
 
     /// Get path iterator (compatible with GBZ interface)
     /// Returns an iterator over (node_id, orientation) pairs
-    pub fn path(&self, path_id: usize, orientation: gbwt::Orientation) -> Option<PathWalker<'_>> {
-        if orientation != gbwt::Orientation::Forward {
+    pub fn path(&self, path_id: usize, orientation: gbz::Orientation) -> Option<PathWalker<'_>> {
+        if orientation != gbz::Orientation::Forward {
             return None;
         }
         self.walk_path(path_id)
@@ -443,7 +443,7 @@ impl MappedGBZ {
         &self,
         sample_interval: usize,
         generic: bool,
-    ) -> Vec<gbwt::gbz::ReferencePath> {
+    ) -> Vec<gbz::gbz::ReferencePath> {
         self.full_gbz.reference_positions(sample_interval, generic)
     }
 }
@@ -455,13 +455,13 @@ pub struct PathWalker<'a> {
 }
 
 impl<'a> Iterator for PathWalker<'a> {
-    type Item = (usize, gbwt::Orientation); // (node_id, orientation)
+    type Item = (usize, gbz::Orientation); // (node_id, orientation)
 
     fn next(&mut self) -> Option<Self::Item> {
         let pos = self.current_pos?;
 
         // Decode the node and orientation
-        let (node_id, orientation) = gbwt::support::decode_node(pos.node);
+        let (node_id, orientation) = gbz::support::decode_node(pos.node);
 
         // Advance to next position
         self.current_pos = self.gbz.gbwt.forward(&self.gbz.map, pos);

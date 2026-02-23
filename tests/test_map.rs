@@ -1,4 +1,4 @@
-use gbwt::GBZ;
+use gbz::GBZ;
 use graphome::map::{coord_to_nodes, node_to_coords, validate_gfa_for_gbwt};
 use simple_sds::serialize;
 use std::fs;

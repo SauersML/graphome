@@ -3,7 +3,7 @@ use crate::pangenome_features::{
     encode_haploid_cyclic, sum_diploid_site, FeatureBuilder, FeatureKind, FeatureSchema, SiteClass,
     Snarl, SnarlType, TraversalCondition,
 };
-use gbwt::{Orientation, GBZ};
+use gbz::{Orientation, GBZ};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};

@@ -34,7 +34,7 @@ use std::{
 use crate::progress::{byte_progress_bar, count_progress_bar};
 use indicatif::HumanBytes;
 
-use gbwt::support::StringArray;
+use gbz::support::StringArray;
 use simple_sds::int_vector::IntVector;
 use simple_sds::ops::Push;
 use simple_sds::serialize::Serialize;

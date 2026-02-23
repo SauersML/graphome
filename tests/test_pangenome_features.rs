@@ -1,4 +1,4 @@
-use gbwt::Orientation;
+use gbz::Orientation;
 use graphome::pangenome_catalog::{
     catalog_from_runtime, read_manifest, write_manifest, CatalogAlleleTraversal, FeatureCatalog,
     FeatureCatalogManifest,

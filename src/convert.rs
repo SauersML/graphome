@@ -2,7 +2,7 @@
 
 // Module for converting GFA file to adjacency matrix in edge list format.
 
-use gbwt::{Orientation, GBZ};
+use gbz::{Orientation, GBZ};
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
 use rand::SeedableRng;

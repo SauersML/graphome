@@ -16,7 +16,7 @@ use std::process::Command;
 
 use crate::io;
 use crate::mapped_gbz::MappedGBZ;
-use gbwt::{Orientation, GBZ};
+use gbz::{Orientation, GBZ};
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::MmapOptions;
 use simple_sds::serialize;
@@ -844,7 +844,7 @@ pub fn coord_to_nodes_with_path_filtered(
 
 fn scan_paths_for_region(
     gbz: &GBZ,
-    metadata: &gbwt::gbwt::Metadata,
+    metadata: &gbz::Metadata,
     chr: &str,
     normalized_target_chr: &str,
     start: usize,
@@ -1441,7 +1441,7 @@ impl Anchor {
 }
 fn find_candidate_paths_filtered(
     gbz: &GBZ,
-    metadata: &gbwt::gbwt::Metadata,
+    metadata: &gbz::Metadata,
     start_anchor_node: usize,
     sample_filter: &str,
 ) -> HashSet<usize> {
@@ -1503,7 +1503,7 @@ fn find_candidate_paths_filtered(
 
 fn find_candidate_paths_by_contig(
     gbz: &GBZ,
-    metadata: &gbwt::gbwt::Metadata,
+    metadata: &gbz::Metadata,
     chr: &str,
     start_anchor_node: usize,
 ) -> HashSet<usize> {
@@ -1653,7 +1653,7 @@ fn build_region_slice(
 
 fn compute_reference_anchors(
     gbz: &GBZ,
-    metadata: &gbwt::gbwt::Metadata,
+    metadata: &gbz::Metadata,
     assembly: &str,
     chr: &str,
     start: usize,
@@ -1688,7 +1688,7 @@ fn compute_reference_anchors(
     if reference_index_entries.is_empty() {
         reference_index_entries = gbz.reference_positions(1024, false);
     }
-    let reference_index: HashMap<usize, gbwt::gbz::ReferencePath> = reference_index_entries
+    let reference_index: HashMap<usize, gbz::gbz::ReferencePath> = reference_index_entries
         .into_iter()
         .map(|entry| (entry.id, entry))
         .collect();
