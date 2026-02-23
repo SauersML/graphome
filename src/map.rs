@@ -344,11 +344,10 @@ pub fn coord_to_nodes_mapped(
     start: usize,
     end: usize,
 ) -> Vec<Coord2NodeResult> {
-    let display_start = start.saturating_add(1);
-    let display_end = end.saturating_add(1);
+    let display_range = crate::coords::format_for_user(start, end);
     println!(
-        "DEBUG: Searching for region {}:{}-{} (0-based offsets {}..{})",
-        chr, display_start, display_end, start, end
+        "DEBUG: Searching for region {}:{} (1-based inclusive; internal 0-based [{}..{}))",
+        chr, display_range, start, end
     );
     let mut results = Vec::new();
 
@@ -522,11 +521,10 @@ pub fn coord_to_nodes_with_path_filtered(
     end: usize,
     sample_filter: Option<&str>,
 ) -> Vec<Coord2NodeResult> {
-    let display_start = start.saturating_add(1);
-    let display_end = end.saturating_add(1);
+    let display_range = crate::coords::format_for_user(start, end);
     eprintln!(
-        "[INFO] Searching for region {}:{}-{} (0-based offsets {}..{}) in assembly '{}'",
-        chr, display_start, display_end, start, end, assembly
+        "[INFO] Searching for region {}:{} (1-based inclusive; internal 0-based [{}..{})) in assembly '{}'",
+        chr, display_range, start, end, assembly
     );
     if let Some(sample) = sample_filter {
         eprintln!("[INFO] Filtering for sample: {}", sample);
@@ -560,7 +558,7 @@ pub fn coord_to_nodes_with_path_filtered(
                 "[INFO] Sample filter active - searching paths matching '{}' for start anchor",
                 filter
             );
-            find_candidate_paths_filtered(gbz, metadata, start_anchor.node_id, filter)
+            find_candidate_paths_filtered(gbz, metadata, chr, start_anchor.node_id, filter)
         } else {
             find_candidate_paths_by_contig(gbz, metadata, chr, start_anchor.node_id)
         };
@@ -600,7 +598,7 @@ pub fn coord_to_nodes_with_path_filtered(
 
             // Apply sample filter if provided
             if let Some(filter) = sample_filter {
-                if !full_path_name.starts_with(filter) {
+                if !sample_filter_matches(&full_path_name, filter) {
                     eprintln!(
                         "[DEBUG] Skipping path {} (doesn't match filter {})",
                         full_path_name, filter
@@ -865,7 +863,7 @@ fn scan_paths_for_region(
         }
 
         if let Some(filter_value) = sample_filter {
-            if !full_path_name.starts_with(filter_value) {
+            if !sample_filter_matches(&full_path_name, filter_value) {
                 continue;
             }
             matched_filter = true;
@@ -1442,17 +1440,19 @@ impl Anchor {
 fn find_candidate_paths_filtered(
     gbz: &GBZ,
     metadata: &gbz::Metadata,
+    chr: &str,
     start_anchor_node: usize,
     sample_filter: &str,
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
+    let normalized_target_chr = normalize_contig(chr).to_string();
 
     // First, collect path IDs that match the sample filter and scan for anchor in one pass
     let mut path_results: Vec<(usize, bool, usize)> = Vec::new(); // (path_id, has_anchor, node_count)
 
     eprintln!(
-        "[INFO] Filtering and scanning paths for sample '{}'...",
-        sample_filter
+        "[INFO] Filtering and scanning paths for sample '{}' on contig '{}'...",
+        sample_filter, chr
     );
 
     for (path_id, path_name) in metadata.path_iter().enumerate() {
@@ -1461,10 +1461,9 @@ fn find_candidate_paths_filtered(
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
-        // Only filter by sample - the anchor nodes themselves determine the correct chromosome
-        // Different samples may use different contig naming (e.g., chr17 vs CM089988.1)
-        // but they share the same nodes in the pangenome graph
-        if full_path_name.starts_with(sample_filter) {
+        if sample_filter_matches(&full_path_name, sample_filter)
+            && contig_matches(&contig_name, chr, &normalized_target_chr)
+        {
             // Scan this path for the anchor node in a single pass
             let mut has_anchor = false;
             let mut node_count = 0;
@@ -1492,9 +1491,10 @@ fn find_candidate_paths_filtered(
     }
 
     eprintln!(
-        "[INFO] Scanned {} paths matching filter '{}', found {} with start anchor",
+        "[INFO] Scanned {} paths matching filter '{}' on contig '{}', found {} with start anchor",
         path_results.len(),
         sample_filter,
+        chr,
         candidates.len()
     );
 
@@ -1922,6 +1922,12 @@ fn contig_matches(contig_name: &str, requested_chr: &str, normalized_target: &st
 
     let contig_normalized = normalize_contig(contig_name);
     contig_normalized == requested_chr || contig_normalized == normalized_target
+}
+
+fn sample_filter_matches(full_path_name: &str, sample_filter: &str) -> bool {
+    full_path_name
+        .strip_prefix(sample_filter)
+        .is_some_and(|rest| rest.starts_with('#'))
 }
 
 pub fn parse_region(r: &str) -> Option<(String, usize, usize)> {

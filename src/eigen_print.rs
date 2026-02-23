@@ -331,16 +331,26 @@ pub fn print_heatmap_normalized(matrix: MatRef<'_, f64>) {
     let mut count = 0usize;
     let mut mean = 0.0f64;
     let mut m2 = 0.0f64;
+    let mut has_non_zero = false;
 
     for i in 0..num_rows {
         for j in 0..num_cols {
             let value = matrix[(i, j)];
+            if value == 0.0 {
+                continue;
+            }
+            has_non_zero = true;
             count += 1;
             let delta = value - mean;
             mean += delta / count as f64;
             let delta2 = value - mean;
             m2 += delta * delta2;
         }
+    }
+
+    if !has_non_zero {
+        println!("(heatmap omitted: matrix is all zeros)");
+        return;
     }
 
     let variance = if count > 1 { m2 / count as f64 } else { 0.0 };

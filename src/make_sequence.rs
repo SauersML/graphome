@@ -355,6 +355,31 @@ pub fn extract_sequence(
                         "[WARNING] No sequence data for node {}",
                         node_result.node_id
                     );
+
+                    // Preserve coordinate frame by writing placeholder bases for unresolved nodes.
+                    let inferred_node_len = node_result
+                        .node_id
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|node_num| gbz.sequence_len(node_num))
+                        .unwrap_or_else(|| node_result.path_off_end.saturating_add(1));
+                    let start_in_node = node_result.path_off_start.min(inferred_node_len);
+                    let end_in_node = node_result
+                        .path_off_end
+                        .saturating_add(1)
+                        .min(inferred_node_len);
+
+                    if start_in_node < end_in_node {
+                        let missing_len = end_in_node - start_in_node;
+                        let padding = vec![b'N'; missing_len];
+                        write_wrapped_segment(&mut writer, &padding, &mut current_line_len)?;
+                        total_bases += missing_len;
+                    } else {
+                        eprintln!(
+                            "[WARNING] Invalid missing-sequence range for node {}: {}..{} (length {})",
+                            node_result.node_id, start_in_node, end_in_node, inferred_node_len
+                        );
+                    }
                 }
             }
 

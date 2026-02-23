@@ -330,9 +330,22 @@ fn accumulate_topology_counts_with_context(
         accumulate_topology_counts_with_context(child, span_ctx, accumulators);
     }
 
-    let Some(span) = span_ctx.find_span_or_noncanonical(topology.entry_node, topology.exit_node)
-    else {
-        return;
+    let span = match resolve_span_or_noncanonical_with_index(
+        span_ctx.steps,
+        &span_ctx.index,
+        topology.entry_node,
+        topology.exit_node,
+    ) {
+        SpanResolution::Unique(span) => span,
+        SpanResolution::Ambiguous => {
+            let entry = accumulators.entry(topology.id.clone()).or_default();
+            *entry
+                .flat_counts
+                .entry(AMBIGUOUS_PARALOG_LABEL.to_string())
+                .or_insert(0) += 1;
+            return;
+        }
+        SpanResolution::Missing => return,
     };
     let parent_steps = &span_ctx.steps[span.start..=span.end];
     let flat_signature = step_signature(parent_steps);
@@ -513,7 +526,8 @@ fn labels_from_counts(
     let mut singletons = Vec::new();
     let mut singleton_total = 0usize;
     for (sig, count) in counts {
-        if *count >= 2 {
+        let preserve_label = sig == AMBIGUOUS_PARALOG_LABEL || sig == "MISSING";
+        if *count >= 2 || preserve_label {
             non_singletons.push((sig.clone(), *count));
         } else {
             singletons.push(sig.clone());
@@ -1632,7 +1646,7 @@ fn is_hard_node_value_map(node_values: &HashMap<usize, f64>) -> bool {
         .all(|value| value.abs() <= EPS || (value - 1.0).abs() <= EPS)
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct SpanMatch {
     start: usize,
     end: usize,
@@ -1681,6 +1695,8 @@ impl<'a> SpanContext<'a> {
         span
     }
 }
+
+const AMBIGUOUS_PARALOG_LABEL: &str = "AMBIGUOUS_PARALOG";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OrderedSpanResult {
@@ -1753,14 +1769,37 @@ fn find_span_or_noncanonical_with_index(
     entry_node: usize,
     exit_node: usize,
 ) -> Option<SpanMatch> {
+    match resolve_span_or_noncanonical_with_index(steps, index, entry_node, exit_node) {
+        SpanResolution::Unique(span) => Some(span),
+        SpanResolution::Ambiguous | SpanResolution::Missing => None,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SpanResolution {
+    Unique(SpanMatch),
+    Ambiguous,
+    Missing,
+}
+
+fn resolve_span_or_noncanonical_with_index(
+    steps: &[HaplotypeStep],
+    index: &WalkIndex,
+    entry_node: usize,
+    exit_node: usize,
+) -> SpanResolution {
     match find_ordered_span(index, entry_node, exit_node) {
-        OrderedSpanResult::Unique(start, end) => return Some(SpanMatch { start, end }),
-        OrderedSpanResult::Ambiguous => return None,
+        OrderedSpanResult::Unique(start, end) => {
+            return SpanResolution::Unique(SpanMatch { start, end });
+        }
+        OrderedSpanResult::Ambiguous => return SpanResolution::Ambiguous,
         OrderedSpanResult::Missing => {}
     }
     match find_ordered_span(index, exit_node, entry_node) {
-        OrderedSpanResult::Unique(start, end) => return Some(SpanMatch { start, end }),
-        OrderedSpanResult::Ambiguous => return None,
+        OrderedSpanResult::Unique(start, end) => {
+            return SpanResolution::Unique(SpanMatch { start, end });
+        }
+        OrderedSpanResult::Ambiguous => return SpanResolution::Ambiguous,
         OrderedSpanResult::Missing => {}
     }
 
@@ -1783,14 +1822,14 @@ fn find_span_or_noncanonical_with_index(
     ) {
         // Only one boundary observed: keep a single-position non-canonical span
         // instead of forcing missing.
-        (Some(pos), None) | (None, Some(pos)) => Some(SpanMatch {
+        (Some(pos), None) | (None, Some(pos)) => SpanResolution::Unique(SpanMatch {
             start: pos,
             end: pos,
         }),
         // Both boundaries present should have been resolved by ordered-span search above.
-        // If not, treat as unresolved rather than inventing a fallback span.
-        (Some(_), Some(_)) => None,
-        (None, None) => None,
+        // Treat unresolved multi-hit cases as ambiguity to avoid silently dropping paths.
+        (Some(_), Some(_)) => SpanResolution::Ambiguous,
+        (None, None) => SpanResolution::Missing,
     }
 }
 
@@ -1963,6 +2002,46 @@ mod tests {
         assert!((freqs[1] - 0.4).abs() < 1e-9);
         assert_eq!(mapping.get("B"), Some(&1usize));
         assert_eq!(mapping.get("C"), Some(&1usize));
+    }
+
+    #[test]
+    fn labels_from_counts_preserves_ambiguous_label() {
+        let mut counts = BTreeMap::new();
+        counts.insert("A".to_string(), 3usize);
+        counts.insert(AMBIGUOUS_PARALOG_LABEL.to_string(), 1usize);
+        counts.insert("singleton".to_string(), 1usize);
+
+        let (labels, freqs, mapping) = labels_from_counts(&counts);
+        assert!(labels.iter().any(|label| label == "A"));
+        assert!(
+            labels
+                .iter()
+                .any(|label| label == AMBIGUOUS_PARALOG_LABEL)
+        );
+        assert!(mapping.contains_key(AMBIGUOUS_PARALOG_LABEL));
+        let total_freq: f64 = freqs.iter().sum();
+        assert!((total_freq - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ambiguous_spans_are_counted_in_accumulator() {
+        let topology = SnarlTopology::acyclic("root", 1, 2, Vec::new());
+        let steps = vec![
+            step(1, true),
+            step(9, true),
+            step(2, true),
+            step(1, true),
+            step(8, true),
+            step(2, true),
+        ];
+        let mut span_ctx = SpanContext::new(&steps);
+        let mut accumulators = HashMap::new();
+        init_accumulators(&topology, &mut accumulators);
+
+        accumulate_topology_counts_with_context(&topology, &mut span_ctx, &mut accumulators);
+
+        let acc = accumulators.get("root").expect("missing root accumulator");
+        assert_eq!(acc.flat_counts.get(AMBIGUOUS_PARALOG_LABEL), Some(&1usize));
     }
 
     #[test]

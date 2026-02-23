@@ -291,7 +291,7 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
     } else {
         0.0
     };
-    let estimated_segments = (file_size as f64 / 100.0 * density) as u64;
+    let estimated_segments = ((total_lines as f64) * density) as u64;
 
     println!("🧬 Parsing segments (estimated {estimated_segments} segments)...");
     let pb = Arc::new(ProgressBar::new(estimated_segments));

@@ -53,13 +53,80 @@ impl fmt::Display for DisplayError {
 
 impl std::error::Error for DisplayError {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InlineImageProtocol {
+    Kitty,
+    ITerm2,
+    None,
+}
+
+fn detect_inline_image_protocol() -> InlineImageProtocol {
+    let term = env::var("TERM").unwrap_or_default().to_lowercase();
+    let term_program = env::var("TERM_PROGRAM").unwrap_or_default().to_lowercase();
+    let lc_terminal = env::var("LC_TERMINAL").unwrap_or_default().to_lowercase();
+
+    let is_kitty_like = term.contains("kitty")
+        || term.contains("ghostty")
+        || term_program.contains("kitty")
+        || term_program.contains("ghostty");
+    if is_kitty_like {
+        return InlineImageProtocol::Kitty;
+    }
+
+    let is_iterm2 = term_program.contains("iterm") || lc_terminal.contains("iterm");
+    if is_iterm2 {
+        return InlineImageProtocol::ITerm2;
+    }
+
+    InlineImageProtocol::None
+}
+
+fn write_kitty_inline_image(data: &[u8], kitty_format: u32) -> io::Result<()> {
+    let encoded = general_purpose::STANDARD.encode(data);
+    let mut stdout = io::stdout().lock();
+
+    let mut offset = 0usize;
+    let chunk_size = 4096usize;
+    let mut first = true;
+
+    while offset < encoded.len() {
+        let end = (offset + chunk_size).min(encoded.len());
+        let chunk = &encoded[offset..end];
+        let more = if end < encoded.len() { 1 } else { 0 };
+
+        if first {
+            write!(
+                stdout,
+                "\x1b_Ga=T,t=d,f={},m={};",
+                kitty_format, more
+            )?;
+            first = false;
+        } else {
+            write!(stdout, "\x1b_Gm={};", more)?;
+        }
+
+        stdout.write_all(chunk.as_bytes())?;
+        stdout.write_all(b"\x1b\\")?;
+        offset = end;
+    }
+
+    stdout.flush()
+}
+
+fn write_iterm2_inline_image(data: &[u8], width: &str) -> io::Result<()> {
+    let encoded = general_purpose::STANDARD.encode(data);
+    let mut stdout = io::stdout().lock();
+    write!(
+        stdout,
+        "\x1b]1337;File=inline=1;preserveAspectRatio=1;width={}:{}\x07",
+        width, encoded
+    )?;
+    stdout.flush()
+}
+
 /// Display a TGA image in the terminal.
 pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
     println!("Starting display_tga function...");
-
-    // Force use of a terminal that supports inline images (like Kitty).
-    env::set_var("TERM", "xterm-kitty");
-    println!("Set terminal to 'xterm-kitty'.");
 
     // Basic viuer configuration.
     let conf = viuer::Config {
@@ -127,27 +194,36 @@ pub fn display_tga(tga_data: &[u8]) -> Result<(), DisplayError> {
 pub fn display_gif(gif_data: &[u8]) -> Result<(), DisplayError> {
     println!("Starting display_gif function...");
 
-    // Set the terminal to support inline images (Kitty terminal).
-    env::set_var("TERM", "xterm-kitty");
-
-    // Format the image escape sequence
-    let inline_image_esc = format!(
-        "\x1b]1337;File=inline=1;width=400%:{}\x07",
-        general_purpose::STANDARD.encode(gif_data)
-    );
-
-    // Output the escape sequence to display the GIF.
     println!("Displaying GIF...");
-    print!("\x1b[2J"); // Clear screen
+    print!("\x1b[2J");
     println!("\n\n\n      ");
 
-    // Output the escape sequence to display the GIF.
-    print!("{}", inline_image_esc);
-    io::stdout().flush()?;
+    match detect_inline_image_protocol() {
+        InlineImageProtocol::Kitty => {
+            // Kitty/Ghostty graphics protocol. f=100 indicates PNG/JPEG/GIF encoded payload.
+            write_kitty_inline_image(gif_data, 100)?;
+        }
+        InlineImageProtocol::ITerm2 => {
+            // iTerm2 OSC 1337 inline images.
+            write_iterm2_inline_image(gif_data, "100%")?;
+        }
+        InlineImageProtocol::None => {
+            // Fallback to static rendering via viuer if inline image protocols are unavailable.
+            let img = image::load_from_memory(gif_data)?;
+            let conf = viuer::Config {
+                transparent: false,
+                absolute_offset: false,
+                width: None,
+                height: None,
+                x: 0,
+                y: 0,
+                restore_cursor: false,
+                ..Default::default()
+            };
+            viuer::print(&img, &conf)?;
+        }
+    }
 
-    // Reset the terminal.
-    print!("\x1b[?25h"); // Show cursor
-    print!("\x1b[?1049l"); // Exit alternate screen buffer
     io::stdout().flush()?;
     Ok(())
 }

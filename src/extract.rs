@@ -272,15 +272,14 @@ fn build_laplacian_from_edges(
     laplacian
 }
 
-/// Fast Laplacian construction directly from GAM file, in parallel.
-/// Each chunk accumulates a partial (dim x dim) Laplacian + degrees,
-/// then we merge them in the reduce step.
+/// Fast Laplacian construction directly from a GAM file.
+/// This implementation is single-threaded and processes edges in one pass.
 pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
     path: P,
     start_node: usize,
     end_node: usize,
 ) -> io::Result<Array2<f64>> {
-    println!("    === fast_laplacian_from_gam BEGIN (PARALLEL) ===");
+    println!("    === fast_laplacian_from_gam BEGIN (SEQUENTIAL) ===");
     let func_start = Instant::now();
 
     if end_node < start_node {

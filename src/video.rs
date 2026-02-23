@@ -298,17 +298,13 @@ pub fn make_video(points: &[Point3D]) -> Result<(), DisplayError> {
         }
     }
 
-    // Spawn thread to save GIF in background
-    let gif_data_clone = gif_data.clone();
-    std::thread::spawn(move || {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        if let Err(e) = std::fs::write(format!("graph_{}.gif", timestamp), gif_data_clone) {
-            eprintln!("Failed to save GIF: {}", e);
-        }
-    });
+    // Save GIF synchronously to guarantee it is persisted before process exit.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(std::io::Error::other)?
+        .as_secs();
+    let output_path = format!("graph_{}.gif", timestamp);
+    std::fs::write(&output_path, &gif_data).map_err(std::io::Error::other)?;
 
     // Display the resulting animation
     display_gif(&gif_data)?;

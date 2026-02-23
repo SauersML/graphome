@@ -11,9 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-// Known from GFA analysis - used for seek optimization
-const MAX_NODE_ID: usize = 110_884_673;
-// Buffer size for imperfect sorting (GFA property: should be sorted)
+// Buffer around requested range to retain edges that may connect into window boundaries.
 const BUFFER_SIZE: usize = 10_000;
 
 pub struct WindowConfig {
@@ -66,8 +64,8 @@ impl WindowConfig {
 #[derive(Clone)]
 struct EdgeList {
     data: Arc<Vec<(usize, usize)>>,
-    index: Arc<Vec<(usize, usize)>>, // (start_idx, end_idx) ranges for each node
-    window_start: usize,             // Store window boundaries for edge filtering
+    node_index: Arc<Vec<Vec<usize>>>, // For each node in [index_start, index_end], edge indices touching it
+    index_start: usize,
 }
 
 impl EdgeList {
@@ -79,31 +77,17 @@ impl EdgeList {
         );
 
         let file = File::open(path)?;
-        let file_size = file.metadata()?.len() as usize;
         let mmap = unsafe { MmapOptions::new().map(&file)? };
 
         // Calculate seek positions with buffer zone
         let extended_start = window_start.saturating_sub(BUFFER_SIZE);
-        let extended_end = (window_end + BUFFER_SIZE).min(MAX_NODE_ID);
-
-        // Calculate approximate file positions based on node distribution
-        let start_pos = ((extended_start as f64 / MAX_NODE_ID as f64) * file_size as f64) as usize;
-        let end_pos = ((extended_end as f64 / MAX_NODE_ID as f64) * file_size as f64) as usize;
-
-        // Align to 8-byte boundaries
-        let start_pos = (start_pos / 8) * 8;
-        let end_pos = end_pos.div_ceil(8) * 8;
-
-        println!(
-            "📍 Seeking to approximate position {} - {}",
-            start_pos, end_pos
-        );
+        let extended_end = window_end + BUFFER_SIZE;
 
         // Collect edges efficiently using pre-allocated vector
         let mut seen_edges = HashSet::new();
 
-        // Process chunks in parallel for faster loading
-        let mut edges: Vec<(usize, usize)> = mmap[start_pos..end_pos]
+        // Scan full GAM because edge order is not guaranteed to be sorted by node id.
+        let mut edges: Vec<(usize, usize)> = mmap
             .par_chunks_exact(8)
             .filter_map(|chunk| {
                 let from = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
@@ -130,23 +114,17 @@ impl EdgeList {
             start_time.elapsed()
         );
 
-        // Build minimal index just for our window range
+        // Build per-node edge index that does not assume any ordering in edge list.
         let index_size = extended_end - extended_start + 1;
-        let mut index = vec![(0, 0); index_size];
-        let mut current_node = extended_start;
-        let mut start_idx = 0;
+        let mut node_index = vec![Vec::<usize>::new(); index_size];
 
-        for (i, &(from, _)) in edges.iter().enumerate() {
-            while current_node < from && current_node <= extended_end {
-                index[current_node - extended_start] = (start_idx, i);
-                current_node += 1;
-                start_idx = i;
+        for (edge_idx, &(from, to)) in edges.iter().enumerate() {
+            if (extended_start..=extended_end).contains(&from) {
+                node_index[from - extended_start].push(edge_idx);
             }
-        }
-
-        while current_node <= extended_end {
-            index[current_node - extended_start] = (start_idx, edges.len());
-            current_node += 1;
+            if to != from && (extended_start..=extended_end).contains(&to) {
+                node_index[to - extended_start].push(edge_idx);
+            }
         }
 
         println!(
@@ -157,27 +135,24 @@ impl EdgeList {
 
         Ok(Self {
             data: Arc::new(edges),
-            index: Arc::new(index),
-            window_start,
+            node_index: Arc::new(node_index),
+            index_start: extended_start,
         })
     }
 
     fn get_edges_for_window(&self, start: usize, end: usize) -> Vec<(usize, usize)> {
-        // Adjust indices for our indexed range
-        let index_offset = self.window_start.saturating_sub(BUFFER_SIZE);
-
         // Collect candidate edges for each node in parallel, keeping per-node ordering.
         let per_node: Vec<Vec<(usize, usize)>> = (start..end)
             .into_par_iter()
             .map(|node| {
-                if node < index_offset || node - index_offset >= self.index.len() {
+                if node < self.index_start || node - self.index_start >= self.node_index.len() {
                     return Vec::new();
                 }
 
-                let (start_idx, end_idx) = self.index[node - index_offset];
                 let mut local_edges = Vec::new();
 
-                for &edge in &self.data[start_idx..end_idx] {
+                for &edge_idx in &self.node_index[node - self.index_start] {
+                    let edge = self.data[edge_idx];
                     if edge.0 < end && edge.1 < end && edge.0 >= start && edge.1 >= start {
                         local_edges.push(edge);
                     }
