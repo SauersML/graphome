@@ -7,7 +7,7 @@
 use gbwt::{Pos, ENDMARKER};
 use simple_sds::bits;
 use simple_sds::ops::{BitVec, Select};
-use simple_sds::serialize::{MappingMode, MemoryMap, Serialize};
+use simple_sds::serialize::{load_from, MappingMode, MemoryMap, Serialize};
 use simple_sds::sparse_vector::SparseVector;
 use std::fmt;
 use std::io::{self, Cursor};
@@ -344,6 +344,7 @@ impl GbwtDescriptor {
 pub struct MappedGBZ {
     map: MemoryMap,
     gbwt: GbwtDescriptor,
+    full_gbz: gbwt::GBZ,
 }
 
 impl MappedGBZ {
@@ -352,7 +353,7 @@ impl MappedGBZ {
     /// GBZ format: Header | Tags | GBWT | Graph
     /// We only parse the GBWT portion for path queries
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let map = MemoryMap::new(path, MappingMode::ReadOnly)?;
+        let map = MemoryMap::new(path.as_ref(), MappingMode::ReadOnly)?;
 
         // Parse GBZ container to find GBWT offset
         let map_slice: &[u64] = map.as_ref();
@@ -378,7 +379,15 @@ impl MappedGBZ {
         let gbwt_offset = cursor.position() as usize;
         let gbwt = GbwtDescriptor::parse_from_offset(&map, gbwt_offset)?;
 
-        Ok(MappedGBZ { map, gbwt })
+        // Load the full GBZ once so sequence lengths and reference position index
+        // use the same proven implementation as the gbwt crate.
+        let full_gbz: gbwt::GBZ = load_from(path.as_ref())?;
+
+        Ok(MappedGBZ {
+            map,
+            gbwt,
+            full_gbz,
+        })
     }
 
     /// Get the GBWT descriptor
@@ -415,10 +424,9 @@ impl MappedGBZ {
     }
 
     /// Get sequence length for a node.
-    /// Returns `None` until graph node labels are parsed from the GBZ graph section.
+    /// Delegates to the full GBZ implementation.
     pub fn sequence_len(&self, node_id: usize) -> Option<usize> {
-        let _ = node_id;
-        None
+        self.full_gbz.sequence_len(node_id)
     }
 
     /// Get reference positions.
@@ -428,10 +436,7 @@ impl MappedGBZ {
         sample_interval: usize,
         generic: bool,
     ) -> Vec<gbwt::gbz::ReferencePath> {
-        if sample_interval == 0 && generic {
-            return Vec::new();
-        }
-        Vec::new()
+        self.full_gbz.reference_positions(sample_interval, generic)
     }
 }
 
