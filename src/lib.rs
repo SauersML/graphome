@@ -3,7 +3,6 @@ pub mod coords;
 pub mod display;
 pub mod eigen_print;
 pub mod eigen_region;
-pub mod embed;
 pub mod entropy;
 pub mod extract;
 pub mod gfa2gbz;
@@ -12,7 +11,7 @@ pub mod make_sequence;
 pub mod map;
 pub mod mapped_gbz;
 pub mod progress;
-pub mod video;
+pub mod sparse_spectral;
 pub mod viz;
 pub mod window;
 

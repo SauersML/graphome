@@ -1,11 +1,9 @@
 // src/eigen_region.rs
 // Region-based eigendecomposition: extract subgraph from GBZ by genomic coordinates
 
-use crate::eigen_print::{
-    call_eigendecomp, compute_ngec, print_eigenvalues_heatmap, print_heatmap_normalized,
-};
+use crate::eigen_print::print_eigenvalues_heatmap;
 use crate::map::{coord_to_nodes_with_path_filtered, make_gbz_exist, parse_region};
-use faer::Mat;
+use crate::sparse_spectral::{estimate_ngec_hutchinson, lanczos_smallest};
 use gbz::{Orientation, GBZ};
 use rayon::prelude::*;
 use rayon::slice::ParallelSliceMut;
@@ -74,41 +72,6 @@ fn extract_subgraph_edges(
     edges
 }
 
-/// Build Laplacian matrix directly from the edge list without materialising the adjacency
-fn build_laplacian_matrix(edges: &[(usize, usize)], node_count: usize) -> Mat<f64> {
-    let n = node_count;
-    eprintln!(
-        "[INFO] Building Laplacian matrix for {} nodes ({} edges)...",
-        n,
-        edges.len()
-    );
-
-    let mut laplacian = Mat::zeros(n, n);
-
-    if n == 0 {
-        return laplacian;
-    }
-
-    let mut degrees = vec![0.0f64; n];
-
-    for &(u, v) in edges {
-        if u == v {
-            continue;
-        }
-
-        degrees[u] += 1.0;
-        degrees[v] += 1.0;
-        laplacian[(u, v)] -= 1.0;
-        laplacian[(v, u)] -= 1.0;
-    }
-
-    for (idx, &degree) in degrees.iter().enumerate() {
-        laplacian[(idx, idx)] = degree;
-    }
-
-    laplacian
-}
-
 /// Main entry point for region-based eigendecomposition
 pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), Box<dyn Error>> {
     eprintln!("[INFO] Starting region-based eigendecomposition");
@@ -117,8 +80,12 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     // Parse region
     let (chr, start, end) =
         parse_region(region).ok_or_else(|| format!("Invalid region format: {}", region))?;
+    let display_range = crate::coords::format_for_user(start, end);
 
-    eprintln!("[INFO] Parsed region: {}:{}-{}", chr, start, end);
+    eprintln!(
+        "[INFO] Parsed region: {}:{} (internal 0-based [{}..{}))",
+        chr, display_range, start, end
+    );
 
     // Get or create GBZ file (handles S3 URLs, local copies, etc.)
     let gbz_path = make_gbz_exist(gfa_path, "");
@@ -152,7 +119,7 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     }
 
     if results.is_empty() {
-        return Err(format!("No nodes found in region {}:{}-{}", chr, start, end).into());
+        return Err(format!("No nodes found in region {}:{}", chr, display_range).into());
     }
 
     // Extract unique node IDs
@@ -169,7 +136,7 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
     eprintln!("[INFO] Found {} unique nodes in region", sorted_nodes.len());
 
     if sorted_nodes.is_empty() {
-        return Err(format!("No nodes found in region {}:{}-{}", chr, start, end).into());
+        return Err(format!("No nodes found in region {}:{}", chr, display_range).into());
     }
 
     let mut id_to_idx = FxHashMap::with_capacity_and_hasher(sorted_nodes.len(), Default::default());
@@ -185,38 +152,60 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
         eprintln!("[WARNING] Subgraph may be disconnected or have isolated nodes");
     }
 
-    let laplacian_start = Instant::now();
-    let laplacian = build_laplacian_matrix(&edges, sorted_nodes.len());
+    // Build sparse adjacency list and degree vector for operator-based methods.
+    let n = sorted_nodes.len();
+    let mut adjacency = vec![Vec::<usize>::new(); n];
+    for &(u, v) in &edges {
+        if u == v {
+            continue;
+        }
+        adjacency[u].push(v);
+        adjacency[v].push(u);
+    }
+    let degrees: Vec<f64> = adjacency.iter().map(|nbrs| nbrs.len() as f64).collect();
+    let trace_l: f64 = degrees.iter().sum();
+    let max_degree = degrees.iter().copied().fold(0.0f64, f64::max);
+    let lambda_max = (2.0 * max_degree).max(1.0);
+
+    // Compute approximate NGEC with Hutchinson + Chebyshev.
+    let ngec_start = Instant::now();
+    let ngec = estimate_ngec_hutchinson(n, trace_l, lambda_max, 64, 24, |x, y| {
+        for i in 0..n {
+            let mut acc = degrees[i] * x[i];
+            for &j in &adjacency[i] {
+                acc -= x[j];
+            }
+            y[i] = acc;
+        }
+    })?;
     eprintln!(
-        "[INFO] Laplacian matrix built in {:.3?}",
-        laplacian_start.elapsed()
+        "[INFO] Approximate NGEC computed in {:.3?}",
+        ngec_start.elapsed()
     );
 
-    // Perform eigendecomposition
-    eprintln!("[INFO] Performing eigendecomposition...");
+    // Optional: approximate low eigenvalues for display.
     let eig_start = Instant::now();
-    let (eigenvalues, eigenvectors) = call_eigendecomp(laplacian.as_ref())?;
+    let (eigenvalues, _) = lanczos_smallest(n, 10.min(n), 16, |x, y| {
+        for i in 0..n {
+            let mut acc = degrees[i] * x[i];
+            for &j in &adjacency[i] {
+                acc -= x[j];
+            }
+            y[i] = acc;
+        }
+    })?;
     eprintln!(
-        "[INFO] Eigendecomposition complete in {:.3?}",
+        "[INFO] Approximate low-spectrum computation complete in {:.3?}",
         eig_start.elapsed()
     );
-    eprintln!(
-        "[INFO] Eigenvector matrix shape: {}x{}",
-        eigenvectors.nrows(),
-        eigenvectors.ncols()
-    );
-
-    // Compute NGEC
-    let ngec = compute_ngec(&eigenvalues)?;
 
     // Print results
     println!("\n=== EIGENANALYSIS RESULTS ===");
-    // Convert back to 1-based coordinates for display (parse_region returns 0-based)
-    println!("Region: {}:{}-{}", chr, start + 1, end);
+    println!("Region: {}:{}", chr, display_range);
     println!("Nodes: {}", sorted_nodes.len());
     println!("Edges: {}", edges.len());
-    println!("Eigenvalues: {}", eigenvalues.len());
-    println!("NGEC: {:.6}", ngec);
+    println!("Approx Eigenvalues (low modes): {}", eigenvalues.len());
+    println!("Approx NGEC: {:.6}", ngec);
 
     // Print top eigenvalues
     println!("\nTop 10 Eigenvalues:");
@@ -226,10 +215,7 @@ pub fn run_eigen_region(gfa_path: &str, region: &str, viz: bool) -> Result<(), B
 
     // Visualization if requested
     if viz {
-        println!("\n=== LAPLACIAN HEATMAP ===");
-        print_heatmap_normalized(laplacian.as_ref());
-
-        println!("\n=== EIGENVALUE DISTRIBUTION ===");
+        println!("\n=== APPROX EIGENVALUE DISTRIBUTION ===");
         print_eigenvalues_heatmap(&eigenvalues);
     }
 

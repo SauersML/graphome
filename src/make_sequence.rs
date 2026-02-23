@@ -182,11 +182,9 @@ pub fn extract_sequence(
 
     // Parse the region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = map::parse_region(region) {
-        let (user_start, user_end) = coords::user_region_bounds(region).ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!("Could not parse region format: {}", region),
-            )
+        let display_range = coords::format_for_user(start, end);
+        let (display_start, display_end) = display_range.split_once('-').ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid formatted region")
         })?;
         // start and end are already 0-based half-open from parse_region
         // Convert coordinates to nodes
@@ -210,7 +208,7 @@ pub fn extract_sequence(
             Some(sample_name),
         );
         if nodes.is_empty() {
-            eprintln!("No nodes found for region {}:{}-{}", chr, start, end);
+            eprintln!("No nodes found for region {}:{}", chr, display_range);
             return Ok(());
         }
 
@@ -218,11 +216,10 @@ pub fn extract_sequence(
         let node_ids: HashSet<String> = nodes.iter().map(|n| n.node_id.clone()).collect();
 
         eprintln!(
-            "[INFO] Found {} unique nodes for region {}:{}-{}",
+            "[INFO] Found {} unique nodes for region {}:{}",
             node_ids.len(),
             chr,
-            start,
-            end
+            display_range
         );
 
         // Identify nodes missing from the GBZ index so we can fall back to GFA when necessary
@@ -312,7 +309,7 @@ pub fn extract_sequence(
             // Write FASTA output (streaming)
             let output_file = format!(
                 "{}_{}_{}_{}-{}.fa",
-                output_path, sample_name, safe_path_name, user_start, user_end
+                output_path, sample_name, safe_path_name, display_start, display_end
             );
             let file = File::create(&output_file)?;
             let mut writer = BufWriter::new(file);
@@ -321,7 +318,7 @@ pub fn extract_sequence(
             writeln!(
                 writer,
                 ">{}_{}:{}-{}",
-                sample_name, chr, user_start, user_end
+                sample_name, chr, display_start, display_end
             )?;
 
             let mut current_line_len = 0usize;

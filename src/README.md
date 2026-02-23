@@ -70,8 +70,3 @@ Visualize a pangenome node range.
 ```
 ./target/release/graphome viz --gfa hprc-v1.0-pggb.gfa --start-node "211000" --end-node "211005" --output-tga visualization_211000_211005.tga
 ```
-
-### `embed.rs`
-```
-./target/release/graphome embed --input adjacency_matrix.gam --start-node 0 --end-node 100
-```

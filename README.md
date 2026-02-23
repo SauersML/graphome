@@ -22,6 +22,8 @@ cargo build --release
 
 The compiled binary will be at `target/release/graphome`. All third-party math is handled through pure-Rust crates (for example, [`faer`](https://crates.io/crates/faer)), so no external BLAS/LAPACK installation is required.
 
+Dependency note: `map` and `make-sequence` can call the external `vg` toolkit when given GFA+PAF inputs and a GBZ index must be built on the fly. If `vg` is not installed, use a prebuilt `.gbz` input for those workflows (or install `vg`).
+
 ## Basic Pipeline
 
 1. Convert a GFA or GBZ into Graphome's edge-list format.
@@ -72,17 +74,21 @@ graphome extract --input hprc-v1.0-pggb.gam --start-node 250000 --end-node 25200
 
 ### `extract-matrices`
 
-Build a Laplacian for a node range and persist it as an `.npy` file for Python-friendly consumption. The `.npy` lives in the directory supplied through `--output`.
+Build a Laplacian for a node range and persist it as sparse CSR `.npy` arrays for Python-friendly consumption. This avoids dense `O(N^2)` memory usage on large windows.
 
 ```bash
 graphome extract-matrices --input hprc-v1.0-pggb.gam \
   --start-node 250000 --end-node 252000 --output matrices/window_250k_252k
-# writes matrices/window_250k_252k/laplacian.npy
+# writes:
+#   matrices/window_250k_252k/laplacian_values.npy
+#   matrices/window_250k_252k/laplacian_col_indices.npy
+#   matrices/window_250k_252k/laplacian_row_ptr.npy
+#   matrices/window_250k_252k/laplacian_shape.npy
 ```
 
 ### `extract-windows`
 
-Generate overlapping Laplacian windows across a node span. The current implementation writes one `.npy` file per window named `laplacian_<start>_<end>.npy` directly into the chosen output directory. (Older pipelines produced per-window folders with eigenvalues; see the `analyze-windows` note for how to bridge that gap.) Extraction parallelises via memory-mapped reads.
+Generate overlapping Laplacian windows across a node span. The current implementation writes sparse CSR `.npy` arrays per window (`values`, `col_indices`, `row_ptr`, `shape`) directly into the chosen output directory. (Older pipelines produced per-window folders with eigenvalues; see the `analyze-windows` note for how to bridge that gap.) Extraction parallelises via memory-mapped reads.
 
 ```bash
 graphome extract-windows --input hprc-v1.0-pggb.gam \
@@ -90,6 +96,11 @@ graphome extract-windows --input hprc-v1.0-pggb.gam \
   --window-size 5000 --overlap 1000 \
   --output windows
 # Produces files like windows/laplacian_000000_005000.npy
+# Produces files like:
+#   windows/laplacian_000000_005000_values.npy
+#   windows/laplacian_000000_005000_col_indices.npy
+#   windows/laplacian_000000_005000_row_ptr.npy
+#   windows/laplacian_000000_005000_shape.npy
 ```
 
 ### `analyze-windows`
@@ -115,6 +126,8 @@ graphome map --gfa hprc-v1.0-pggb.gfa --paf hprc-v1.0-pggb.untangle.paf \
 ```
 
 Results are printed to stdout, including merged interval summaries and counts of unique mappings. The `--paf` flag may be omitted when the GBZ already embeds the necessary mappings.
+
+If you run `map` with GFA+PAF and no existing GBZ, Graphome invokes external `vg` to build the GBZ index. To avoid this dependency, pass `--gfa <graph>.gbz`.
 
 ### `viz`
 
@@ -143,6 +156,8 @@ graphome embed --input hprc-v1.0-pggb.gam --start-node 100 --end-node 600
 Extract FASTA sequences corresponding to a coordinate interval. The command queries the GBZ index (building one if needed) and stitches node sequences, falling back to the source GFA when GBZ data are incomplete.
 
 **Important:** You must specify the reference assembly that your coordinates are based on using the `--assembly` flag. This ensures the correct reference path is used to determine anchor nodes. Common values are `grch38` (or `hg38`) and `chm13` (or `t2t`).
+
+If you run `make-sequence` with GFA+PAF and no existing GBZ, Graphome invokes external `vg` to build the GBZ index. To avoid this dependency, pass `--gfa <graph>.gbz`.
 
 ```bash
 graphome make-sequence --gfa hprc-v1.0-pggb.gfa --paf hprc-v1.0-pggb.untangle.paf \

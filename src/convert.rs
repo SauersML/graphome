@@ -8,6 +8,7 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 use simple_sds::serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -26,6 +27,47 @@ fn trim_ascii_whitespace(bytes: &[u8]) -> &[u8] {
         .rposition(|b| !b.is_ascii_whitespace())
         .expect("start guaranteed a non-whitespace byte");
     &bytes[start..=end]
+}
+
+fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut value: u64 = 0;
+    for &b in bytes {
+        if !b.is_ascii_digit() {
+            return None;
+        }
+        value = value.checked_mul(10)?;
+        value = value.checked_add((b - b'0') as u64)?;
+        if value > u32::MAX as u64 {
+            return None;
+        }
+    }
+    Some(value as u32)
+}
+
+enum SegmentIndex {
+    Contiguous { min_id: u32, max_id: u32 },
+    Numeric(HashMap<u32, u32>),
+    Names(FxHashMap<Vec<u8>, u32>),
+}
+
+impl SegmentIndex {
+    fn lookup(&self, name: &[u8]) -> Option<u32> {
+        match self {
+            SegmentIndex::Contiguous { min_id, max_id } => {
+                let id = parse_ascii_u32(name)?;
+                if id < *min_id || id > *max_id {
+                    None
+                } else {
+                    Some(id - *min_id)
+                }
+            }
+            SegmentIndex::Numeric(m) => parse_ascii_u32(name).and_then(|id| m.get(&id).copied()),
+            SegmentIndex::Names(m) => m.get(name).copied(),
+        }
+    }
 }
 
 /// Converts a graph (GFA or GBZ) to an adjacency matrix in edge list format.
@@ -222,7 +264,7 @@ fn convert_gbz_to_edge_list(gbz_path: &Path, output_path: &Path) -> io::Result<(
 /// # Panics
 ///
 /// Does not explicitly panic.
-fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
+fn parse_segments(gfa_path: &Path) -> io::Result<(SegmentIndex, u32)> {
     use memchr::memchr_iter;
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -302,13 +344,92 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
             .progress_chars("▰▰░"),
     );
 
-    // --- Batched parallel processing ---
+    // --- First pass over S-lines: detect whether all segment IDs are numeric ---
+    let mut all_numeric_ids = true;
+    for i in 0..total_lines {
+        let line_slice = get_line_slice(i);
+        if !line_slice.starts_with(b"S\t") {
+            continue;
+        }
+        let mut fields = line_slice.split(|&b| b == b'\t');
+        let Some(tag) = fields.next() else {
+            continue;
+        };
+        if tag != b"S" {
+            continue;
+        }
+        let Some(name_raw) = fields.next() else {
+            continue;
+        };
+        let name = trim_ascii_whitespace(name_raw);
+        if name.is_empty() {
+            continue;
+        }
+        if parse_ascii_u32(name).is_none() {
+            all_numeric_ids = false;
+            break;
+        }
+    }
+
+    // --- Second pass: build either compact numeric index or string index ---
+    if all_numeric_ids {
+        let mut numeric_ids = Vec::with_capacity(estimated_segments as usize);
+        for i in 0..total_lines {
+            let line_slice = get_line_slice(i);
+            if !line_slice.starts_with(b"S\t") {
+                continue;
+            }
+            let mut fields = line_slice.split(|&b| b == b'\t');
+            let Some(tag) = fields.next() else {
+                continue;
+            };
+            if tag != b"S" {
+                continue;
+            }
+            let Some(name_raw) = fields.next() else {
+                continue;
+            };
+            let name = trim_ascii_whitespace(name_raw);
+            if let Some(id) = parse_ascii_u32(name) {
+                numeric_ids.push(id);
+                pb.inc(1);
+            }
+        }
+        pb.finish_with_message("✨ Segment parsing complete (numeric IDs)!");
+
+        numeric_ids.par_sort_unstable();
+        numeric_ids.dedup();
+
+        if let (Some(&min_id), Some(&max_id)) = (numeric_ids.first(), numeric_ids.last()) {
+            let span = max_id.saturating_sub(min_id) as usize + 1;
+            if span == numeric_ids.len() {
+                let segment_counter = numeric_ids.len() as u32;
+                println!(
+                    "🎯 Total segments (nodes) identified: {} (contiguous numeric-ID mode: {}..={})",
+                    segment_counter, min_id, max_id
+                );
+                return Ok((SegmentIndex::Contiguous { min_id, max_id }, segment_counter));
+            }
+        }
+
+        let mut numeric_map = HashMap::with_capacity(numeric_ids.len());
+        for (i, id) in numeric_ids.into_iter().enumerate() {
+            numeric_map.insert(id, i as u32);
+        }
+        let segment_counter = numeric_map.len() as u32;
+        println!(
+            "🎯 Total segments (nodes) identified: {} (numeric-ID optimized mode)",
+            segment_counter
+        );
+        return Ok((SegmentIndex::Numeric(numeric_map), segment_counter));
+    }
+
     let segment_names = (0..total_lines)
         .into_par_iter()
-        .chunks(1024) // Process 1024 lines per batch, but make sure we aren't getting partial lines
+        .chunks(1024)
         .fold(
             || {
-                let mut set: HashSet<Vec<u8>> = HashSet::new();
+                let mut set: FxHashSet<Vec<u8>> = FxHashSet::default();
                 set.reserve(estimated_segments as usize / rayon::current_num_threads().max(1));
                 set
             },
@@ -336,18 +457,17 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
                 local_set
             },
         )
-        .reduce(HashSet::new, |mut a, b| {
+        .reduce(FxHashSet::default, |mut a, b| {
             a.extend(b);
             a
         });
 
     pb.finish_with_message("✨ Segment parsing complete!");
 
-    // --- Deterministic sorting and indexing ---
     let mut all_names: Vec<Vec<u8>> = segment_names.into_iter().collect();
     all_names.par_sort();
 
-    let segment_indices: HashMap<Vec<u8>, u32> = all_names
+    let segment_indices: FxHashMap<Vec<u8>, u32> = all_names
         .into_iter()
         .enumerate()
         .map(|(i, name)| (name, i as u32))
@@ -356,7 +476,7 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
     let segment_counter = segment_indices.len() as u32;
     println!("🎯 Total segments (nodes) identified: {}", segment_counter);
 
-    Ok((segment_indices, segment_counter))
+    Ok((SegmentIndex::Names(segment_indices), segment_counter))
 }
 
 /// Parses the GFA file to extract links and write edges to the output file.
@@ -379,7 +499,7 @@ fn parse_segments(gfa_path: &Path) -> io::Result<(HashMap<Vec<u8>, u32>, u32)> {
 /// This function may panic if writes fail (due to `.unwrap()`).
 fn parse_links_and_write_edges(
     gfa_path: &Path,
-    segment_indices: &HashMap<Vec<u8>, u32>,
+    segment_indices: &SegmentIndex,
     output_path: &Path,
 ) -> io::Result<()> {
     let file = File::open(gfa_path)?;
@@ -458,8 +578,10 @@ fn parse_links_and_write_edges(
                     return;
                 }
 
-                if let (Some(&f_idx), Some(&t_idx)) =
-                    (segment_indices.get(from_name), segment_indices.get(to_name))
+                if let (Some(f_idx), Some(t_idx)) = (
+                    segment_indices.lookup(from_name),
+                    segment_indices.lookup(to_name),
+                )
                 {
                     local_edges.push((f_idx, t_idx));
                 }

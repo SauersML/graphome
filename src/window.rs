@@ -1,9 +1,10 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use memmap2::MmapOptions;
-use ndarray::prelude::*;
+use ndarray::Array1;
 use ndarray_npy::write_npy;
 use parking_lot::Mutex;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use std::collections::HashSet;
 use std::fs::File;
 use std::io;
@@ -64,7 +65,8 @@ impl WindowConfig {
 #[derive(Clone)]
 struct EdgeList {
     data: Arc<Vec<(usize, usize)>>,
-    node_index: Arc<Vec<Vec<usize>>>, // For each node in [index_start, index_end], edge indices touching it
+    node_offsets: Arc<Vec<usize>>, // CSR offsets into node_edges, len = node_count + 1
+    node_edges: Arc<Vec<usize>>,   // Flat edge-index storage for all nodes
     index_start: usize,
 }
 
@@ -114,16 +116,37 @@ impl EdgeList {
             start_time.elapsed()
         );
 
-        // Build per-node edge index that does not assume any ordering in edge list.
+        // Build compact CSR-like per-node edge index (avoids millions of tiny Vec allocations).
         let index_size = extended_end - extended_start + 1;
-        let mut node_index = vec![Vec::<usize>::new(); index_size];
+        let mut counts = vec![0usize; index_size];
+
+        for &(from, to) in &edges {
+            if (extended_start..=extended_end).contains(&from) {
+                counts[from - extended_start] += 1;
+            }
+            if to != from && (extended_start..=extended_end).contains(&to) {
+                counts[to - extended_start] += 1;
+            }
+        }
+
+        let mut node_offsets = vec![0usize; index_size + 1];
+        for i in 0..index_size {
+            node_offsets[i + 1] = node_offsets[i] + counts[i];
+        }
+
+        let mut node_edges = vec![0usize; node_offsets[index_size]];
+        let mut cursors = node_offsets[..index_size].to_vec();
 
         for (edge_idx, &(from, to)) in edges.iter().enumerate() {
             if (extended_start..=extended_end).contains(&from) {
-                node_index[from - extended_start].push(edge_idx);
+                let slot = &mut cursors[from - extended_start];
+                node_edges[*slot] = edge_idx;
+                *slot += 1;
             }
             if to != from && (extended_start..=extended_end).contains(&to) {
-                node_index[to - extended_start].push(edge_idx);
+                let slot = &mut cursors[to - extended_start];
+                node_edges[*slot] = edge_idx;
+                *slot += 1;
             }
         }
 
@@ -135,7 +158,8 @@ impl EdgeList {
 
         Ok(Self {
             data: Arc::new(edges),
-            node_index: Arc::new(node_index),
+            node_offsets: Arc::new(node_offsets),
+            node_edges: Arc::new(node_edges),
             index_start: extended_start,
         })
     }
@@ -145,13 +169,16 @@ impl EdgeList {
         let per_node: Vec<Vec<(usize, usize)>> = (start..end)
             .into_par_iter()
             .map(|node| {
-                if node < self.index_start || node - self.index_start >= self.node_index.len() {
+                if node < self.index_start || node - self.index_start + 1 >= self.node_offsets.len()
+                {
                     return Vec::new();
                 }
 
                 let mut local_edges = Vec::new();
-
-                for &edge_idx in &self.node_index[node - self.index_start] {
+                let node_local = node - self.index_start;
+                let start_idx = self.node_offsets[node_local];
+                let end_idx = self.node_offsets[node_local + 1];
+                for &edge_idx in &self.node_edges[start_idx..end_idx] {
                     let edge = self.data[edge_idx];
                     if edge.0 < end && edge.1 < end && edge.0 >= start && edge.1 >= start {
                         local_edges.push(edge);
@@ -175,32 +202,68 @@ impl EdgeList {
     }
 }
 
-fn compute_laplacian(
+struct SparseWindowLaplacian {
+    values: Vec<f64>,
+    col_indices: Vec<u64>,
+    row_ptr: Vec<u64>,
+}
+
+fn compute_laplacian_sparse(
     edges: &[(usize, usize)],
     window_start: usize,
     window_size: usize,
-) -> Array2<f64> {
-    let mut laplacian = Array2::<f64>::zeros((window_size, window_size));
-    let mut degrees = vec![0.0; window_size];
+) -> SparseWindowLaplacian {
+    let mut entries: FxHashMap<(usize, usize), f64> = FxHashMap::default();
+    let mut degrees = vec![0.0f64; window_size];
 
-    // Process edges - each edge represents both directions
+    // Process edges - each edge represents both directions.
     for &(from, to) in edges {
         let i = from - window_start;
         let j = to - window_start;
 
-        // Add edge in both directions
-        laplacian[[i, j]] = -1.0;
-        laplacian[[j, i]] = -1.0; // Symmetric
-
-        // Count degrees for both nodes
+        // Add undirected off-diagonal entries and accumulate degrees.
+        *entries.entry((i, j)).or_insert(0.0) -= 1.0;
+        *entries.entry((j, i)).or_insert(0.0) -= 1.0;
         degrees[i] += 1.0;
         degrees[j] += 1.0;
     }
 
-    // Fill diagonal with degrees
-    laplacian.diag_mut().assign(&Array1::from(degrees));
+    for (idx, degree) in degrees.into_iter().enumerate() {
+        *entries.entry((idx, idx)).or_insert(0.0) += degree;
+    }
 
-    laplacian
+    let mut coo: Vec<(usize, usize, f64)> = entries
+        .into_iter()
+        .filter_map(|((r, c), v)| if v != 0.0 { Some((r, c, v)) } else { None })
+        .collect();
+    coo.sort_unstable_by_key(|&(r, c, _)| (r, c));
+
+    let nnz = coo.len();
+    let mut values = Vec::with_capacity(nnz);
+    let mut col_indices = Vec::with_capacity(nnz);
+    let mut row_ptr = vec![0u64; window_size + 1];
+
+    let mut current_row = 0usize;
+    let mut seen = 0u64;
+    for (r, c, v) in coo {
+        while current_row < r {
+            row_ptr[current_row + 1] = seen;
+            current_row += 1;
+        }
+        values.push(v);
+        col_indices.push(c as u64);
+        seen += 1;
+    }
+    while current_row < window_size {
+        row_ptr[current_row + 1] = seen;
+        current_row += 1;
+    }
+
+    SparseWindowLaplacian {
+        values,
+        col_indices,
+        row_ptr,
+    }
 }
 
 pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
@@ -247,13 +310,29 @@ pub fn parallel_extract_windows<P: AsRef<Path> + Sync>(
             // Get relevant edges for this window
             let window_edges = edge_list.get_edges_for_window(start, end);
 
-            // Compute Laplacian
+            // Compute sparse Laplacian.
             let window_size = end - start;
-            let laplacian = compute_laplacian(&window_edges, start, window_size);
+            let laplacian = compute_laplacian_sparse(&window_edges, start, window_size);
 
-            // Save to NPY
-            let output_file = output_dir.join(format!("laplacian_{:06}_{:06}.npy", start, end));
-            write_npy(&output_file, &laplacian).map_err(io::Error::other)?;
+            // Save sparse CSR arrays to NPY.
+            let stem = format!("laplacian_{:06}_{:06}", start, end);
+            let values_path = output_dir.join(format!("{}_values.npy", stem));
+            let col_indices_path = output_dir.join(format!("{}_col_indices.npy", stem));
+            let row_ptr_path = output_dir.join(format!("{}_row_ptr.npy", stem));
+            let shape_path = output_dir.join(format!("{}_shape.npy", stem));
+
+            write_npy(&values_path, &Array1::from_vec(laplacian.values)).map_err(io::Error::other)?;
+            write_npy(
+                &col_indices_path,
+                &Array1::from_vec(laplacian.col_indices),
+            )
+            .map_err(io::Error::other)?;
+            write_npy(&row_ptr_path, &Array1::from_vec(laplacian.row_ptr)).map_err(io::Error::other)?;
+            write_npy(
+                &shape_path,
+                &Array1::from_vec(vec![window_size as u64, window_size as u64]),
+            )
+            .map_err(io::Error::other)?;
 
             progress.lock().inc(1);
             Ok::<(), io::Error>(())

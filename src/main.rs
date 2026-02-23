@@ -1,7 +1,15 @@
 use clap::{Args, Parser, Subcommand};
 use graphome::{
-    convert, eigen_region, embed, entropy, extract, gfa2gbz, make_sequence, map, video, viz, window,
+    convert, eigen_region, entropy, extract, gfa2gbz, make_sequence, map,
+    pangenome_catalog::{catalog_from_runtime, FeatureCatalogManifest},
+    pangenome_runtime::{build_runtime_from_gbz, load_topology_tsv, HaplotypeStep, HaplotypeWalk},
+    viz, window,
 };
+use gbz::{Orientation, GBZ};
+use simple_sds::serialize;
+use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -35,14 +43,14 @@ enum Command {
     Map(MapArgs),
     /// Visualise a range of nodes as a coloured TGA
     Viz(VizArgs),
-    /// Embed a submatrix in 3D and visualise with rotation
-    Embed(EmbedArgs),
     /// Extract sequence based on coordinates
     MakeSequence(MakeSequenceArgs),
     /// Convert GFA file to GBZ format.
     Gfa2gbz(Gfa2gbzArgs),
     /// Perform eigendecomposition on a genomic region
     EigenRegion(EigenRegionArgs),
+    /// Pangenome feature catalog + encoding utilities
+    Pangenome(PangenomeArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -170,15 +178,6 @@ struct VizArgs {
 }
 
 #[derive(Args, Debug)]
-struct EmbedArgs {
-    /// Path to the adjacency matrix file
-    #[arg(short, long, value_name = "EDGE_LIST")]
-    input: PathBuf,
-    #[command(flatten)]
-    range: NodeRange,
-}
-
-#[derive(Args, Debug)]
 struct MakeSequenceArgs {
     /// The path to the graph file (GFA or GBZ)
     #[arg(long, value_name = "GRAPH")]
@@ -220,8 +219,130 @@ struct EigenRegionArgs {
     viz: bool,
 }
 
+#[derive(Args, Debug)]
+struct PangenomeArgs {
+    #[command(subcommand)]
+    command: PangenomeCommand,
+}
+
+#[derive(Subcommand, Debug)]
+enum PangenomeCommand {
+    /// Build a feature catalog from GBZ + topology TSV
+    Catalog(PangenomeCatalogArgs),
+    /// Encode one haplotype walk from GBZ using topology TSV
+    Encode(PangenomeEncodeArgs),
+    /// List GBZ walks as sample#phase#contig identifiers
+    ListWalks(PangenomeListWalksArgs),
+}
+
+#[derive(Args, Debug)]
+struct PangenomeCatalogArgs {
+    /// Path to GBZ file
+    #[arg(long, value_name = "GBZ")]
+    gbz: PathBuf,
+    /// Path to topology TSV
+    #[arg(long, value_name = "TSV")]
+    topology: PathBuf,
+    /// Output directory for features.bin/traversals.bin/manifest.tsv
+    #[arg(short, long, value_name = "DIR")]
+    output: PathBuf,
+    /// Manifest graph_build_id
+    #[arg(long, default_value = "unknown")]
+    graph_build_id: String,
+    /// Manifest graph_construction_pipeline
+    #[arg(long, default_value = "unknown")]
+    graph_pipeline: String,
+    /// Manifest reference_coordinates
+    #[arg(long, default_value = "unknown")]
+    reference_coordinates: String,
+    /// Manifest hprc_release
+    #[arg(long, default_value = "unknown")]
+    hprc_release: String,
+    /// Manifest snarl_decomposition_tool
+    #[arg(long, default_value = "graphome")]
+    snarl_tool: String,
+}
+
+#[derive(Args, Debug)]
+struct PangenomeEncodeArgs {
+    /// Path to GBZ file
+    #[arg(long, value_name = "GBZ")]
+    gbz: PathBuf,
+    /// Path to topology TSV
+    #[arg(long, value_name = "TSV")]
+    topology: PathBuf,
+    /// Haplotype walk ID: sample#phase#contig (use `list-walks`)
+    #[arg(long, value_name = "WALK_ID")]
+    walk_id: String,
+    /// Output TSV path for encoded features (feature_index<TAB>value)
+    #[arg(short, long, value_name = "FILE")]
+    output: PathBuf,
+}
+
+#[derive(Args, Debug)]
+struct PangenomeListWalksArgs {
+    /// Path to GBZ file
+    #[arg(long, value_name = "GBZ")]
+    gbz: PathBuf,
+}
+
 fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn walk_id_from_metadata(metadata: &gbz::Metadata, path_id: usize) -> Option<String> {
+    let path_name = metadata.path(path_id)?;
+    let sample_name = metadata.sample_name(path_name.sample());
+    let phase = path_name.phase();
+    let contig_name = metadata.contig_name(path_name.contig());
+    Some(format!("{}#{}#{}", sample_name, phase, contig_name))
+}
+
+fn load_walk_by_id(gbz: &GBZ, walk_id: &str) -> io::Result<HaplotypeWalk> {
+    let metadata = gbz.metadata().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "GBZ metadata unavailable; cannot enumerate haplotype walks",
+        )
+    })?;
+
+    for path_id in 0..metadata.paths() {
+        let Some(id) = walk_id_from_metadata(metadata, path_id) else {
+            continue;
+        };
+        if id != walk_id {
+            continue;
+        }
+
+        let mut steps = Vec::new();
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            for (node_id, orientation) in path_iter {
+                steps.push(HaplotypeStep {
+                    node_id,
+                    orientation,
+                });
+            }
+        }
+        return Ok(HaplotypeWalk { id, steps });
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("walk '{}' not found in GBZ", walk_id),
+    ))
+}
+
+fn write_encoded_tsv(path: &Path, encoded: &[Option<f64>]) -> io::Result<()> {
+    let file = File::create(path)?;
+    let mut writer = BufWriter::new(file);
+    writeln!(writer, "feature_index\tvalue")?;
+    for (idx, value) in encoded.iter().enumerate() {
+        match value {
+            Some(v) => writeln!(writer, "{}\t{}", idx, v)?,
+            None => writeln!(writer, "{}\tNA", idx)?,
+        }
+    }
+    writer.flush()
 }
 
 fn main() -> io::Result<()> {
@@ -300,13 +421,6 @@ fn main() -> io::Result<()> {
                 std::process::exit(1);
             }
         }
-        Command::Embed(args) => {
-            let EmbedArgs { input, range } = args;
-            let (start_node, end_node) = range.bounds();
-            let input_path = path_to_string(&input);
-            let points = embed::embed(start_node, end_node, &input_path)?;
-            video::make_video(&points).map_err(std::io::Error::other)?;
-        }
         Command::MakeSequence(args) => {
             let MakeSequenceArgs {
                 gfa,
@@ -341,6 +455,62 @@ fn main() -> io::Result<()> {
                 std::process::exit(1);
             }
         }
+        Command::Pangenome(args) => match args.command {
+            PangenomeCommand::Catalog(cargs) => {
+                let gbz: GBZ =
+                    serialize::load_from(&cargs.gbz).map_err(|e| io::Error::other(e.to_string()))?;
+                let topology = load_topology_tsv(&path_to_string(&cargs.topology))?;
+                let runtime = build_runtime_from_gbz(&topology, &gbz, HashMap::new());
+                let catalog = catalog_from_runtime(&runtime);
+
+                let haplotype_count = gbz
+                    .metadata()
+                    .map(|m| m.paths() as u32)
+                    .unwrap_or_default();
+
+                let manifest = FeatureCatalogManifest {
+                    graph_build_id: cargs.graph_build_id,
+                    graph_construction_pipeline: cargs.graph_pipeline,
+                    reference_coordinates: cargs.reference_coordinates,
+                    hprc_release: cargs.hprc_release,
+                    haplotype_count,
+                    snarl_decomposition_tool: cargs.snarl_tool,
+                };
+                catalog.write_dir_with_manifest(&cargs.output, &manifest)?;
+                eprintln!(
+                    "[INFO] Wrote pangenome catalog with {} features to {}",
+                    catalog.features.len(),
+                    cargs.output.display()
+                );
+            }
+            PangenomeCommand::Encode(eargs) => {
+                let gbz: GBZ =
+                    serialize::load_from(&eargs.gbz).map_err(|e| io::Error::other(e.to_string()))?;
+                let topology = load_topology_tsv(&path_to_string(&eargs.topology))?;
+                let runtime = build_runtime_from_gbz(&topology, &gbz, HashMap::new());
+                let walk = load_walk_by_id(&gbz, &eargs.walk_id)?;
+                let encoded = runtime.encode_haplotype(&walk);
+                write_encoded_tsv(&eargs.output, &encoded)?;
+                eprintln!(
+                    "[INFO] Encoded {} features for '{}' -> {}",
+                    encoded.len(),
+                    eargs.walk_id,
+                    eargs.output.display()
+                );
+            }
+            PangenomeCommand::ListWalks(largs) => {
+                let gbz: GBZ =
+                    serialize::load_from(&largs.gbz).map_err(|e| io::Error::other(e.to_string()))?;
+                let metadata = gbz.metadata().ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidData, "GBZ metadata unavailable")
+                })?;
+                for path_id in 0..metadata.paths() {
+                    if let Some(id) = walk_id_from_metadata(metadata, path_id) {
+                        println!("{}", id);
+                    }
+                }
+            }
+        },
     }
 
     Ok(())

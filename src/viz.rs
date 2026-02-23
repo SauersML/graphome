@@ -5,14 +5,12 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
-use faer::Mat;
 use hdbscan::Hdbscan;
-use ndarray::Array2;
 
 use crate::convert::convert_graph_to_edge_list;
 use crate::display::display_tga;
-use crate::eigen_print::call_eigendecomp;
 use crate::extract::load_adjacency_matrix;
+use crate::sparse_spectral::lanczos_smallest;
 
 /// A simple data structure to hold node info: length, adjacency, etc.
 #[derive(Debug)]
@@ -137,81 +135,50 @@ pub fn run_viz(
     let adjacency = adjacency_filtered;
     let node_count = new_count;
 
-    // Build an NxN adjacency matrix from the filtered edges,
-    // so Laplacian indexing matches the nodes actually in use.
-    let mut adjacency_nd = Array2::<f64>::zeros((node_count, node_count));
-    for &(i, j) in &edges {
-        adjacency_nd[(i, j)] = 1.0;
-        adjacency_nd[(j, i)] = 1.0;
-    }
-
     let size = node_count;
-    let mut laplacian = adjacency_nd.clone();
+    // Degree vector from sparse adjacency list.
+    let degrees: Vec<f64> = adjacency.iter().map(|nbrs| nbrs.len() as f64).collect();
 
-    // Store the degree of each node in an array
-    let mut degrees = vec![0u32; size];
-    for i in 0..size {
-        let mut deg = 0u32;
-        for j in 0..size {
-            if adjacency_nd[(i, j)] != 0.0 {
-                deg += 1;
-            }
-        }
-        degrees[i] = deg;
-    }
-
-    // Build the normalized Laplacian
-    for i in 0..size {
-        for j in 0..size {
-            if adjacency_nd[(i, j)] != 0.0 && degrees[i] > 0 && degrees[j] > 0 {
-                // Off-diagonal entries: -1 / sqrt(deg_i * deg_j)
-                laplacian[(i, j)] = -1.0f64 / f64::sqrt((degrees[i] as f64) * (degrees[j] as f64));
-            } else {
-                laplacian[(i, j)] = 0.0;
-            }
-        }
-        // Diagonal entries: 1.0
-        laplacian[(i, i)] = 1.0;
-    }
-
-    let laplacian_mat = Mat::from_fn(size, size, |i, j| laplacian[(i, j)]);
-    let (eigvals, eigvecs) = call_eigendecomp(laplacian_mat.as_ref())?;
-    let mut pairs: Vec<(f64, Vec<f64>)> = eigvals
-        .iter()
-        .enumerate()
-        .map(|(idx, &val)| {
-            let column_vec = (0..size).map(|row| eigvecs[(row, idx)]).collect::<Vec<_>>();
-            (val, column_vec)
-        })
-        .collect();
-    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-
-    // Skip all zero (or near-zero) eigenvalues
-    let near_zero_threshold = 1e-9;
-    let nonzero_pairs: Vec<(f64, Vec<f64>)> = pairs
-        .iter()
-        .filter(|(val, _)| (*val).abs() > near_zero_threshold)
-        .cloned()
-        .collect();
-
-    // Make sure we have at least two non-zero eigenvalues
-    if nonzero_pairs.len() < 2 {
-        return Err(format!(
-            "Not enough non-zero eigenvalues for a 2D spectral layout. Found only {}.",
-            nonzero_pairs.len()
-        )
-        .into());
-    }
-
-    // Build a weighted spectral embedding from ALL nonzero eigenpairs.
-    // We weight each eigenvector's columns by 1/sqrt(lambda_i).
-    let m = nonzero_pairs.len();
-    let mut embedding = vec![vec![0.0_f32; m]; size];
-    for (dim, (lambda, vec_col)) in nonzero_pairs.iter().enumerate() {
-        let w = 1.0_f64 / ((*lambda).sqrt().max(1e-12_f64));
-        let w_f32 = w as f32;
+    // Sparse normalized Laplacian operator: y = L_norm * x.
+    let (eigvals, eigvecs) = lanczos_smallest(size, 6, 12, |x, y| {
         for i in 0..size {
-            embedding[i][dim] = vec_col[i] as f32 * w_f32;
+            if degrees[i] == 0.0 {
+                y[i] = 0.0;
+                continue;
+            }
+            let mut acc = x[i];
+            let di = degrees[i];
+            for &j in &adjacency[i] {
+                let dj = degrees[j];
+                if dj > 0.0 {
+                    acc -= x[j] / (di * dj).sqrt();
+                }
+            }
+            y[i] = acc;
+        }
+    })?;
+
+    let mut pairs: Vec<(f64, Vec<f64>)> = eigvals.into_iter().zip(eigvecs.into_iter()).collect();
+    pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    // Skip near-zero eigenvalues; spectral drawing needs next two modes.
+    let near_zero_threshold = 1e-8;
+    let nonzero_pairs: Vec<(f64, Vec<f64>)> = pairs
+        .into_iter()
+        .filter(|(val, _)| val.abs() > near_zero_threshold)
+        .collect();
+
+    if nonzero_pairs.len() < 2 {
+        return Err("Not enough non-zero eigenvectors for 2D spectral layout".into());
+    }
+
+    // Use just the first two informative eigenvectors (Fiedler-like).
+    let m = 2usize;
+    let mut embedding = vec![vec![0.0_f32; m]; size];
+    for (dim, (lambda, vec_col)) in nonzero_pairs.iter().take(2).enumerate() {
+        let w = 1.0_f64 / (lambda.sqrt().max(1e-12));
+        for i in 0..size {
+            embedding[i][dim] = (vec_col[i] * w) as f32;
         }
     }
 
@@ -248,16 +215,9 @@ pub fn run_viz(
 
     // We'll define color_from_cluster. For positioning, we only need 2D:
     let mut positions = vec![(0.0_f32, 0.0_f32); size];
-    if m >= 2 {
-        // If at least 2 nonzero eigenpairs, use the first two dims for an initial layout
-        for i in 0..size {
-            positions[i] = (embedding[i][0], embedding[i][1]);
-        }
-    } else {
-        // If we only have 1 dimension or none, just spread them in a line
-        for (i, pos) in positions.iter_mut().enumerate() {
-            *pos = (i as f32, 0.0);
-        }
+    // Use the first two spectral dimensions for initial layout.
+    for i in 0..size {
+        positions[i] = (embedding[i][0], embedding[i][1]);
     }
 
     if force_directed {

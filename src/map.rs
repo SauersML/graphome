@@ -10,9 +10,9 @@
 //      which do node->hg38 or hg38->node queries.
 
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::io;
 use crate::mapped_gbz::MappedGBZ;
@@ -157,6 +157,7 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
 
     // Parse region (already converts 1-based -> 0-based via coords::parse_user_region)
     if let Some((chr, start, end)) = parse_region(region) {
+        let display_range = crate::coords::format_for_user(start, end);
         // start and end are already 0-based half-open from parse_region
         let mut results = Vec::new();
         for assembly in ["grch38", "chm13", "hg38", "t2t", ""] {
@@ -168,7 +169,7 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
             }
         }
         if results.is_empty() {
-            println!("No nodes found for region {}:{}-{}", chr, start, end);
+            println!("No nodes found for region {}:{}", chr, display_range);
         } else {
             // Print each overlap
             let mut global_min = usize::MAX;
@@ -220,7 +221,7 @@ pub fn run_coord2node(gfa_path: &str, paf_path: &str, region: &str) {
 
             // Print OVERALL node mapping (sample-abstracted)
             println!("\n============ OVERALL MAPPING ============");
-            println!("REFERENCE: {}:{}-{}", chr, start, end);
+            println!("REFERENCE: {}:{}", chr, display_range);
 
             // Convert unique_nodes to a vector for range creation
             let unique_node_vec: Vec<usize> = unique_nodes.into_iter().collect();
@@ -545,8 +546,8 @@ pub fn coord_to_nodes_with_path_filtered(
         compute_reference_anchors(gbz, metadata, assembly, chr, start, end)
     {
         eprintln!(
-            "[INFO] Using reference anchors node {} -> node {} for {}:{}-{}",
-            start_anchor.node_id, end_anchor.node_id, chr, start, end
+            "[INFO] Using reference anchors node {} -> node {} for {}:{}",
+            start_anchor.node_id, end_anchor.node_id, chr, display_range
         );
 
         // Find candidate paths that contain the start anchor. When a sample filter is
@@ -800,8 +801,8 @@ pub fn coord_to_nodes_with_path_filtered(
         results
     } else {
         eprintln!(
-            "[WARNING] Unable to locate dense reference anchors for {}:{}-{}; falling back to path offsets",
-            chr, start, end
+            "[WARNING] Unable to locate dense reference anchors for {}:{}; falling back to path offsets",
+            chr, display_range
         );
 
         let matched_filter = scan_paths_for_region(
@@ -908,17 +909,12 @@ fn scan_paths_for_region(
     matched_filter
 }
 
-/// Validates and fixes path names in a GFA file for PanSN naming compliance.
-/// This function fixes "Invalid haplotype field" errors in a single pass
-/// using chunk-based processing.
-/// Returns the path to use (original if no fixes needed, new fixed file otherwise).
-pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
-    eprintln!(
-        "[INFO] Fast validating and fixing GFA path names: {}",
-        gfa_path
-    );
+/// Streams a GFA into `writer`, fixing PanSN path names on the fly.
+/// This avoids writing a second full-size fixed GFA file to disk.
+fn stream_fixed_gfa_for_gbwt<W: Write>(gfa_path: &str, writer: &mut W) -> Result<usize, String> {
+    eprintln!("[INFO] Streaming GFA with on-the-fly PanSN path fixes: {}", gfa_path);
 
-    // Materialize remote files (S3, HTTP) to local filesystem
+    // Materialize remote files (S3, HTTP) to local filesystem.
     let materialized =
         io::materialize(gfa_path).map_err(|e| format!("Failed to materialize GFA file: {}", e))?;
     let local_path = materialized
@@ -926,17 +922,12 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
         .to_str()
         .ok_or_else(|| "Invalid path".to_string())?;
 
-    // Open and memory-map input file
     let file = File::open(local_path).map_err(|e| format!("Failed to open GFA file: {}", e))?;
     let metadata = file
         .metadata()
         .map_err(|e| format!("Failed to get metadata: {}", e))?;
     let file_size = metadata.len();
 
-    // Create output file path (use local path for fixed file)
-    let fixed_gfa_path = format!("{}.fixed.gfa", local_path);
-
-    // Create memory map for fast reading
     let mmap = unsafe {
         MmapOptions::new()
             .map(&file)
@@ -944,13 +935,8 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
     };
 
     let mut stats = FixStats::default();
+    let mut fix_count = 0usize;
 
-    // Create output file with large buffer
-    let output_file = File::create(&fixed_gfa_path)
-        .map_err(|e| format!("Failed to create output file: {}", e))?;
-    let mut writer = BufWriter::with_capacity(128 * 1024 * 1024, output_file); // 128MB buffer
-
-    // Setup progress bar with accurate estimation
     let pb = ProgressBar::new(file_size);
     pb.set_style(
         ProgressStyle::with_template(
@@ -960,16 +946,11 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
     );
     pb.set_position(0);
 
-    // Initialize variables for chunk processing
     let chunk_size = 64 * 1024 * 1024; // 64MB chunks
-    let mut position = 0;
-    let mut fix_count = 0;
+    let mut position = 0usize;
 
-    // Process file in chunks
     while position < mmap.len() {
-        // Calculate chunk boundaries with proper line handling
         let end_pos = std::cmp::min(position + chunk_size, mmap.len());
-        // Find next complete line boundary
         let true_end = if end_pos < mmap.len() {
             match memchr::memchr(
                 b'\n',
@@ -982,103 +963,65 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
             end_pos
         };
 
-        // Create buffer for output chunk with extra space
         let mut output_buffer = Vec::with_capacity(true_end - position + 1024 * 1024);
-
-        // Process this chunk line by line
         let mut line_start = position;
         while line_start < true_end {
-            // Find end of current line
             let line_end = match memchr::memchr(b'\n', &mmap[line_start..true_end]) {
                 Some(pos) => line_start + pos,
                 None => true_end,
             };
 
-            // Check if this is a path line (P or W)
             if line_start < line_end && (mmap[line_start] == b'P' || mmap[line_start] == b'W') {
-                // Process path line
                 stats.total_processed += 1;
-
-                // Find tabs to locate path name
                 if let Some(first_tab) = memchr::memchr(b'\t', &mmap[line_start..line_end]) {
                     let path_start = line_start + first_tab + 1;
                     if let Some(second_tab) = memchr::memchr(b'\t', &mmap[path_start..line_end]) {
                         let path_end = path_start + second_tab;
-
-                        // Fast check if this path has a # character
                         if memchr::memchr(b'#', &mmap[path_start..path_end]).is_some() {
-                            // Extract the path name for processing
                             let path_name = unsafe {
                                 std::str::from_utf8_unchecked(&mmap[path_start..path_end])
                             };
-
-                            // Check if fix is needed
-                            let maybe_fixed_name = fix_path_name(path_name, &mut stats);
-
-                            if let Some(fixed_name) = maybe_fixed_name {
-                                // Path needed fixing
+                            if let Some(fixed_name) = fix_path_name(path_name, &mut stats) {
                                 fix_count += 1;
-
-                                // Write fixed line: first part + fixed name + rest of line
                                 output_buffer.extend_from_slice(&mmap[line_start..path_start]);
                                 output_buffer.extend_from_slice(fixed_name.as_bytes());
                                 output_buffer.extend_from_slice(&mmap[path_end..line_end]);
-
-                                // Log occasional progress
-                                if fix_count % 100_000 == 0 {
-                                    eprintln!("[INFO] Fixed {} paths so far ({} ref, {} hap, {} miss, {} complex)",
-                                             fix_count, stats.reference_paths, stats.haplotype_fixes,
-                                             stats.missing_haplotype, stats.complex_paths);
-                                }
                             } else {
-                                // No fix needed, copy line as-is
                                 output_buffer.extend_from_slice(&mmap[line_start..line_end]);
                             }
                         } else {
-                            // No # in path name, copy line as-is
                             output_buffer.extend_from_slice(&mmap[line_start..line_end]);
                         }
                     } else {
-                        // No second tab, copy line as-is
                         output_buffer.extend_from_slice(&mmap[line_start..line_end]);
                     }
                 } else {
-                    // No first tab, copy line as-is
                     output_buffer.extend_from_slice(&mmap[line_start..line_end]);
                 }
             } else {
-                // Not a path line, copy as-is
                 output_buffer.extend_from_slice(&mmap[line_start..line_end]);
             }
 
-            // Add newline if not at end of file
             if line_end < mmap.len() {
                 output_buffer.push(b'\n');
             }
-
-            // Move to next line
             line_start = line_end + 1;
         }
 
-        // Write entire processed chunk at once
         writer
             .write_all(&output_buffer)
-            .map_err(|e| format!("Failed to write chunk to output file: {}", e))?;
-
-        // Update progress
+            .map_err(|e| format!("Failed to stream fixed GFA chunk: {}", e))?;
         position = true_end;
         pb.set_position(position as u64);
     }
 
-    // Finish writing and flush buffers
     writer
         .flush()
-        .map_err(|e| format!("Failed to flush output: {}", e))?;
+        .map_err(|e| format!("Failed to flush streamed GFA data: {}", e))?;
     pb.finish_and_clear();
 
-    // Show summary
     if fix_count > 0 {
-        eprintln!("[SUCCESS] Fixed {} path names:", fix_count);
+        eprintln!("[SUCCESS] Applied {} in-stream PanSN path fixes:", fix_count);
         eprintln!(
             "  - Reference paths (e.g., chm13#chr1): {}",
             stats.reference_paths
@@ -1092,12 +1035,11 @@ pub fn validate_gfa_for_gbwt(gfa_path: &str) -> Result<String, String> {
             "  - Complex paths (e.g., MT paths): {}",
             stats.complex_paths
         );
-        eprintln!("[SUCCESS] Fixed GFA written to: {}", fixed_gfa_path);
-        Ok(fixed_gfa_path)
     } else {
-        eprintln!("[INFO] No invalid path names found, using materialized file");
-        Ok(local_path.to_string())
+        eprintln!("[INFO] No PanSN path fixes were necessary.");
     }
+
+    Ok(fix_count)
 }
 
 /// Fast path name fix function that efficiently handles all cases without unnecessary allocations.
@@ -1321,16 +1263,6 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
     if !Path::new(&gbz_path).exists() {
         eprintln!("[INFO] Creating GBZ index from GFA and PAF...");
 
-        // Validate and fix path names in the GFA file (local files only)
-        let fixed_gfa_path = match validate_gfa_for_gbwt(gfa_path) {
-            Ok(path) => path,
-            Err(msg) => {
-                eprintln!("[ERROR] GFA validation and fixing failed:");
-                eprintln!("{}", msg);
-                panic!("GFA validation failed - cannot create GBZ index");
-            }
-        };
-
         // Locate vg command
         let vg_cmd = if let Ok(output) = Command::new("vg").arg("--version").output() {
             if output.status.success() {
@@ -1354,18 +1286,33 @@ pub fn make_gbz_exist(gfa_path: &str, paf_path: &str) -> String {
             panic!("vg command not found");
         };
 
-        // Create GBZ using vg gbwt with the potentially fixed GFA
-        let status = Command::new(&vg_cmd)
+        // Create GBZ by streaming (potentially fixed) GFA into vg stdin.
+        let mut child = Command::new(&vg_cmd)
             .args([
                 "gbwt",
                 "-G",
-                &fixed_gfa_path,
+                "-",
                 "--gbz-format",
                 "-g",
                 &gbz_path,
             ])
-            .status()
+            .stdin(Stdio::piped())
+            .spawn()
             .expect("Failed to run vg gbwt");
+
+        {
+            let mut child_stdin = child
+                .stdin
+                .take()
+                .expect("Failed to open stdin for vg gbwt");
+            if let Err(msg) = stream_fixed_gfa_for_gbwt(gfa_path, &mut child_stdin) {
+                eprintln!("[ERROR] GFA streaming and fixing failed:");
+                eprintln!("{}", msg);
+                panic!("GFA streaming failed - cannot create GBZ index");
+            }
+        }
+
+        let status = child.wait().expect("Failed waiting on vg gbwt process");
 
         if !status.success() {
             panic!("GBZ creation failed: vg gbwt command returned non-zero exit status");
@@ -1446,6 +1393,7 @@ fn find_candidate_paths_filtered(
 ) -> HashSet<usize> {
     let mut candidates = HashSet::new();
     let normalized_target_chr = normalize_contig(chr).to_string();
+    let mut sample_only_paths = Vec::<usize>::new();
 
     // First, collect path IDs that match the sample filter and scan for anchor in one pass
     let mut path_results: Vec<(usize, bool, usize)> = Vec::new(); // (path_id, has_anchor, node_count)
@@ -1461,32 +1409,45 @@ fn find_candidate_paths_filtered(
         let contig_name = metadata.contig_name(path_name.contig());
         let full_path_name = format!("{}#{}#{}", sample_name, haplotype, contig_name);
 
-        if sample_filter_matches(&full_path_name, sample_filter)
-            && contig_matches(&contig_name, chr, &normalized_target_chr)
-        {
-            // Scan this path for the anchor node in a single pass
-            let mut has_anchor = false;
-            let mut node_count = 0;
+        if !sample_filter_matches(&full_path_name, sample_filter) {
+            continue;
+        }
 
-            if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
-                for (node_id, _) in path_iter {
-                    node_count += 1;
-                    if node_id == start_anchor_node {
-                        has_anchor = true;
-                        // Don't break - we want the full node count for sorting
-                    }
+        let mut has_anchor = false;
+        let mut node_count = 0;
+        if let Some(path_iter) = gbz.path(path_id, Orientation::Forward) {
+            for (node_id, _) in path_iter {
+                node_count += 1;
+                if node_id == start_anchor_node {
+                    has_anchor = true;
                 }
             }
+        }
 
+        let contig_ok = contig_matches(&contig_name, chr, &normalized_target_chr);
+        if contig_ok {
             path_results.push((path_id, has_anchor, node_count));
-
             if has_anchor {
                 candidates.insert(path_id);
                 eprintln!(
-                    "[INFO] Found anchor in path {} ({}, {} nodes)",
+                    "[INFO] Found anchor in contig-matched path {} ({}, {} nodes)",
                     path_id, full_path_name, node_count
                 );
             }
+        } else if has_anchor {
+            // Keep sample-only fallback candidate for cases where contig naming diverges
+            // across assemblies/samples (e.g. chr17 vs accession labels).
+            sample_only_paths.push(path_id);
+        }
+    }
+
+    if candidates.is_empty() && !sample_only_paths.is_empty() {
+        eprintln!(
+            "[WARNING] No sample+contig candidates found for '{}:{}'; retrying with sample-only paths",
+            sample_filter, chr
+        );
+        for path_id in sample_only_paths {
+            candidates.insert(path_id);
         }
     }
 
@@ -1677,6 +1638,7 @@ fn compute_reference_anchors(
 
     // Extract just the contig part from chr (e.g., "grch38#chr17" -> "chr17")
     let target_contig = normalize_contig(chr);
+    let display_range = crate::coords::format_for_user(start, end);
 
     eprintln!(
         "[INFO] Looking for reference path matching assembly '{}' and contig '{}'",
@@ -1775,8 +1737,8 @@ fn compute_reference_anchors(
 
     if intersecting.is_empty() {
         eprintln!(
-            "[WARNING] No fragments intersect requested region {}:{}-{}",
-            chr, start, end
+            "[WARNING] No fragments intersect requested region {}:{}",
+            chr, display_range
         );
         eprintln!("[WARNING] Available fragments:");
         for frag in &fragments {
@@ -1819,8 +1781,8 @@ fn compute_reference_anchors(
     };
 
     eprintln!(
-        "[INFO] Converted global coordinates {}:{}-{} to local coordinates {}-{} in fragment",
-        chr, start, end, local_start, local_end
+        "[INFO] Converted region {}:{} (internal [{}..{})) to local coordinates [{}..{}) in fragment",
+        chr, display_range, start, end, local_start, local_end
     );
 
     // Walk this fragment path to find anchors using LOCAL coordinates

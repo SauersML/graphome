@@ -7,6 +7,7 @@ use memmap2::MmapOptions;
 use ndarray::prelude::*;
 use ndarray_npy::write_npy;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 use std::fs::File;
 use std::io;
 use std::path::Path;
@@ -358,6 +359,159 @@ pub fn fast_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
     Ok(laplacian)
 }
 
+#[derive(Default)]
+struct SparseLaplacian {
+    dim: usize,
+    values: Vec<f64>,
+    col_indices: Vec<u64>,
+    row_ptr: Vec<u64>,
+}
+
+/// Sparse Laplacian construction from a GAM file.
+/// Produces CSR arrays to avoid O(N^2) dense allocation.
+fn sparse_laplacian_from_gam<P: AsRef<Path> + Send + Sync>(
+    path: P,
+    start_node: usize,
+    end_node: usize,
+) -> io::Result<SparseLaplacian> {
+    println!("    === sparse_laplacian_from_gam BEGIN (PARALLEL) ===");
+    let func_start = Instant::now();
+
+    if end_node < start_node {
+        println!("    Start node is greater than end node; returning empty sparse Laplacian.");
+        return Ok(SparseLaplacian::default());
+    }
+
+    let start_u32: u32 = start_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "start_node exceeds u32"))?;
+    let end_u32: u32 = end_node
+        .try_into()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "end_node exceeds u32"))?;
+
+    let dim = end_node - start_node + 1;
+    println!("    Laplacian shape: {} x {}", dim, dim);
+
+    let file = File::open(&path)?;
+    let metadata = file.metadata()?;
+    let file_size = metadata.len();
+    println!("    File size: {} bytes", file_size);
+
+    if file_size < 8 {
+        println!("    File smaller than single edge; returning empty sparse Laplacian.");
+        return Ok(SparseLaplacian {
+            dim,
+            ..SparseLaplacian::default()
+        });
+    }
+
+    let mmap = unsafe { MmapOptions::new().map(&file)? };
+    let total_bytes = mmap.len();
+    let valid_bytes = total_bytes - (total_bytes % 8);
+
+    if valid_bytes != total_bytes {
+        println!(
+            "    ⚠️  Ignoring {} trailing bytes that do not form full edges.",
+            total_bytes - valid_bytes
+        );
+    }
+
+    let (mut entries, degrees): (
+        FxHashMap<(usize, usize), f64>,
+        FxHashMap<usize, f64>,
+    ) = mmap
+        .get(..valid_bytes)
+        .expect("valid_bytes already checked")
+        .par_chunks_exact(8)
+        .fold(
+            || {
+                (
+                    FxHashMap::<(usize, usize), f64>::default(),
+                    FxHashMap::<usize, f64>::default(),
+                )
+            },
+            |(mut local_entries, mut local_degrees), edge_bytes| {
+                let from = u32::from_le_bytes(edge_bytes[0..4].try_into().unwrap());
+                let to = u32::from_le_bytes(edge_bytes[4..8].try_into().unwrap());
+
+                if from >= start_u32 && from <= end_u32 && to >= start_u32 && to <= end_u32 {
+                    let r = (from - start_u32) as usize;
+                    let c = (to - start_u32) as usize;
+
+                    *local_entries.entry((r, c)).or_insert(0.0) -= 1.0;
+                    *local_entries.entry((c, r)).or_insert(0.0) -= 1.0;
+
+                    *local_degrees.entry(r).or_insert(0.0) += 1.0;
+                    *local_degrees.entry(c).or_insert(0.0) += 1.0;
+                }
+
+                (local_entries, local_degrees)
+            },
+        )
+        .reduce(
+            || {
+                (
+                    FxHashMap::<(usize, usize), f64>::default(),
+                    FxHashMap::<usize, f64>::default(),
+                )
+            },
+            |(mut a_entries, mut a_degrees), (b_entries, b_degrees)| {
+                for (key, value) in b_entries {
+                    *a_entries.entry(key).or_insert(0.0) += value;
+                }
+                for (key, value) in b_degrees {
+                    *a_degrees.entry(key).or_insert(0.0) += value;
+                }
+                (a_entries, a_degrees)
+            },
+        );
+
+    for (idx, degree) in degrees {
+        *entries.entry((idx, idx)).or_insert(0.0) += degree;
+    }
+
+    let mut coo: Vec<(usize, usize, f64)> = entries
+        .into_iter()
+        .filter_map(|((r, c), v)| if v != 0.0 { Some((r, c, v)) } else { None })
+        .collect();
+    coo.sort_unstable_by_key(|&(r, c, _)| (r, c));
+
+    let nnz = coo.len();
+    let mut values = Vec::with_capacity(nnz);
+    let mut col_indices = Vec::with_capacity(nnz);
+    let mut row_ptr = vec![0u64; dim + 1];
+
+    let mut current_row = 0usize;
+    let mut seen = 0u64;
+    for (r, c, v) in coo {
+        while current_row < r {
+            row_ptr[current_row + 1] = seen;
+            current_row += 1;
+        }
+        values.push(v);
+        col_indices.push(c as u64);
+        seen += 1;
+    }
+    while current_row < dim {
+        row_ptr[current_row + 1] = seen;
+        current_row += 1;
+    }
+
+    let func_duration = func_start.elapsed();
+    println!(
+        "    === sparse_laplacian_from_gam END (nnz: {}, total time: {:.4?}) ===",
+        values.len(),
+        func_duration
+    );
+
+    Ok(SparseLaplacian {
+        dim,
+        values,
+        col_indices,
+        row_ptr,
+    })
+}
+
 /// Extracts and saves just the Laplacian matrix as .npy file
 pub fn extract_and_save_matrices<P: AsRef<Path> + Send + Sync>(
     edge_list_path: P,
@@ -372,23 +526,42 @@ pub fn extract_and_save_matrices<P: AsRef<Path> + Send + Sync>(
         "📂 Computing Laplacian directly from {:?}",
         edge_list_path.as_ref()
     );
-    // Single pass construction
+    // Sparse construction avoids dense O(N^2) memory blow-ups for large windows.
     let lap_start = Instant::now();
-    let laplacian = fast_laplacian_from_gam(&edge_list_path, start_node, end_node)?;
+    let laplacian = sparse_laplacian_from_gam(&edge_list_path, start_node, end_node)?;
     let lap_duration = lap_start.elapsed();
-    println!("    ✅ Laplacian constructed in {:.4?}", lap_duration);
+    println!("    ✅ Sparse Laplacian constructed in {:.4?}", lap_duration);
 
     // Save result
-    println!("    ⏳ Saving Laplacian to .npy file...");
+    println!("    ⏳ Saving sparse Laplacian CSR arrays to .npy files...");
     let save_start = Instant::now();
     let output_dir = output_dir.as_ref();
     std::fs::create_dir_all(output_dir)?;
 
-    let lap_path = output_dir.join("laplacian.npy");
-    println!("    .npy path: {:?}", lap_path);
-    write_npy(&lap_path, &laplacian).map_err(io::Error::other)?;
+    let values_path = output_dir.join("laplacian_values.npy");
+    let col_indices_path = output_dir.join("laplacian_col_indices.npy");
+    let row_ptr_path = output_dir.join("laplacian_row_ptr.npy");
+    let shape_path = output_dir.join("laplacian_shape.npy");
+
+    write_npy(&values_path, &Array1::from_vec(laplacian.values)).map_err(io::Error::other)?;
+    write_npy(
+        &col_indices_path,
+        &Array1::from_vec(laplacian.col_indices),
+    )
+    .map_err(io::Error::other)?;
+    write_npy(&row_ptr_path, &Array1::from_vec(laplacian.row_ptr)).map_err(io::Error::other)?;
+    write_npy(
+        &shape_path,
+        &Array1::from_vec(vec![laplacian.dim as u64, laplacian.dim as u64]),
+    )
+    .map_err(io::Error::other)?;
+
+    println!(
+        "    Wrote CSR files: {:?}, {:?}, {:?}, {:?}",
+        values_path, col_indices_path, row_ptr_path, shape_path
+    );
     let save_duration = save_start.elapsed();
-    println!("    ✅ Laplacian .npy saved in {:.4?}", save_duration);
+    println!("    ✅ Sparse CSR Laplacian .npy files saved in {:.4?}", save_duration);
 
     let duration = start_time.elapsed();
     println!(

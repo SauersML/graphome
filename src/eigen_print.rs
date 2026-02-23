@@ -6,9 +6,16 @@ use csv::WriterBuilder;
 use faer::linalg::solvers::SelfAdjointEigen;
 use faer::{Mat, MatRef, Side};
 use ndarray::{Array2, ArrayView2};
+use rand::Rng;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use std::io::{self, Write};
 use std::path::Path;
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
+const EXACT_DENSE_EIGEN_MAX_N: usize = 4096;
+const APPROX_EIGEN_MAX_COMPONENTS: usize = 256;
+const APPROX_EIGEN_EXTRA_ITERS: usize = 32;
 
 fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
     let (nrows, ncols) = array.dim();
@@ -43,9 +50,18 @@ fn copy_array_into_mat(array: ArrayView2<'_, f64>) -> Mat<f64> {
 ///
 /// This helper expects callers to provide a Faer matrix view (`MatRef`).
 pub fn call_eigendecomp(laplacian: MatRef<'_, f64>) -> io::Result<(Vec<f64>, Mat<f64>)> {
-    println!("Using faer's self-adjoint eigensolver for the matrix.");
+    if laplacian.nrows() <= EXACT_DENSE_EIGEN_MAX_N {
+        println!("Using exact faer self-adjoint eigensolver.");
+        return compute_eigenvalues_and_vectors_sym(laplacian);
+    }
 
-    compute_eigenvalues_and_vectors_sym(laplacian)
+    let n = laplacian.nrows();
+    let k = APPROX_EIGEN_MAX_COMPONENTS.min(n);
+    println!(
+        "Using approximate Lanczos eigensolver (n={}, k={}) to avoid dense O(N^3) decomposition.",
+        n, k
+    );
+    approximate_eigenpairs_lanczos(laplacian, k)
 }
 
 /// Explicitly convert an `ndarray` view into a `faer::Mat<f64>`.
@@ -75,6 +91,166 @@ pub fn compute_eigenvalues_and_vectors_sym(
         .collect::<Vec<f64>>();
 
     let eigenvectors = decomposition.U().to_owned();
+
+    Ok((eigenvalues, eigenvectors))
+}
+
+fn dot(x: &[f64], y: &[f64]) -> f64 {
+    x.iter().zip(y.iter()).map(|(a, b)| a * b).sum()
+}
+
+fn norm2(x: &[f64]) -> f64 {
+    dot(x, x).sqrt()
+}
+
+fn matvec_dense(laplacian: MatRef<'_, f64>, x: &[f64], y: &mut [f64]) {
+    let n = laplacian.nrows();
+    for i in 0..n {
+        let mut acc = 0.0;
+        for j in 0..n {
+            acc += laplacian[(i, j)] * x[j];
+        }
+        y[i] = acc;
+    }
+}
+
+/// Approximate eigendecomposition via symmetric Lanczos + Ritz projection.
+/// Returns `k` smallest eigenpairs.
+fn approximate_eigenpairs_lanczos(
+    laplacian: MatRef<'_, f64>,
+    k: usize,
+) -> io::Result<(Vec<f64>, Mat<f64>)> {
+    let n = laplacian.nrows();
+    if n != laplacian.ncols() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Laplacian matrix must be square.",
+        ));
+    }
+    if n == 0 || k == 0 {
+        return Ok((Vec::new(), Mat::zeros(n, 0)));
+    }
+
+    let m = (k + APPROX_EIGEN_EXTRA_ITERS)
+        .max(k + 4)
+        .min(n)
+        .min(2 * APPROX_EIGEN_MAX_COMPONENTS);
+
+    let mut rng = ChaCha8Rng::seed_from_u64(0xC0FFEEu64);
+    let mut q = vec![0.0; n];
+    for val in &mut q {
+        *val = rng.gen_range(-1.0..1.0);
+    }
+    let q_norm = norm2(&q);
+    if q_norm == 0.0 {
+        q[0] = 1.0;
+    } else {
+        for v in &mut q {
+            *v /= q_norm;
+        }
+    }
+
+    let mut basis: Vec<Vec<f64>> = Vec::with_capacity(m);
+    let mut alphas: Vec<f64> = Vec::with_capacity(m);
+    let mut betas: Vec<f64> = Vec::with_capacity(m.saturating_sub(1));
+    let mut prev_q = vec![0.0; n];
+    let mut w = vec![0.0; n];
+
+    for iter in 0..m {
+        matvec_dense(laplacian, &q, &mut w);
+
+        if iter > 0 {
+            let beta_prev = betas[iter - 1];
+            for i in 0..n {
+                w[i] -= beta_prev * prev_q[i];
+            }
+        }
+
+        let alpha = dot(&q, &w);
+        for i in 0..n {
+            w[i] -= alpha * q[i];
+        }
+
+        // Full re-orthogonalization for stability.
+        for basis_vec in &basis {
+            let proj = dot(basis_vec, &w);
+            for i in 0..n {
+                w[i] -= proj * basis_vec[i];
+            }
+        }
+
+        let beta = norm2(&w);
+        basis.push(q.clone());
+        alphas.push(alpha);
+
+        if iter + 1 >= m || beta < 1e-12 {
+            break;
+        }
+
+        betas.push(beta);
+        prev_q.copy_from_slice(&q);
+        for i in 0..n {
+            q[i] = w[i] / beta;
+        }
+    }
+
+    let t_dim = alphas.len();
+    if t_dim == 0 {
+        return Ok((Vec::new(), Mat::zeros(n, 0)));
+    }
+
+    let mut t = Mat::<f64>::zeros(t_dim, t_dim);
+    for i in 0..t_dim {
+        t[(i, i)] = alphas[i];
+        if i + 1 < t_dim {
+            let b = betas[i];
+            t[(i, i + 1)] = b;
+            t[(i + 1, i)] = b;
+        }
+    }
+
+    let decomp =
+        SelfAdjointEigen::new(t.as_ref(), Side::Lower).map_err(|err| io::Error::other(format!("{:?}", err)))?;
+
+    let ritz_vals = decomp
+        .S()
+        .column_vector()
+        .iter()
+        .copied()
+        .collect::<Vec<f64>>();
+    let ritz_vecs = decomp.U();
+
+    let mut order: Vec<usize> = (0..ritz_vals.len()).collect();
+    order.sort_unstable_by(|&a, &b| ritz_vals[a].total_cmp(&ritz_vals[b]));
+    let out_k = k.min(order.len());
+
+    let mut eigenvalues = Vec::with_capacity(out_k);
+    let mut eigenvectors = Mat::<f64>::zeros(n, out_k);
+
+    for (col_out, &col_t) in order.iter().take(out_k).enumerate() {
+        eigenvalues.push(ritz_vals[col_t]);
+
+        for row in 0..n {
+            let mut val = 0.0;
+            for b in 0..t_dim {
+                val += basis[b][row] * ritz_vecs[(b, col_t)];
+            }
+            eigenvectors[(row, col_out)] = val;
+        }
+
+        // Normalize each approximate eigenvector.
+        let mut norm = 0.0;
+        for row in 0..n {
+            let v = eigenvectors[(row, col_out)];
+            norm += v * v;
+        }
+        let norm = norm.sqrt();
+        if norm > 0.0 {
+            for row in 0..n {
+                eigenvectors[(row, col_out)] /= norm;
+            }
+        }
+    }
 
     Ok((eigenvalues, eigenvectors))
 }
