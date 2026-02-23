@@ -70,3 +70,36 @@ pub fn embed(start_node: usize, end_node: usize, input: &str) -> io::Result<Vec<
 
     Ok(points)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point_signature(points: &[Point3D]) -> Vec<([u32; 3], [u8; 3])> {
+        points
+            .iter()
+            .map(|p| {
+                (
+                    [p.pos[0].to_bits(), p.pos[1].to_bits(), p.pos[2].to_bits()],
+                    [p.color[0], p.color[1], p.color[2]],
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn embed_is_deterministic_for_same_inputs() {
+        let a = embed(10, 20, "chr1:100-200").expect("first embed call");
+        let b = embed(10, 20, "chr1:100-200").expect("second embed call");
+        assert_eq!(point_signature(&a), point_signature(&b));
+    }
+
+    #[test]
+    fn embed_changes_when_seed_inputs_change() {
+        let base = embed(10, 20, "chr1:100-200").expect("base embed");
+        let changed_input = embed(10, 20, "chr1:100-201").expect("changed input embed");
+        let changed_range = embed(11, 20, "chr1:100-200").expect("changed range embed");
+        assert_ne!(point_signature(&base), point_signature(&changed_input));
+        assert_ne!(point_signature(&base), point_signature(&changed_range));
+    }
+}
